@@ -864,7 +864,7 @@ export async function fetchSERPViaBrightData( query, options = {}){
             "videos": "vid",
         }[options.search_type],
         num: PER_PAGE,
-        start: (options.page - 1) * PER_PAGE,
+        start: ((options.page ?? 1) - 1) * PER_PAGE,
         gl: options. gl,
         tbs: time[options.time_period],
         brd_json:1

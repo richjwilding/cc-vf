@@ -21,16 +21,17 @@ const tabs = [
   { name: 'Progress', id: "progress"},
 ]
 
-export default function WorkflowCard({primitive, ...props}){
+export default function WorkflowCard({primitive, className,...props}){
     const color = primitive.workspace?.color || "slate"
     const showImage = primitive.referenceParameters?.hasImg
 
     return <div onClick={props.onClick} className={clsx([
         "bg-white rounded-lg w-96 h-72 flex flex-col relative shadow-sm border font-['Poppins'] @container flex flex-col min-h-0 overflow-hidden",
+        className,
         props.onClick ? "hover:shadow-lg hover:border-gray-300" : ""
     ])}>
                     <div className={clsx([
-                        "flex relative mb-4 min-h-48 max-h-48",                    
+                        "flex relative mb-4 min-h-48 max-h-48",
                         ])}>
                         {showImage && <VFImage 
                                             src={`/api/image/${primitive.id}`} 

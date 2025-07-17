@@ -6,7 +6,7 @@ import { InputPopup } from './InputPopup';
 import DropdownButton from "./DropdownButton";
 import InfiniteCanvas from "./InfiniteCanvas";
 import CollectionUtils from "./CollectionHelper";
-import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderDatatable, renderMatrix, renderPlainObject } from "./RenderHelpers";
+import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderDatatable, renderMatrix, renderPlaceholder, renderPlainObject } from "./RenderHelpers";
 import HierarchyNavigator from "./HierarchyNavigator";
 import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
@@ -401,6 +401,28 @@ function SharedRenderView(d, primitive, myState) {
       indicators,
       canvasMargin
     };
+    
+    if( myState[d.id].empty || myState[d.id].noContent){
+        const page = myState[d.id].primitive.origin
+        let sizing = {}
+        if( page?.type === "page"){
+            sizing = page.frames[d.id]?.placeholder?.sizing
+        }
+        return {
+          ...baseRenderView,
+          canChangeSize: true,
+          items: stageOptions => {
+            return renderPlaceholder({
+                ...stageOptions, 
+                ...renderOptions, renderOptions,
+                ...(sizing ?? {}),
+                status: myState[d.id].noContent ? {message: "Nothing to show"} : {message: "Waiting"},
+                scale: page.frames[d.id]?.s ? (1 / page.frames[d.id]?.s) : 1,
+                style: "text"
+            });
+          }
+        }
+    }
   
     // Determine "items" and "canChangeSize" based on view.config
     let renderView = null;
@@ -885,6 +907,8 @@ function SharedRenderView(d, primitive, myState) {
                             myState[stateId].config = "plain_object"
                             myState[stateId].primitive = basePrimitive
                             myState[stateId].primitiveList = inputs
+                            myState[stateId].empty = !inputs || inputs.length === 0 
+                            myState[stateId].noContent = !myState[stateId].empty  && (data.length === 0 || data.flat().every(d=>d?.content === ""))
                             renderType = "plain_object"
                         }else if (basePrimitive.getConfig.extract === "page"){
                             let text = format.compose
@@ -939,6 +963,7 @@ function SharedRenderView(d, primitive, myState) {
                             didChange = true
                         }else{
                             myState[stateId].primitiveList = inputs
+                            myState[stateId].empty = !inputs || inputs.length === 0
                             if( config.view_axis){
                                 const status = pageInstance.inputPinsWithStatus?.[pins[0]]
                                 if( status?.connected ){
@@ -962,6 +987,7 @@ function SharedRenderView(d, primitive, myState) {
                         } 
                         myState[stateId].config = "plain_object"
                         myState[stateId].primitive = basePrimitive
+                        myState[stateId].empty = !inputs || inputs.length === 0
                         renderType = "plain_object"
                     }
                 }
@@ -1073,8 +1099,9 @@ function SharedRenderView(d, primitive, myState) {
             
             //const items = myState[stateId].primitiveList ?? primitiveToPrepare.itemsForProcessing
             const items = getLocalPrimitiveListForBoardId(stateId, myState) ?? primitiveToPrepare.itemsForProcessing
+            const meta = items.length > 0 ? items?.[0]?.metadata : mainstore.category(basePrimitive.getConfig.referenceId)
             
-            const viewConfigs = CollectionUtils.viewConfigs(items?.[0]?.metadata)
+            const viewConfigs = CollectionUtils.viewConfigs(meta)
             //let activeView = primitiveToPrepare?.referenceParameters?.explore?.view 
             let activeView = basePrimitive?.referenceParameters?.explore?.view 
             let viewConfig = viewConfigs[activeView] ?? viewConfigs[0] 
@@ -1192,7 +1219,7 @@ function SharedRenderView(d, primitive, myState) {
                             let rows = (dataSource.data ? dataSource.data.defs?.rows : dataSource.axis?.row) ?? []
                             let viewFilters = (dataSource.data ? dataSource.data.defs?.viewFilters : undefined) ?? []
                             let hideNull = dataSource.data ? dataSource.data.defs?.hideNull : dataSource.hideNull
-                            if( dataSource.inFlow && basePrimitive.workspaceId === "6745a3d4bde696a47c0ca15a"){
+                            if( viewConfig.matrixType === "distribution" && dataSource.inFlow && viewFilters.length === 0 && rows){
                                 viewFilters = [rows]
                                 rows = {}
                             }
@@ -2998,6 +3025,20 @@ export default function BoardViewer({primitive,...props}){
         }
 
     }
+    function frameActionCallback(primitive, action){
+        if( action == "capture_sizing"){
+            if( primitive.type === "element"){
+                const page = primitive.origin                
+                if( page.type === "page"){
+                    let position = canvas.current.framePosition(primitive.id)
+                    if( position.scene ){
+                        page.setField(`frames.${primitive.id}.placeholder.sizing`, {width: position.scene.width, height: position.scene.height})
+                    }                    
+                }
+            }
+
+        }
+    }
 
     function newDescendView(){
         if(myState.activeBoard){
@@ -3088,7 +3129,7 @@ export default function BoardViewer({primitive,...props}){
                     {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
             </div>
             {collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
-                <CollectionInfoPane {...collectionPaneInfo} newPrimitiveCallback={createNewQuery} createNewView={addBlankView} updateFrameExtents={updateExtents}/>
+                <CollectionInfoPane {...collectionPaneInfo} frameAction={frameActionCallback} newPrimitiveCallback={createNewQuery} createNewView={addBlankView} updateFrameExtents={updateExtents}/>
             </div>}
         </div>
         {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-40 p-1.5 flex flex-col place-items-start space-y-2 invisible'>

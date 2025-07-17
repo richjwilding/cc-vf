@@ -143,7 +143,7 @@ export default function WorkflowStructurePreview({ statusMap, ...props }) {
                     const { x, y } = positions[id];
                     const padding = [NODE_HEIGHT * 0.1, NODE_WIDTH * 0.05]
                     const isRunning = status === 'running';
-                    let renderedIcon = <></>
+                    let renderedIcon
                     let hasIcon = false
                     if( icon ){
                       renderedIcon = convertIconForKonva( <HeroIcon icon={icon} className="w-5 h-5"/>, {width: 28, height: 28}).icon

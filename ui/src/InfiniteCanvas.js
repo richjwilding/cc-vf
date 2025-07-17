@@ -2949,7 +2949,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 let addMajor = true
 
                                 if( forClick ){
-                                    const clickables = d.find(".clickable")
+                                    const clickables = d.nodeType === "Group" ? d.find(".clickable") : (d.name().includes("clickable") ? [d] : [])
                                     if( clickables && clickables?.length){
                                         for( const d2 of clickables ){
                                             const pos = d2.getRelativePointerPosition()

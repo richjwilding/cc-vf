@@ -40,7 +40,6 @@
     "@elastic/elasticsearch": "^8.10.0",
     "@google-cloud/logging-winston": "^6.0.0",
     "@google-cloud/storage": "^6.12.0",
-    "@mirohq/miro-api": "^1.0.4",
     "@postlight/parser": "^2.2.3",
     "@socket.io/redis-adapter": "^8.2.1",
     "agglo": "^0.0.1",

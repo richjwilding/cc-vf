@@ -109,7 +109,18 @@ export async function buildDocumentTextEmbeddings( text, limit ){
     }
     return results
 }
-export function combineGroupsToChunks(groups, maxWords = 120) {
+function splitLongGroup(group, maxWords) {
+  const text = group.join(' ');
+  const words = text.split(/\s+/);
+  const pieces = [];
+
+  for (let i = 0; i < words.length; i += maxWords) {
+    pieces.push(words.slice(i, i + maxWords).join(' '));
+  }
+
+  return pieces;
+}
+/*export function combineGroupsToChunks(groups, maxWords = 120) {
     let chunks = [];
     let currentChunk = [];
     let currentWordCount = 0;
@@ -133,6 +144,48 @@ export function combineGroupsToChunks(groups, maxWords = 120) {
     }
 
     return chunks;
+}*/
+export function combineGroupsToChunks(groups, maxWords = 120) {
+  const chunks = [];
+  let currentChunk = [];
+  let currentWordCount = 0;
+
+  groups.forEach(group => {
+    // 1. Compute word count of this group
+    const groupText = group.join(' ');
+    const groupWords = groupText.split(/\s+/).length;
+
+    // 2. If it’s too big, split it into sub-chunks; otherwise wrap it in an array
+    const subChunks = groupWords > maxWords
+      ? splitLongGroup(group, maxWords)
+      : [groupText];
+
+    // 3. Now treat each sub-chunk like a “mini-group”
+    subChunks.forEach(textPiece => {
+      const pieceWordCount = textPiece.split(/\s+/).length;
+
+      // does it fit in the current chunk?
+      if (currentWordCount + pieceWordCount > maxWords) {
+        // flush current chunk
+        if (currentChunk.length) {
+          chunks.push(currentChunk.join(' '));
+        }
+        currentChunk = [];
+        currentWordCount = 0;
+      }
+
+      // add this piece
+      currentChunk.push(textPiece);
+      currentWordCount += pieceWordCount;
+    });
+  });
+
+  // push the last one
+  if (currentChunk.length) {
+    chunks.push(currentChunk.join(' '));
+  }
+
+  return chunks;
 }
 
 function __extractSentencesAndKeywords(text) {

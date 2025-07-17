@@ -699,6 +699,20 @@ let mainstore = MainStore()
             }}
         />
 
+      }else if( item.type === "actionlist"){
+        const actions = props.primitive?.referenceParameters?.referenceId ? mainstore.category(props.primitive?.referenceParameters?.referenceId).actions ?? [] : []
+        return (<MyCombo 
+                  items={actions.map(d=>({id: d.key, title: d?.title}))}
+                  selectedItem={item.value}
+                  className={props.leftAlign ? '' : 'ml-auto'}
+                  small={props.inline}
+                  setSelectedItem={props.callback
+                      ? (d)=>props.callback(d) 
+                      : (d)=>{
+                        return props.primitive.setParameter(item.key, d)
+                      }}
+
+                />)
       }else if( item.type === "option_list"){
         return (<MyCombo 
                   items={item.options.map((d)=>{return (typeof(d) === "object" && d !== null) ? d : {id: d, title: d}})}

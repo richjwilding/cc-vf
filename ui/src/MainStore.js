@@ -93,8 +93,45 @@ const actions = {
         const linkedItemId = Object.entries(receiver._parentPrimitives ?? {}).find(d=>d[1].find(d=>d.startsWith("primitives.search.")))?.[0]
         return obj.primitive(linkedItemId) 
     },
+    progressStats(d, receiver, obj){
+        switch(d.type){
+            case "search":
+                const children = receiver.primitives.config.allSearch.map(d=>d.progressStats)
+                let stats
+                if( d.processing?.query?.progress ){
+                    stats = d.processing?.query?.progress
+                }
+                else{
+                    stats = {totalCount: d.processing?.query?.totalCount ?? 0, totalScanned: d.processing?.query?.totalScanned ?? 0}
+                    if( stats.totalCount === undefined && stats.totalScanned === undefined && d.processing?.query?.message){
+                        const m = d.processing?.query?.message.match(/Found (\d+) items/)
+                        if( m ){
+                            stats.totalCount = m[1]
+                            stats.totalScanned = m[1]
+                        }
+
+                    }
+                }
+                for(const child of children ){
+                    stats.totalCount += child.totalCount
+                    stats.totalScanned += child.totalScanned
+                }
+                return stats
+            }
+    },
     progress(d, receiver, obj){
         switch(d.type){
+            case "search":
+                if( receiver.processing?.query?.collecting && receiver.processing?.collect?.status !== "complete"){
+                    return receiver.processing?.query?.message
+                }else{
+                    const childrenCollecting = receiver.primitives.config.allSearch.find(d=>d.processing?.query?.collecting && d.processing?.collect?.status !== "complete")
+                    if( childrenCollecting ){
+                        return childrenCollecting[0].proessing.query.message
+                    }
+                }
+                const stats = receiver.progressStats
+                return `Found ${stats.totalCount} items (scanned ${stats.totalScanned})`
             case "query":
                 return d.processing?.query?.progress
             case "category":
@@ -233,7 +270,7 @@ const actions = {
             })
 
             const subFlows = receiver.origin.primitives.origin.allFlow
-            const subFlowsToScaffold = subFlows.filter(d=>stepsForInstance.find(d2=>d2.originId === d.id) === undefined)
+            const subFlowsToScaffold = subFlows//.filter(d=>stepsForInstance.find(d2=>d2.originId === d.id) === undefined)
 
             const mainstore = MainStore()
         
@@ -542,7 +579,8 @@ const actions = {
                         if( !receiver.referenceParameters?.path && source.type === "segment"){
                             list = source.nestedItems
                         }else{
-                            list = node.uniqueAllItems
+                            list = uniquePrimitives(Object.keys(node).filter(d=>d !== "inputs" && d !== "outputs").flatMap(d=>node[d].allItems))
+                            //list = node.uniqueAllItems
                         }
                     }
                     let params = options.params ?? receiver.getConfig
@@ -785,6 +823,9 @@ const actions = {
             if( rConfig.generator){
                 const generateTarget = obj.category( rConfig.generator)
                 generatorPins = generateTarget?.ai?.generate?.inputs ?? {}
+            }else{
+                const targetCategory = obj.category( rConfig.referenceId)
+                generatorPins = PrimitiveConfig.getPinsForAction( targetCategory, rConfig.action)
             }
         }
         return {
@@ -937,10 +978,13 @@ const actions = {
                     const generateTarget = obj.category( rConfig.generator)
                     generatorPins = generateTarget?.ai?.generate?.inputs ?? {}
 
-                    dynamicPins = {
-                        ...dynamicPins,
-                        ...generatorPins
-                    }
+                }else{
+                    const targetCategory = obj.category( rConfig.referenceId)
+                    generatorPins = PrimitiveConfig.getPinsForAction( targetCategory, rConfig.action)
+                }
+                dynamicPins = {
+                    ...dynamicPins,
+                    ...generatorPins
                 }
             }
 
@@ -950,12 +994,22 @@ const actions = {
                 if( d.sourceTransform === "imports"){
                     d.sources = d.sourcePrimitive.itemsForProcessing
                 }else if( d.sourceTransform === "pin_relay"){
-                    if( receiver.type === "flowinstance"){
-                        const fis = receiver.primitives.subfi.allItems.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
-                        d.sources = fis.flatMap(d2=>d2.outputs[d.sourcePin]?.data)
-                    }else{
-                        if( receiver.origin.type === "flowinstance"){
-                            d.sources = receiver.origin.inputs[d.sourcePin]?.data
+                    if( d.useConfig === "primitive"){
+
+                        if( receiver.type === "flowinstance"){
+                            const fis = receiver.primitives.subfi.allItems.filter(d2=>Object.keys(d2._parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
+                            d.sources = fis.flatMap(d2=>d2.outputs[d.sourcePin]?.data)
+                        }else{
+                            if( receiver.origin.type === "flowinstance"){
+                                d.sources = receiver.origin.inputs[d.sourcePin]?.data
+                            }
+                        }
+                    }else if(d.useConfig === "string"){
+                        const sourceInputs = d.sourcePrimitive.inputs
+                        if( sourceInputs[d.sourcePin] ){
+                            d.pass_through = sourceInputs[d.sourcePin]?.data
+                            d.passThroughCoonfig = "string"
+                            d.useConfig = "pass_through"
                         }
                     }
                 }else if( d.sourceTransform === "get_axis"){
@@ -2344,7 +2398,6 @@ function MainStore (prims){
                 primitives: {},
                 referenceId: categoryId,
                 referenceParameters: referenceParameters,
-                users: {owner: [this.activeUser.id], other: []},
                 ...extraFields
             }
             /*const newIds = await this.controller.createPrimitive(data, parent, paths)
@@ -3428,6 +3481,7 @@ function MainStore (prims){
                 obj.activeUser = {}
                 obj.data.workspaces = []
                 obj.data.users = []
+                obj.data.organizations = []
                 obj.data.frameworks = []
                 obj.data.templates = {}
                 return
@@ -3444,10 +3498,11 @@ function MainStore (prims){
             const categories = fetch('/api/categories').then(response => {obj.loadProgress.push('categories');return response.json()})
             const workspaces = fetch('/api/workspaces').then(response => {obj.loadProgress.push('workspaces');return response.json()})
             const templates = fetch('/api/templates').then(response => {obj.loadProgress.push('templates');return response.json()})
+            const organizations = fetch('/api/organizations').then(response => {obj.loadProgress.push('organizations');return response.json()})
             //const frameworks = fetch('/api/frameworks').then(response => {obj.loadProgress.push('frameworks');return response.json()})
             
             //Promise.all([users,companies,contacts,categories,workspaces,frameworks]).then(([users, companies,contacts, categories,workspaces,frameworks])=>{
-            Promise.all([users,categories,workspaces, templates]).then(([users, categories,workspaces,templates])=>{
+            Promise.all([users,categories,workspaces, templates, organizations]).then(([users, categories,workspaces,templates, organizations])=>{
                 obj.data.users = users.map((d)=>{
                     return {...d, id: d.id || d._id}
                 })
@@ -3460,8 +3515,7 @@ function MainStore (prims){
                     return d} )*/
                 obj.data.categories = categories.reduce((o,d)=>{o[d.id] = d; return o}, {})
                 obj.data.primitives = {}
-                obj.activeUser.info = obj.users().find((d)=>d._id === obj.activeUser._id)
-                obj.activeUser.id = obj.activeUser.info.id
+                obj.data.organizations = organizations.reduce((a,c)=>{a[c.id] = c; return a}, {})
                 obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})
                 obj.data.templates = templates.reduce((a,c)=>{
                     c.id = c._id
@@ -3469,6 +3523,14 @@ function MainStore (prims){
                     a[c.id] = c
                     return a
                 }, {})
+                
+                obj.activeUser.info = obj.users().find((d)=>d._id === obj.activeUser._id)
+                obj.activeUser.id = obj.activeUser._id
+
+                obj.activeOrganization = Object.values(obj.data.organizations)[0]
+                const roleInOrg = obj.activeOrganization.members.find(d=>d.userId === obj.activeUser.id)?.role ?? "guest"
+                obj.activeUser.role = roleInOrg
+
                 resolve(true)
             })
         })
@@ -3478,6 +3540,7 @@ function MainStore (prims){
             .then(response => response.json())
             .then((response)=>{
                 obj.activeUser = response.user
+                obj.activeUser.id = obj.activeUser._id
                 obj.activeUser.info = obj.users().find((d)=>d.email === obj.activeUser.email)
                 console.log(`updated user`)
             })

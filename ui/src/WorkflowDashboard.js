@@ -3,21 +3,28 @@ import MainStore, { uniquePrimitives } from "./MainStore"
 import Panel from "./Panel"
 import { PrimitiveCard } from "./PrimitiveCard"
 import NewPrimitive from "./NewPrimitive"
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import useDataEvent from "./CustomHook"
 import WorkflowCard from "./WorkflowCard"
 import { FlowInstanceInfo } from "./FlowInstanceInfo"
 import { Table } from "./Table"
 import { Temporal } from "@js-temporal/polyfill"
-import { ArrowDownTrayIcon, EyeIcon, PlayIcon, SparklesIcon } from "@heroicons/react/24/outline"
+import { ArrowDownTrayIcon, Cog8ToothIcon, EyeIcon, PlayIcon, SparklesIcon } from "@heroicons/react/24/outline"
 import { Badge } from "./@components/badge"
+import WorkspaceEditor from "./WorkspaceEditor"
+import { Button } from "@heroui/react"
+import { Icon } from "@iconify/react/dist/iconify.js"
+import FlowInstanceEditor from "./FlowInstanceEditor"
 
 export default function WorkflowDashboard(props){
     const navigate = useNavigate()        
     const [showNew, setShowNew] = useState(false)
+    const [editFlowInstance, setEditFlowInstance] = useState(false)
     props.setWidePage(false)
 
-    MainStore().loadActiveWorkspace( props.workspaceId )
+    const {id} = useParams()
+
+    MainStore().loadActiveWorkspace( id)
 
 
     const filterForWorksapce = (array)=>{
@@ -34,12 +41,8 @@ export default function WorkflowDashboard(props){
         }
     }, [MainStore().homescreenReady])
     
-    const templates = MainStore().templates().filter(d=>d.type === "flow")
     const workflows = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="flow" && !p.inFlow))
-    const handleCreate = (prim)=>{
-        setShowNew(false)
-        navigate(`/item/${prim.id}`)
-    }
+
     useDataEvent('new_primitive delete_primitive',undefined)
 
 
@@ -89,8 +92,10 @@ export default function WorkflowDashboard(props){
                         continue
                     }
                     if( v.progress){
-                        progressStatus.push([d, v.progress])
-                        added = true
+                        if( typeof(v.progress) === "string" ){
+                            progressStatus.push([d,  v.progress])
+                            added = true
+                        }
                     }else if( v.message && d.processing.flow?.status === "running"){
                         progressStatus.push([d, v.message])
                         added = true
@@ -98,7 +103,7 @@ export default function WorkflowDashboard(props){
                 }
                 if( !added ){
                     if( d.processing?.flow?.status === "running"){
-                        progressStatus.push([d, "In progress"])
+                        progressStatus.push([d, ""])
                     }
                 }
             })
@@ -124,43 +129,42 @@ export default function WorkflowDashboard(props){
             id: d.id,
             plainId: d.plainId,
             title: d.title,
+            tags: d.referenceParameters.tags,
             type: d.origin.title,
             progressSection: <div className="text-xs">{progressSection}</div>,
             started: d.processing?.flow?.started ? Temporal.Instant.from(d.processing.flow.started).toZonedDateTimeISO("UTC") : ""
         }
     })
 
-    console.log(flowInstanceInfo)
 
-    const createList = uniquePrimitives([
-        ...workflows,
-        ...templates
-    ])
 
     return (
-    <div className="w-full h-full overflow-y-scroll px-4 pb-4 max-w-7xl mx-auto space-y-6">
-        <Panel key='boards' icon={SparklesIcon} title='Create new flow' collapsable={true} count={workflows.length} open={true} major='true' className='w-full rounded-xl bg-white/60 p-4 shadow-md'>
-            <div className="w-full flex overflow-x-scroll">
-                <div className="w-fit flex gap-4 p-4">
-                    {createList.map((p)=>{
-                        return <WorkflowCard primitive={p} onClick={()=>alert(p.id)}/>
-                    })}
-                </div>
-            </div>
-        </Panel>
+    <div className="w-full h-full overflow-y-scroll px-4 py-4 max-w-7xl mx-auto space-y-6">
+        <div className="w-full my-2 flex justify-end">
+            <Button
+                color="primary"
+                onPress={()=>setShowNew(true)}
+                startContent={
+                    <Icon className="flex-none text-current" icon="lucide:plus" width={16} />
+                }
+                >
+                Flow
+            </Button>
+        </div>
         <div className="w-full flex flex-col bg-white/60 rounded-xl shadow-md min-h-48 p-3">
             <Table
                 enableCopy={false}
                 page={0}
                 pageItems={20}
                 columns={[
-                    {renderType: "numbered_title", title: "Id", width: 200},
-                    {field: "type", title: "Type", width: 200},
-                    {renderType: "date", title: "Started", width: 160, field: "started"},
+                    {renderType: "numbered_title", title: "Id", width: 300},
+                    {renderType: "pill", title: "Tags", width: 200, field: "tags"},
+                    {field: "type", title: "Template", width: 200},
                     {renderType: "react", title: "Status", field: "progressSection", width: 200},
                     {renderType: "actions", title: "Actions", width: 120, actions: [
                         {title: "View", icon: EyeIcon, action: (d)=>navigate(`/item/${d.id}`)},
                         {title: "Run", icon: PlayIcon, action: (d)=>MainStore().doPrimitiveAction( d, "continue_flow_instance")},
+                        {title: "Run", icon: Cog8ToothIcon, action: (d)=>setEditFlowInstance(MainStore().primitive(d.id))},
                       //  {title: "Download", icon: ArrowDownTrayIcon, action: (d)=>alert(d)}
                     ]},
                 ]}
@@ -168,6 +172,7 @@ export default function WorkflowDashboard(props){
                 className='w-full min-h-[24em] max-h-inherit text-slate-700'
             />
         </div>
+        <FlowInstanceEditor isOpen={editFlowInstance || showNew} flowInstance={editFlowInstance} onClose={()=>{setShowNew(false); setEditFlowInstance(undefined)}}/>
     </div> 
     )
 }

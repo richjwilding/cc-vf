@@ -9,12 +9,14 @@ import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
-import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL } from "./google_helper";
+import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL, queryGoogleSERP } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
 import { findCompanyURLByName } from "./task_processor";
 import { enrichEntityFromOwler } from "./owler_helper";
 import { BaseQueue } from "./base_queue";
+import { getBaseDomain, getRegisteredDomain } from "./actions/SharedTransforms";
+import { fetchSERPViaBrightData } from "./brightdata";
 
 
 let instance
@@ -554,7 +556,29 @@ async function site_discovery_short(primitive, options){
             console.log(`Skipping discovery fro ${primitive.id}`)
             return
         }
-        let urls = await site_discovery(primitive, {...options, onlyURLs: true, spread: true, limit: options.count ?? 3})
+        let urls = []
+
+        if( options.focus ){
+            const baseSite = getRegisteredDomain( primitive.referenceParameters.url)            
+            const terms = options.focus.split(",").map(d=>d.trim()).filter(Boolean)
+            const queryOptions = {
+                time_period: "last_year",
+            }
+
+            async function getTerms(term){
+                const urls = await fetchSERPViaBrightData( `site:${baseSite} ${term}`, queryOptions)
+                return urls.links?.map(d=>d.url).filter(Boolean).slice(0, 5) ?? []
+            }
+            const focusPages = await executeConcurrently( terms, getTerms )
+            if( focusPages.results ){
+                urls.push(...focusPages.results.flat().flatMap(d=>[{url: d, category: 73, focus: true},{url: d, category: 71, focus: true}]))
+            }
+        }
+
+        let discoveryUrls = await site_discovery(primitive, {...options, onlyURLs: true, spread: true, limit: options.count ?? 3})
+        
+        urls.push(...discoveryUrls)
+
         if( !urls || urls.length === 0 ){
             return
         }
@@ -565,16 +589,13 @@ async function site_discovery_short(primitive, options){
 
 
         let pageTexts = await executeConcurrently( urls, textFetch ) 
-        console.log(pageTexts)
-
         let text = pageTexts?.results?.join("\n")
-        console.log(text)
 
         if( text.length > 50 ){
             const company = primitive.title
             const results = await processPromptOnText( text,{
                 opener: `here is the text from the webpage of a company called ${company}:`,
-                prompt: `Produce a summary (written in English) of the companies offerings, target customers, markets and capabilities using only information explicity mentioned in the text i have provided.`,
+                prompt: `Produce a summary (written in English) of the companies offerings, target customers, markets and capabilities using only information explicity mentioned in the text i have provided. ${options.focus ? `Prioritize your output to aspects relevant to: '${options.focus}'` : ""}`,
                 output: `Return the result in a json object called "result" with the following structure: {
                     description: <containing a summary of the company in no more than 100 words>,
                     offering_keywords: <field containing an array of core offerings, each as a string, with each array entry being no more than 10 words  (if present)>,
@@ -807,9 +828,6 @@ export async function processQueue(job, cancelCheck){
                         SIO.notifyPrimitiveEvent( primitive, result)
                     }
                     if( job.data.options.source === "url" ){
-                        // const result = await enrichFromCrunchbase( primitive, true)
-                        // if( !result ){
-                            console.log(`URL not found on crunchbase - reverting to website`)       
                             await doPrimitiveAction( primitive, "update_icon_url")
                             const meta = await getMetaDescriptionFromURL(primitive.referenceParameters?.url)
                             if( meta ){
@@ -826,9 +844,6 @@ export async function processQueue(job, cancelCheck){
                                     await dispatchControlUpdate( primitive.id, "title", response.output?.[0] )
                                 }
                             } 
-
-                        // }
-                        //SIO.notifyPrimitiveEvent( primitive, result)
                     }
                     if( job.data.options.source === "name" ){
                         const task = await primitiveTask( primitive )

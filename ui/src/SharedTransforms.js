@@ -1,7 +1,12 @@
 
 export function getRegisteredDomain(url) {
-  const hostname = new URL(url).hostname;
-  return getBaseDomain( hostname )
+  try{
+
+    const hostname = new URL(url).hostname;
+    return getBaseDomain( hostname )
+  }catch(e){
+    return undefined 
+  }
 }
 
 export function pickAtRandom(input, count) {

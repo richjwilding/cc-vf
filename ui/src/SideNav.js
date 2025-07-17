@@ -43,8 +43,8 @@ export default function SideNav(props) {
 const navigation = [
   { name: 'Home', onClick: ()=>{navigate('/')}, icon: HomeIcon, current: urlPath === "" || urlPath === "/" },
   mainstore.activeWorkspaceId && !mainstore.activeUser.info.external && { name: 'Project Home', onClick: ()=>{navigate(`/project/${mainstore.activeWorkspaceId}`)}, icon: SparklesIcon, current: urlPath.includes("/project")},
-  { name: 'Workflows', onClick: ()=>{navigate('/workflows')}, icon: SparklesIcon, current: urlPath.includes("/workflows")},
-  { name: 'Downloads', onClick: ()=>{navigate('/')}, icon: ArrowDownTrayIcon, current: urlPath.includes("/downloads") },
+  { name: 'Workflows', onClick: ()=>{navigate(mainstore.activeWorkspaceId ?  `/workflows/${mainstore.activeWorkspaceId}` : undefined)}, icon: SparklesIcon, current: urlPath.includes("/workflows")},
+  { name: 'Usage', onClick: ()=>{navigate('/usage')}, icon: ArrowDownTrayIcon, current: urlPath.includes("/usage") },
 ].filter(Boolean)
 
 function setWorkspace(id){
@@ -203,7 +203,7 @@ const mainMenu = navigation.map((item) => (
                     placeholder="Project..."
                     onChange={setWorkspace}
                     options={workspaces.map(d=>({
-                      title: <><span className={classNames(`bg-${d.color}-500`, 'inline-flex shrink-0 mr-4 h-2.5 w-2.5 rounded-full')} aria-hidden="true"/><span>{d.title}</span></>, 
+                      title: <><span style={d.color?.startsWith("#") ? {background: d.color} : {}} className={classNames(d.color?.startsWith("#") ? "" : `bg-${d.color}-500`, 'inline-flex shrink-0 mr-4 h-2.5 w-2.5 rounded-full')} aria-hidden="true"/><span>{d.title}</span></>, 
                       id: d.id
                     }))}
                     />
@@ -262,7 +262,7 @@ const mainMenu = navigation.map((item) => (
                     placeholder="Project..."
                     onChange={setWorkspace}
                     options={workspaces.map(d=>({
-                      title: <><span className={classNames(`bg-${d.color}-500`, 'inline-flex shrink-0 mr-4 h-2.5 w-2.5 rounded-full')} aria-hidden="true"/><span>{d.title}</span></>, 
+                      title: <><span style={d.color?.startsWith("#") ? {background: d.color} : {}} className={classNames(d.color?.startsWith("#") ? "" : `bg-${d.color}-500`, 'inline-flex shrink-0 mr-4 h-2.5 w-2.5 rounded-full')} aria-hidden="true"/><span>{d.title}</span></>, 
                       id: d.id
                     }))}
                     />
@@ -309,9 +309,9 @@ const mainMenu = navigation.map((item) => (
                           src={MainStore().activeUser.info.avatarUrl}
                           alt=""
                         />
-                        <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="flex min-w-0 flex-1 flex-col place-items-start">
                           <span className="truncate text-sm font-medium text-gray-900">{MainStore().activeUser.info.name}</span>
-                          <span className="truncate text-sm text-gray-500">{(MainStore().activeUser.info.email || "").replace(/.+@/,"")}</span>
+                          <span className="truncate text-sm text-gray-500">{(MainStore().activeOrganization?.name || "").replace(/.+@/,"")}</span>
                         </span>
                       </span>}
                 options={[

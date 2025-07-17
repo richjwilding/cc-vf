@@ -1210,6 +1210,21 @@ const PrimitiveConfig = {
         }
         return out
         //return PrimitiveConfig.getPinMap(primitive, "outputs")
+    },getPinsForAction:(targetCategory, name)=>{
+        const activeAction = targetCategory?.actions?.find(d=>d.key === name)
+        let actionPins = {}
+        if( activeAction ){
+            actionPins = Object.entries(activeAction.actionFields ?? {}).reduce((a,[k,d])=>{
+                if( d.pin ){
+                    a[k] = {
+                        name: d.title,
+                        types: ["string"]
+                    }
+                }
+                return a
+            },{})                    
+        }
+        return actionPins
     },getPinMap:(primitive, pins)=>{
         if( pins === "inputs"){
             return PrimitiveConfig.getInputMap(primitive)
@@ -1295,12 +1310,20 @@ const PrimitiveConfig = {
                             sourceTransform: "filter_imports"
                         })
                     }
-                }else if( (input.sourcePrimitive?.type === "flow" || input.sourcePrimitive?.type === "flowinstance") && sourcePinConfig.types?.includes("primitive") ){
-                    out.push({
-                            ...input,
-                            useConfig: "primitive",
-                            sourceTransform: "pin_relay",
-                    })
+                }else if( (input.sourcePrimitive?.type === "flow" || input.sourcePrimitive?.type === "flowinstance") ){
+                    if( sourcePinConfig.types?.includes("primitive") ){
+                        out.push({
+                                ...input,
+                                useConfig: "primitive",
+                                sourceTransform: "pin_relay",
+                        })
+                    }else{
+                        out.push({
+                                ...input,
+                                useConfig: "string",
+                                sourceTransform: "pin_relay",
+                        })
+                    }
                 }else{
                     if( !sourcePinConfig && (input.sourcePin === "rowAxis" || input.sourcePin === "colAxis")){
                         out.push({
@@ -1417,7 +1440,20 @@ const PrimitiveConfig = {
                                 if( input.useConfig === "object_list"){
                                     result = result.concat( sourceData )
                                 }else if(input.useConfig === "string_list"){
-                                    const list = sourceData.flatMap(d=>typeof(d)==="string" ? d.split(/[\n,]/) : d)
+                                    let list
+                                    if( sourceData.length  === 1){
+                                        list = sourceData.flatMap(d=>{
+                                            if( typeof(d)==="string"){
+                                                if( d.includes("\n")){
+                                                    return d.split("\n").map(d=>d.trim())
+                                                }
+                                                return d.split(",").map(d=>d.trim())
+                                            }
+                                            return d
+                                        })
+                                    }else{
+                                        list = sourceData.flatMap(d=>typeof(d) === "string" ? d.trim() : d)
+                                    }
                                     result = result.concat( list )
                                 }else if(input.useConfig === "string"){
                                     if( Array.isArray(sourceData)){
@@ -1590,7 +1626,7 @@ const PrimitiveConfig = {
                 _itemIds: labelGroup.items.map(d=>d.primitive.id),
                 itemIds: labelGroup.ids,
                 status: ()=>{
-                    const itemStatus = labelGroup.items.map(d=>d.primitive.processing?.flow?.status ?? "not_run").filter((d,i,a)=>a.indexOf(d)===i)
+                    const itemStatus = labelGroup.items.map(d=>d.primitive.processing?.run_step?.status === "pending" ? "waiting" : (d.primitive.processing?.flow?.status ?? "not_run")).filter((d,i,a)=>a.indexOf(d)===i)
                     let groupStatus = "not_run"
                     if( itemStatus.includes("error")){
                         groupStatus = "error"
@@ -1600,7 +1636,7 @@ const PrimitiveConfig = {
                         groupStatus = "rerun"
                     }else if( itemStatus.includes("running")){
                         groupStatus = "running"
-                    }else if( itemStatus.includes("waiting")){
+                    }else if( itemStatus.includes("waiting") || itemStatus.includes("pending")){
                         groupStatus = "waiting"
                     }else if( itemStatus.includes("not_complete")){
                         groupStatus = "not_complete"
@@ -1636,7 +1672,13 @@ const PrimitiveConfig = {
                 id,
                 itemIds: [info.primitive.id],
                 name: (info.primitive.configParent ?? info.primitive).title,
-                status: ()=>info.primitive.processing?.flow?.status ?? "not_run",
+                status: ()=>{
+                    let status = info.primitive.processing?.run_step?.status === "pending" ? "waiting" : (info.primitive.processing?.flow?.status ?? "not_run")
+                    if( status === "pending"){
+                        return "waiting"
+                    }                   
+                    return status     
+                },
                 progress: ()=>info.primitive.percentageProgress,
                 progressMessage: ()=>info.primitive.progress,
                 //progress: ()=>({percentage: 0.35}),
@@ -1792,6 +1834,10 @@ const PrimitiveConfig = {
                     status.need = true
                     status.needReason = "not_executed"
                 }
+                if( step.processing?.flow?.status === "ignore"){
+                    status.need = false
+                    status.needReason = "ignored"
+                }
                 if( status.need ){
                     if( functions.isStepRunning ){
                         status.running = await functions.isStepRunning( step )
@@ -1810,10 +1856,11 @@ const PrimitiveConfig = {
 
         if( options.subFlowsToScaffold ){
             for(const subFlow of options.subFlowsToScaffold ){
+                const need = flowInstance.processing?.flow?.subFlow?.[subFlow.id]?.checked !== flowStarted
                 const status = {
                     id: subFlow.id,
-                    need: true,
-                    need_reason: "scaffold_flow",
+                    need,
+                    needReason: need ? "scaffold_flow" : undefined,
                     can: undefined,
                     children: []
                 }
@@ -1821,21 +1868,44 @@ const PrimitiveConfig = {
                     status.primitive = subFlow
                 }
                 map[status.id] = status
-                
-                const pp = functions.getPrimitives ? functions.getPrimitives(subFlow) : subFlow.primitives
-                const checkListIds = [
-                    ...pp.imports.allIds, 
-                    ...pp.inputs.allIds,
-                ]
-                console.log(`Missing subflow origin is ${checkListIds.join(", ")}`)
-                for(const id of checkListIds ){
-                    const resolved = steps.find(d=>getConfigId(d) === id)
-                    console.log(`Resolved ${id} to ${resolved?.id} / ${resolved?.plainId} / ${resolved?.title}`)
-                    if( resolved ){
-                        await setupStep( resolved, status)
+                if(status.need){
+
+                    
+                    const pp = functions.getPrimitives ? functions.getPrimitives(subFlow) : subFlow.primitives
+                    const checkListIds = [
+                        ...pp.imports.allIds, 
+                        ...pp.inputs.allIds,
+                    ]
+                    console.log(`Missing subflow origin is ${checkListIds.join(", ")}`)
+                    let can = true
+                    for(const id of checkListIds ){
+                        const resolved = steps.find(d=>getConfigId(d) === id)
+                        console.log(`Resolved ${id} to ${resolved?.id} / ${resolved?.plainId} / ${resolved?.title}`)
+                        let thisCan = false
+                        if( resolved ){
+                            await setupStep( resolved, status)
+                            
+                            const hasValidStart    = flowInstance.processing?.flow?.started !== undefined;
+                            const otherFlowStarted = resolved.processing?.flow?.started;
+                            const isComplete       = resolved.processing?.flow?.status === "complete" || resolved.processing?.flow?.status === "error_ignore";
+                            const timingOk = otherFlowStarted <= flowStarted;
+                            
+                            thisCan = (hasValidStart && isComplete && timingOk);
+                        }else{
+                            if( getOrigin(flowInstance) === id){
+                                thisCan = true
+                            }else{
+                                console.log(`Couldnt resolve ${id} in flowinstance status check`)
+                            }
+                        }
+                        can &&= thisCan
+                    }
+                    if( can ){
+                        status.can = true
+                        status.canReason = "all_ready"
+                        
                     }
                 }
-
             }
         }
 
@@ -1940,12 +2010,12 @@ const PrimitiveConfig = {
                     const isSameFlow       = imp.id === flowInstance.id;
                     const hasValidStart    = flowStarted !== undefined;
                     const otherFlowStarted = imp.processing?.flow?.started;
-                    const isComplete       = imp.processing?.flow?.status === "complete" || imp.processing?.flow?.status === "error_ignore";
+                    const isComplete       = imp.processing?.flow?.status === "complete" || imp.processing?.flow?.status === "error_ignore" ;
 
                     const timingOk = !inAncestor ? otherFlowStarted <= flowStarted : otherFlowStarted <= flowStarted;
                     const importPrimValid = isSameFlow || (hasValidStart && isComplete && timingOk);
 
-                    console.log(`Checking status of ${rel} step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
+                    //console.log(`Checking status of ${rel} step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
                     can = can && importPrimValid
                 }
             }

@@ -25,7 +25,7 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import { Badge } from "./@components/badge";
 import { Temporal } from "@js-temporal/polyfill";
 import clsx from "clsx";
-import { Button, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger, Select, SelectItem } from "@heroui/react";
+import { Button, Chip, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger, Select, SelectItem } from "@heroui/react";
 import {Icon} from "@iconify/react"  
 
 
@@ -146,11 +146,11 @@ export function Table(props) {
                         return columnHelper.accessor(d.title,
                             {
                                 cell: info => {
-                                    const data = info.row.original?.[d.field] ?? {color:"gray", text: "Unknown"}
-                                    return <Badge color={data.color}>{data.text}</Badge>
+                                    const data = [info.row.original?.[d.field]].flat().filter(Boolean)
+                                    return data.map(d=><Chip variant="flat" size="sm">{d}</Chip>)
                                 },
                                 header: () => d.title,
-                                accessorFn: (info)=>info[d.field]?.text,
+                                accessorFn: (info)=>[info[d.field]].flat().filter(Boolean).join(","),
                                 export:(info)=>info.row.original?.[d.field]?.text,
                                 startSize: d.width,
                                 minSize: d.minWidth ?? d.width,

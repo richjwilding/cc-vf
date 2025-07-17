@@ -57,6 +57,7 @@
     "react-router-dom": "^6.8.1",
     "react-scripts": "5.0.1",
     "react-select": "^5.7.0",
+    "recharts": "^3.1.0",
     "remark-parse": "^11.0.0",
     "remark-slate": "^1.8.6",
     "resize-observer-polyfill": "^1.5.1",

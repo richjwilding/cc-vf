@@ -25,6 +25,7 @@ export async function processQueue(job, cancelCheck, extendJob){
 
             const primitive = await Primitive.findOne({_id: job.data.id})
             let errorMessage
+            let collectionAsync = false
             if( primitive){
                 if( job.data.mode === "query" ){
                     let embeddedTopic
@@ -127,7 +128,6 @@ export async function processQueue(job, cancelCheck, extendJob){
                                             await dispatchControlUpdate(primitive.id, `referenceParameters.${k}`, baseTerms)
                                         }
                                     }
-                                    console.log(value)
                                     config[k] = value
                                 }
                             }
@@ -158,6 +158,9 @@ export async function processQueue(job, cancelCheck, extendJob){
                     }*/
                    
                     if( Array.isArray(baseTerms) ){
+                        if( baseTerms.length > 1 ){
+                            baseTerms = baseTerms.map(d=>d.replaceAll(",", " ").replaceAll(/\s+/g," "))
+                        }
                         baseTerms = baseTerms.join(",")
                     }
                    
@@ -265,7 +268,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                         console.log(`Query source ${source.id} ${source.platform} ${source.type} - ${terms}`)
 
                         const progressUpdate = async (data)=>{
-                            data.message = `Found ${data.totalCount} items / scanned ${data.scanned}\nCurrently term: ${data.term}`
+                            data.message = `Found ${data.totalCount} items / scanned ${data.totalScanned}\nCurrently term: ${data.term}`
                             dispatchControlUpdate(primitive.id, job.data.field + ".progress", data , {track: primitive.id})
                         }
 
@@ -433,6 +436,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                             return newPrim
                         }
 
+
                         const callopts = {
                             site: config.site,
                             quoteKeywords: config.phrase, 
@@ -457,6 +461,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                                 await searchLinkedInJobs( terms,  callopts) 
                             }else if( source.type === "user_posts" ){
                                 await queryLinkedInUserPostsBrightData( primitive, terms,  callopts) 
+                                collectionAsync = true
                             }else if( source.type === "company_posts" ){
                                 //await queryLinkedInCompanyProfilePostsBrightData( primitive, terms,  callopts) 
                                 await queryLinkedInCompanyPostsByRapidAPI(primitive, terms, callopts)
@@ -477,15 +482,19 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                         if( source.platform === "tiktok" ){
                             await queryTiktokWithBrightData( primitive, terms, callopts) 
+                            collectionAsync = true
                         }
                         if( source.platform === "reddit" ){
                             await queryRedditWithBrightData( primitive, terms, callopts) 
+                            collectionAsync = true
                         }
                         if( source.platform === "sub_reddit" ){
+                            collectionAsync = true
                             await querySubredditWithBrightData( primitive, terms, callopts) 
                         }
                         if( source.platform === "glassdoor" ){
                             //await queryInstagramWithBrightData( primitive, terms, callopts) 
+                            collectionAsync = true
                             await queryGlassdoorReviewWithBrightData( primitive, terms, callopts)
                         }
                         if( source.platform === "trustpilot" ){
@@ -508,9 +517,11 @@ export async function processQueue(job, cancelCheck, extendJob){
                                     await queryTrustPilotForCompanyReviewsBrightData( primitive, urlsForTerms, terms, callopts)
                                 }
                             }
+                            collectionAsync = true
                         }
                         if( source.platform === "instagram_profile" ){
                             await fetchInstagramPostsFromProfile( primitive, terms, callopts)
+                            collectionAsync = true
                         }
                         
                         if( source.platform === "instagram" ){
@@ -555,9 +566,9 @@ export async function processQueue(job, cancelCheck, extendJob){
                                         await dispatchControlUpdate( origin.id, "referenceParameters.linkedIn", targetProfile)
                                     }
                                 }
-                                console.log(targetProfile)
                                 if( targetProfile ){
                                     await queryLinkedInCompanyPostsBrightData( primitive, targetProfile, terms, callopts)
+                                    collectionAsync = true
                                 }else{
                                     errorMessage = {
                                         message: `Cannot find LinkedIn URL for ${origin.title}`,
@@ -593,9 +604,23 @@ export async function processQueue(job, cancelCheck, extendJob){
                     const updatedPrimitive = await fetchPrimitive( primitive.id )
                     const totalCount = Object.values(updatedPrimitive.primitives?.origin ?? []).length
 
-                    const status = {
-                        status: "complete",
-                        message: `Found ${totalCount} items`
+                    let status = updatedPrimitive.processing?.query ?? {}
+                    
+                    if( collectionAsync ){
+                        status = {
+                            ...status,
+                            status: "running",
+                            collecting: true,
+                            message: `Running collection`
+                        }
+                    }else{
+                        status = {
+                            ...status,
+                            status: "complete",
+                            totalCount,
+                            totalScanned: updatedPrimitive.processing?.query?.progress?.totalScanned,
+                            message: `Found ${totalCount} items`
+                        }
                     }
                     let throwError = false
                     if( errorMessage ){

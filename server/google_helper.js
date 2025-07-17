@@ -16,7 +16,7 @@ import { buildEmbeddings } from "./openai_helper";
 import Parser from '@postlight/parser';
 import csv from 'csv-parser';
 import { buildContext, dispatchControlUpdate, executeConcurrently, fetchPrimitive } from "./SharedFunctions";
-import { retrieveDocumentFromSearchCache, storeDocumentEmbeddings } from "./DocumentSearch";
+import { buildDocumentTextEmbeddings, retrieveDocumentFromSearchCache, storeDocumentEmbeddings } from "./DocumentSearch";
 import * as cheerio from 'cheerio';
 import { fetchLinksFromWebDDGQuery } from "./ddg_helper";
 import ContentEmbedding from "./model/ContentEmbedding";
@@ -99,7 +99,6 @@ export async function refreshToken(req){
                 if (err || !accessToken){
                     reject( err )
                 } 
-                console.log("refreshed")
                 req.user.accessToken = accessToken
                 req.user.checksum = "TESTING"
                 req.user.expiry_date = moment().add( 1000 * 60 * 60 * 24 * 7).format("X")
@@ -277,7 +276,6 @@ export async function getDocumentAsPlainText(id, req, override_url, forcePDF, fo
             if( url.match(/^https?:\/\/(www\.)?facebook\.com\/[^\/]+\/posts\/[A-Za-z0-9_-]+/)){
                 console.log(`Fetch pdf of facebok post`)
                 await grabUrlAsPdf( url, id )
-                console.log(`--- now text`)
                 text = (await extractPlainTextFromPdf( id, req ))?.plain
             }else if( url.match(/^https?:\/\/(www\.)?linkedin\.com\/posts\//)){
                 console.log(`Fetch LinkedIn post`)
@@ -1902,6 +1900,7 @@ export async function queryYoutube(keywords, options = {}){
 export async function queryGoogleSERP(keywords, options = {}){
     let cancelled = false
     let totalCount = 0
+    let totalScanned = 0
     let count = 0
     let target = options.count ?? 20
     let maxPage = options.maxPage ?? 8
@@ -1936,6 +1935,16 @@ export async function queryGoogleSERP(keywords, options = {}){
             const processItem = async (item)=>{
                 if( count < target ){
                     scanned++
+                    totalScanned++
+                    if( options.progressUpdate ){
+                        await options.progressUpdate({
+                            term,
+                            count,
+                            totalCount,
+                            totalScanned,
+                            scanned
+                        })
+                    }
 
                     if( options.filterPre && !(await options.filterPre({text: item.snippet, term: term})) ){
                         return
@@ -1992,6 +2001,10 @@ export async function queryGoogleSERP(keywords, options = {}){
                                     await decodeBase64ImageToStorage(item.image, newPrim._id.toString(), "cc_vf_images")
                                 }
                             }
+                            if( !filterData.embeddedFragments){
+                                console.log(`-> Building embeddings inline`)
+                                filterData.embeddedFragments = await buildDocumentTextEmbeddings( pageContent.fullText )
+                            }
                             if( filterData.embeddedFragments){
                                 await storeDocumentEmbeddings( newPrim, filterData.embeddedFragments)
                             }
@@ -2007,6 +2020,7 @@ export async function queryGoogleSERP(keywords, options = {}){
                         term,
                         count,
                         totalCount,
+                        totalScanned,
                         scanned
                     })
                 }
@@ -2022,7 +2036,7 @@ export async function queryGoogleSERP(keywords, options = {}){
                     console.log(`URLs filtered to ${lookup.links.length} for ${options.urlFilter}`)
                 }
                 if( lookup.links.length > 1){
-                    let exec = await executeConcurrently( lookup.links, processItem, options.cancelCheck, ()=> count >= target)
+                    let exec = await executeConcurrently(lookup.links, processItem, options.cancelCheck, ()=> count >= target)
                     cancelled = exec?.cancelled
                     if( exec.stopped ){
                         console.log(`Stopped for term maximum cancel = ${cancelled}`)
@@ -2218,7 +2232,6 @@ export async function fetchURLAsArticle( data, threshold = 50){
             html,
             contentType: 'text',
         })
-        console.log(articleContent)
         if( articleContent && articleContent.content ){
             if( articleContent.content.split(" ").length < threshold ){
                 return false
@@ -2362,7 +2375,6 @@ export async function extractURLsFromPageUsingScrapingBrowser(pageUrl, options) 
           .map(a => ({ url: a.href, text: a.textContent.trim() }))
           .filter(l => l.url)  // drop any empty hrefs
         );
-    console.log(mainLinks)
     if (mainLinks.length === 0) {
           // 2) No links on the base page → scrape all child frames
           for (const frame of page.frames()) {
@@ -2378,8 +2390,6 @@ export async function extractURLsFromPageUsingScrapingBrowser(pageUrl, options) 
               }
 
               const links = await frame.$$eval('a', anchors =>anchors.map(a => ({ url: a.href, text: a.textContent.trim() })).filter(l => l.url));
-            console.log(links)
-            console.log( await frame.$$eval('a', anchors =>anchors) )
             if (links.length > 0) {
                 links.forEach(l => l.frameUrl = frame.url());
                 mainLinks.push(...links);
@@ -2387,7 +2397,6 @@ export async function extractURLsFromPageUsingScrapingBrowser(pageUrl, options) 
         }
     }
     
-    console.log(mainLinks)
     const finalLinks = cleanupExtractedURLs( mainLinks, pageUrl, options )
   
     return finalLinks;
@@ -2480,14 +2489,11 @@ export async function downloadURLContentViaProxy(url, options ={}){
         const response = await fetch(url, { agent: proxyAgent })
         if(response.status !== 200){
             console.log(`Failed downloadURLContentViaProxy for ${url}`)
-            console.log(response.status)
-            console.log(response.statusTexttatus)
             return undefined
         }
         const data = await response.arrayBuffer();
         let filename
         const contentDisposition = response.headers.get('content-disposition')
-        console.log(response.headers)
         if (contentDisposition && contentDisposition.includes('filename=')) {
             filename = contentDisposition.split('filename=')[1].split(';')[0].replace(/"/g, '');
             } else {
@@ -2728,7 +2734,6 @@ export async function extractTextFromGoogleDriveFile( driveId ){
 export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedPdf = false, fullHTML = false ){
     try{
 
-        let matches
         console.log(url)
         if( url && url.match(/^(https?:\/\/)?(www\.)?(reddit)\.com\//)){
             const text = await fetchRedditThreadAsText( url )
@@ -2816,7 +2821,6 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
             {title: "PDF", exec: async ()=>{
                 const data = await grabUrlAsPdf( url, undefined, true, preferEmbeddedPdf )
                 console.log("got text")
-                console.log(text)
                 if( data?.plain ){
                     return{
                         title: `Download from ${url}`,

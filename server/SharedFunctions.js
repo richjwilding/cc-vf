@@ -20,7 +20,7 @@ import { buildDocumentTextEmbeddings, fetchFragmentsForTerm, indexDocument, stor
 import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
-import { aggregateItems, checkAndGenerateSegments, comapreToPeers, compareItems, extractor, getSegemntDefinitions, iterateItems, lookupPerson, queryByAxis, replicateFlow, resourceLookupQuery, runProcess, summarizeWithQuery } from './task_processor';
+import { aggregateItems, checkAndGenerateSegments, comapreToPeers, companyLogoURL, compareItems, extractor, getSegemntDefinitions, iterateItems, lookupPerson, queryByAxis, replicateFlow, resourceLookupQuery, runProcess, summarizeWithQuery } from './task_processor';
 import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
 import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, handleCollection, restartCollection } from './brightdata';
 import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue';
@@ -29,7 +29,7 @@ import "./workflow.js"
 import FlowQueue from './flow_queue.js';
 import { getLogger } from './logger.js';
 import { queryQuoraByRapidAPI } from './rapid_helper.js';
-import { expandStringLiterals, findFilterMatches } from './actions/SharedTransforms.js';
+import { baseURL, expandStringLiterals, findFilterMatches, getRegisteredDomain } from './actions/SharedTransforms.js';
 import { fetchMoneySavingExpertSearchResults, moneySavingExpertSERP } from './scrapers/moneysavingexpert.js';
 import mongoose, { Types } from 'mongoose';
 import { reviseUserRequest } from './prompt_helper.js';
@@ -98,6 +98,16 @@ export async function queueStatus(){
         console.log(`Error fetching queue status`)
         console.log(error)
     }
+}
+export async function getNextSequenceBlock(sequenceName, count) {
+  const counter = await Counter.findOneAndUpdate(
+    { name: sequenceName },
+    { $inc: { sequence_value: count } },
+    { new: true, upsert: true }
+  );
+  const end = counter.sequence_value;              // e.g. 105 if that was the new high-water mark
+  const start = end - (count - 1);                  // e.g. 96 if count=10
+  return { start, end };
 }
 export async function getNextSequenceValue(sequenceName) {
     try {
@@ -767,12 +777,15 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
         if( configForPins.generator){
             const generateTarget = await Category.find( {id:configForPins.generator})
             generatorPins = generateTarget[0]?.ai?.generate?.inputs ?? {}
+        }else{
+            const targetCategory = await Category.findOne( {id: configForPins.referenceId})
+            generatorPins = PrimitiveConfig.getPinsForAction( targetCategory, configForPins.action)
+        }
 
             dynamicPins = {
                 ...dynamicPins,
                 ...generatorPins
-            }
-        }
+            }        
     }
 
 
@@ -802,21 +815,29 @@ export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs",
         if( d.sourceTransform === "imports"){
             d.sources = await getDataForImport( d.sourcePrimitive, cache )
         }else if( d.sourceTransform === "pin_relay"){
-            if( primitive.type === "flowinstance"){
-               // throw "!!! untested"
-                const fis = (await primitivePrimitives(primitive, 'primitives.subfi', "flowinstance" )).filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
-                console.log(`GOT ${fis.length} instances to get from`)
-                d.sources = []
-                for(const fi of fis){
-                    const outputs = await getPrimitiveOutputs(fi, cache)
-                    if(outputs && outputs[d.sourcePin]){
-                        d.sources.push( ...(outputs[d.sourcePin].data ?? []) )
+            if( d.useConfig === "primitive"){
+                if( primitive.type === "flowinstance"){
+                    const fis = (await primitivePrimitives(primitive, 'primitives.subfi', "flowinstance" )).filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
+                    console.log(`GOT ${fis.length} instances to get from`)
+                    d.sources = []
+                    for(const fi of fis){
+                        const outputs = await getPrimitiveOutputs(fi, cache)
+                        if(outputs && outputs[d.sourcePin]){
+                            d.sources.push( ...(outputs[d.sourcePin].data ?? []) )
+                        }
+                    }
+                }else{
+                    const po = await fetchPrimitive( primitiveOrigin(primitive))
+                    if( po.type === "flowinstance"){
+                        d.sources = (await getPrimitiveInputs(po, cache))[d.sourcePin]?.data
                     }
                 }
-            }else{
-                const po = await fetchPrimitive( primitiveOrigin(primitive))
-                if( po.type === "flowinstance"){
-                    d.sources = (await getPrimitiveInputs(po, cache))[d.sourcePin]?.data
+            }else if( d.useConfig === "string"){
+                const sourceInputs = await getPrimitiveInputs(d.sourcePrimitive, cache)
+                if( sourceInputs[d.sourcePin] ){
+                    d.pass_through = sourceInputs[d.sourcePin]?.data
+                    d.passThroughCoonfig = "string"
+                    d.useConfig = "pass_through"
                 }
             }
         }else if( d.sourceTransform === "filter_imports"){
@@ -1569,7 +1590,7 @@ export async function primitiveParentsOfType(primitive, types = [] ){
     console.log(`===> DEPREACTED - use findParentPrimitivesOfType instead`)
     const out = []
     types = [types].flat()
-    const parentIds = Object.keys(primitive.parentPrimitives)
+    const parentIds = Object.keys(primitive.parentPrimitives ?? {})
     const primitives = await fetchPrimitives(parentIds)
     for( const parent of primitives){
         if( types.includes( parent.type) ){
@@ -2011,13 +2032,14 @@ async function __OLD__filterItems(list, filters){
 }
 
 
-export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}, query:{}}, forceImport = false, first = true ){
+export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}, query:{}, depth: 0}, forceImport = false, first = true ){
     let fullList = []
 
     const sourceConfig = await getConfig(source)
 
     let requesterInFlow
-    if((source.type === "query" || source.type === "summary" || source.type === "search" || source.type === "actionrunner" || source.type === "action") && forceImport !== true){
+    //if((source.type === "query" || source.type === "summary" || source.type === "search" || source.type === "actionrunner" || source.type === "action") && forceImport !== true){
+    if(((source.type === "query" || source.type === "summary" || source.type === "search") && forceImport !== true) || ((source.type === "actionrunner" || source.type === "action") && !Object.keys(source.primitives ?? {}).includes("imports") && forceImport !== true) ){
         if( cache.imports[source.id]){
             console.log(`>>> returning import local cache`)
             return cache.imports[source.id]
@@ -2073,7 +2095,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         }
         list = list.filter(d=>!["segment", "category", "query", "report", "reportinstance"].includes(d.type))
         
-        logger.debug(`Import from query = ${list.length} direct items`)
+        logger.debug(`${"-".repeat(cache.depth)} Import from query = ${list.length} direct items`)
         cache.imports[source.id] = list
         return list
     }
@@ -2180,7 +2202,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 list = cache.imports[imp.id]
                 console.log(`>>> reuse import cache ${imp.id}`)
             }else{
-                list = list.concat( await getDataForImport( imp, cache, undefined, false ))
+                list = list.concat( await getDataForImport( imp, {...cache, depth: cache.depth+1}, undefined, false ))
                 cache.imports[imp.id] = list
             }
         }else{
@@ -2193,7 +2215,8 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             if( !source.referenceParameters?.path && imp.type === "segment"){
                 list = await nestedItems( imp )
             }else{
-                ids = node.allIds
+                //ids = node.allIds
+                ids = Object.keys(node).filter(d=>d !== "inputs" && d !== "outputs").flatMap(d=>node[d].allIds)
                 list = await fetchPrimitives(ids, undefined, DONT_LOAD)
                 logger.verbose(`loaded leaves ${ids.length}`)
             }
@@ -5036,9 +5059,14 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( primitive.type === "entity" ){
                 if( command === "update_icon_url"){
-                    let url = await getFaviconFromURL( primitive.referenceParameters?.url )
+                    let url 
+                    const domain = getRegisteredDomain( primitive.referenceParameters?.url )
+                    url = await companyLogoURL( {domain} )
                     if( !url ){
-                        url = await getMetaImageFromURL( primitive.referenceParameters?.url )
+                        url = await getFaviconFromURL( primitive.referenceParameters?.url )
+                        if( !url ){
+                            url = await getMetaImageFromURL( primitive.referenceParameters?.url )
+                        }
                     }
                     if( url ){
                         await replicateURLtoStorage(url, primitive._id.toString(), "cc_vf_images")

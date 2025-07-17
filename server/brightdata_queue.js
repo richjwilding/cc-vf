@@ -23,6 +23,7 @@ export async function processQueue(job, cancelCheck){
             }else if( data.mode === "enrich"){
                 console.log(`check for enrich...`)
                 const result = await handleCollection( primitive, data, false)
+                let collected = 0
 
                 if( result?.reschedule ){
                     return result
@@ -56,6 +57,7 @@ export async function processQueue(job, cancelCheck){
                         
                         try{
                             const newPrim = await createPrimitive( newData )
+                            collected++
                             if( addNewAsParent ){
                                 const rel = typeof(addNewAsParent) === "string" ? addNewAsParent : "link"
                                 await addRelationship( newPrim.id, primitive.id, rel )
@@ -68,6 +70,9 @@ export async function processQueue(job, cancelCheck){
                     }
                     await executeConcurrently( result, addItem, undefined, undefined, 10)
                     dispatchControlUpdate(primitiveId, field , {status: "Collected", date: new Date()}, {...data, track: primitiveId})
+                    if( primitive.processing?.query ){
+                        dispatchControlUpdate(primitiveId, "processing.query" , {status: "complete", scanned: collected, totalCount: collected, message: `Collected ${collected} items`})
+                    }
                 }
             }
         }

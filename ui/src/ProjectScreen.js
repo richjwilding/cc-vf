@@ -13,6 +13,12 @@ export default function ProjectScreen(props){
     const navigate = useNavigate()        
     const [showNew, setShowNew] = useState(false)
     const {id} = useParams()
+    
+    if( mainstore.activeWorkspaceId !== id){
+        (async ()=>{
+            await mainstore.loadActiveWorkspace(id)
+        })()
+    }
 
     const filterForWorksapce = (array)=>{
         if( id === undefined ){

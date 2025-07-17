@@ -14,6 +14,8 @@ import { extractFlatNodes, findCompanyURLByNameLogoDev, getFragmentsForQuery, on
 import { modiftyEntries, pickAtRandom } from "./SharedTransforms";
 import { registerAction, runAction } from "../action_helper";
 import { getLogger } from '../logger.js';
+import { createWorkflowInstance } from "../workflow.js";
+import FlowQueue from "../flow_queue.js";
 const logger = getLogger('agent', "debug"); // Debug level for moduleA
 
 const isObjectId = id => /^[0-9a-fA-F]{24}$/.test(id);
@@ -698,23 +700,66 @@ const functionMap = {
     },
     update_working_state: async (params, scope, notify)=>{
         notify(`[[current_state:${JSON.stringify(params)}]]`, false, true)
+        const parent = scope.parent
         console.log(params)
+
+        const mappedInputs = Object.fromEntries(Object.entries(params.inputs ?? {}).map(([k,v])=>[k, Array.isArray(v) ? v.join(", ") : v]))
+        const mappedConfig = Object.fromEntries(Object.entries(params.configuration ?? {}).map(([k,v])=>[`fc_${k}`, Array.isArray(v) ? v.join(", ") : v]))
+
+        const configEntries = Object.entries(parent.referenceParameters.configurations ?? {})              
+        const inputEntries = Object.entries(parent.referenceParameters.inputPins ?? {})
+        const inScopeEntries = inputEntries.filter(([k,v])=>{
+          if( !v.validForConfigurations ){
+            return true
+          }
+          return v.validForConfigurations.find(d=>{
+            const values = [params.configuration[d.config]].flat().filter(Boolean)
+            return [d.values].flat().find(d=>values.includes(d))
+          })
+        })
+        
         if( params.finalized ){
-            console.log(`!!!! NOW WILL FINALIZE !!!!!`)
             if( scope.primitive ){
+              notify("Preparing flow...")
+                
+              //const configEntries = Object.entries(parent.referenceParameters.configurations ?? {})
+              //const inputEntries = Object.entries(parent.referenceParameters.inputPins ?? {})
+              
+              
+
+            const missingEntries = inScopeEntries.filter(d=>!mappedInputs[d[0]])
+            console.log(missingEntries.map(d=>`${d[1].name} (${d[0]})`).join("\n"))
+            if( missingEntries.length > 0){
+              return {validation: "failed",
+                missing_inputs: Object.fromEntries(missingEntries.map(d=>[d[0], d[1].name])),
+                instructions: "Chat with the user to help them complete the missing inputs"
+              }
+
+            }
+
+              if( scope.primitive.type === "flow"){
+                console.log(`--> Creating flow instance`)
+                const newPrim = await createWorkflowInstance( scope.primitive, {data: {
+                  ...mappedInputs,
+                  ...mappedConfig
+                }})
+                //await FlowQueue().runFlowInstance(newPrim, {manual: true})
+                return {
+                  __WITH_SUMMARY: true,
+                  summary: `Your new workflow W-${newPrim.plainId} is running. Click here [[new:${newPrim.id}]] to view`
+                }
+              }else{
                 console.log(`--> Updateing primitive ${scope.primitive.id}`)
-
-
-                const mappedInputs = Object.fromEntries(Object.entries(params.inputs ?? {}).map(([k,v])=>[k, Array.isArray(v) ? v.join(", ") : v]))
-                const mappedConfig = Object.fromEntries(Object.entries(params.configuration ?? {}).map(([k,v])=>[`fc_${k}`, Array.isArray(v) ? v.join(", ") : v]))
-
+                
+                
                 const updated = {
-                    ...(scope.primitive.referenceParameters ?? {}),
-                    ...mappedInputs,
-                    ...mappedConfig
+                  ...(scope.primitive.referenceParameters ?? {}),
+                  ...mappedInputs,
+                  ...mappedConfig
                 }
                 console.log(updated)
                 dispatchControlUpdate(scope.primitive.id, "referenceParameters", updated )
+              }
             }
         }
         return params
@@ -2229,6 +2274,7 @@ const agentSystem = `You are Sense AI, an agent helping conduct market research,
                     `.replaceAll(/\s+/g," ")
 
 export async function handleChat(primitive, options, req, res) {
+  let parent
         const sendSse = (delta) => {
             res.write(`data: ${JSON.stringify(delta)}\n\n`);
         };
@@ -2256,8 +2302,8 @@ export async function handleChat(primitive, options, req, res) {
                 
                     `.replaceAll(/\s+/g," ") 
                 activeFunctions = functions.filter(d=>["update_query"].includes(d.name) )
-        }else if( primitive.type === "flowinstance"){
-            const parent = options.parent
+        }else if( primitive.type === "flowinstance" || primitive.type === "flow"){
+            parent = primitive.type === "flowinstance" ? options.parent : primitive
             if( parent ){
                 let flowInfo = `Workflow title: ${parent.title}\nDescription:${parent.referenceParameters.description}`
                 
@@ -2282,10 +2328,14 @@ export async function handleChat(primitive, options, req, res) {
                         *) You should chat with the user to get a good understanding of what they want to achieve - with sufficient detail to complete the necessary input fields of teh workflow with specicifity and precision
             ${hasConfig > 0 ? "*) First carefully consider which of the configurations are most relevant to the topic and selecting the option (or options if the configuration setting can accept mutliple) to use" : ""}
             ${parent.referenceParameters.ai_info ?? ""}
-                        *) You should help the user make the inputs as specific as possible to get a good outcome 
+                        *) You should help the user make the inputs as specific as possible to get a good outcome
+                        *) After each message from the user, update all relevant input fields based on the up to date context
+                        *) - When setting input values be sure to consider the broader context and other input values. For example if the context relates to finacing and the user asks for search terms focused on 'affordability' user terms such as 'financing cost' and 'loan affordable' rather than just 'cost' and 'affordability'  
                         *) If the user asks about what information you need or what is possible, you should explain to them the ${hasConfig ? "configuration options, " : ""}${hasInputs ? "inputs, " : ""} and overview of this workflow
                         *) During the conversation with the user, when updated information for the ${hasConfig ? "configuration options and " : ""} input is provided by the user or determined by you, you MUST call update_working_state using context from the chat to store the state information for reuse by the system
-                        *) When the user has confirmed they are happy with the flow configuration / input call update_working_state again with the finalized parameter set to true
+                        *) - update_working_state will return an error is required inputs are missing - you must help the user fill in all required fields
+                        *) - you MUST NOT let the user skip missing fields even if they insist because the task will fail when it is run. Simply tell them the workflow cant run without it and suggest next steps
+                        *) When the user has confirmed they are happy with the flow configuration / input you MUST call update_working_state again with the finalized parameter set to true
                         *) Proactively use company_search to find any required URLs if the user has provided company names but has omitted URLs. You may want to confirm them with the user if there is ambigutity
                         *) Here are the details of the flow you are helping them with: ${flowInfo}
                         `.replaceAll(/\s+/g," ") 
@@ -2352,6 +2402,7 @@ export async function handleChat(primitive, options, req, res) {
 
 
         const scope = {
+            parent,
             workspaceId: primitive.workspaceId, 
             primitive
         }

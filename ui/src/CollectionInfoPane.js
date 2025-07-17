@@ -913,6 +913,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     {showDetails && <>
                         <div className="p-2 ">
                             <PrimitiveCard.Parameters primitive={frame} items={props.originalList ?? list} editing leftAlign compactList className="text-xs text-slate-500" fullList />
+                            {props.frameAction && <Button size="sm" variant='ghost' onPress={()=>{props.frameAction(frame, "capture_sizing")}}>Capture default sizing</Button>}
                             <div className="py-2 text-gray-500 text-sm">
                                     <UIHelper.Panel title="Sections" narrow>
                                     {(()=>{

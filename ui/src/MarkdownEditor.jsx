@@ -11,6 +11,7 @@ import { KonvaPrimitive } from './KonvaPrimitive';
 import { VisualizationPreview } from './VisualizationPreview';
 import { PrimitiveReferenceInfo } from './@components/PrimitiveReferenceInfo';
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@heroui/react';
+import { useNavigate } from 'react-router-dom';
 
   
 function withBadges(editor) {
@@ -28,6 +29,7 @@ function withBadges(editor) {
 
 
 function MarkdownBadge({ badgeType, actionCallback }) {
+  const navigate = useNavigate()        
 
   function runningBadge(title){
     return <div className="animate-border inline-flex  animate-border bg-[length:400%_400%] bg-gradient-to-r bg-white from-green-500 inline-block to-blue-500 via-purple-500 p-[1px] rounded-full">
@@ -54,7 +56,7 @@ function MarkdownBadge({ badgeType, actionCallback }) {
         /*if( overflow ){
           ids = pickAtRandom(ids, 5)
         }*/
-        const items = ids.map(d=>mainstore.primitive(d))
+        const items = ids.map(d=>mainstore.primitive(d)).filter(Boolean)
          return <Popover placement="left" showArrow={true} size="lg" backdrop='blur'>
             <PopoverTrigger>
                 <span className="bg-gray-200 border hover:bg-gray-300 hover:border-gray-400 inline-flex mx-0.5 items-center justify-center p-0.5 rounded-full text-gray-600 hover:text-gray-800">
@@ -65,6 +67,16 @@ function MarkdownBadge({ badgeType, actionCallback }) {
               {({ open }) => <PrimitiveReferenceInfo items={items}/>}
             </PopoverContent>
         </Popover>    
+      }else if(badgeType.startsWith("new:")){
+        let id = badgeType.slice(4).split(",")[0]
+        const target = MainStore().primitive(id)
+        if( target){
+                return <span onClick={()=>navigate(`/item/${id}`)} className="bg-gray-200 border hover:bg-gray-300 hover:border-gray-400 inline-flex mx-0.5 items-center justify-center p-0.5 rounded-full text-gray-600 hover:text-gray-800">
+                  <ArrowRightIcon className='w-3'/>
+                </span>
+
+        }
+        return <></>
       }else if(badgeType.startsWith("ref:")){
         let ids = badgeType.slice(4).split(",")
         const mainstore = MainStore()

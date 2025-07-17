@@ -496,8 +496,8 @@ class CollectionUtils{
             let baseCategories = uniquePrimitives([
                 ...primitive.primitives.origin.allUniqueCategory, 
                 ...primitive.findParentPrimitives({type:["view", "query","categorizer"]}).map(d=>d.primitives.origin.allUniqueCategory).flat(),
-                ...primitiveOrigin.type == "flow" ? primitiveOrigin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
-                ...primitiveOrigin.type == "flowinstance" ? primitiveOrigin.origin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
+                ...primitiveOrigin?.type == "flow" ? primitiveOrigin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
+                ...primitiveOrigin?.type == "flowinstance" ? primitiveOrigin.origin.primitives.origin.allCategorizer.filter(d=>d.metadata?.mode === "assign") : [],
                 ...inheritedCategories
                 //...items.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category")).flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category"))
                 //...uniquePrimitives(items.flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category"))).flatMap(d=>d.parentPrimitives.filter(d=>d.type === "category"))

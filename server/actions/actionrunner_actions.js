@@ -4,6 +4,7 @@ import QueueDocument from "../document_queue";
 import { decodeBase64ImageToStorage, getGoogleAdKeywordMetrics, uploadDataToBucket } from "../google_helper";
 import { getLogger } from "../logger";
 import Category from "../model/Category";
+import Workspace from "../model/Workspace";
 import { categorize, generateImage, processPromptOnText } from "../openai_helper";
 import QueryQueue from "../query_queue";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
@@ -12,9 +13,12 @@ import { replicateWorkflow } from "../workflow";
 import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
 const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
 
-registerAction("test_replicate", {type: "flow"}, async (primitive, action, options, req)=>{
-    return await replicateWorkflow( primitive )
-})
+/*registerAction("test_replicate", {type: "flow"}, async (primitive, action, options, req)=>{
+    const workspace = await Workspace.findOne({_id: options.workspaceId})
+    if( workspace ){
+        return await replicateWorkflow( primitive, workspace )
+    }
+})*/
 
 registerAction("lookup_entity", {type: "action"}, async (primitive, action, options, req)=>{
     const config = await getConfig( primitive )
@@ -244,10 +248,20 @@ registerAction( "run_runner", undefined, async (primitive, action, options, req)
         logger.info(`Filtered to ${list.length} for flow continuation`)
     }
 
-    for(const d of list ){
+    let inputs = await getPrimitiveInputs( primitive )
+    if( inputs ){
+        inputs = Object.entries(inputs).reduce((a,[k,v])=>{
+            a[k] = v.data
+            return a
+        }, {})
+    }
+
+    console.log(`Inputs`, inputs)
+
+    for(const d of list.reverse() ){
         logger.info(` - Will run ${options.action} for ${d.id} / ${d.plainId}`)
         try{
-            await doPrimitiveAction(d, options.action, options.actionOptions)
+            await doPrimitiveAction(d, options.action, {...(options.actionOptions ?? {}), ...(inputs ?? {})})
         }catch(e){
             logger.error(`Error in run_runner action`)
             logger.error(e)

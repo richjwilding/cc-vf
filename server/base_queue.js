@@ -33,7 +33,7 @@ export class BaseQueue {
     }
 
     async addJob(workspace, data, jobOptions) {
-        dispatchControlUpdate(data.id, data.field, { status: "pending", pending: new Date().toISOString(), track: data.id });
+        dispatchControlUpdate(data.id, data.field, { status: "pending", pending: new Date().toISOString(), ...(data.updateFields ?? {}), track: data.id });
         return await this._queue.addJob(workspace, data, jobOptions);
     }
     async endJobResponse(...args) {
@@ -77,7 +77,7 @@ export class BaseQueue {
             status = "complete"
             timeField = "completed"
         }
-        this.logger.info("Got notification", { id:job.id, status, error, childJob, mode: job.mode });
+        this.logger.info(`Got notification [${job.mode}] - ${status}`, { id:job.id, error, childJob});
 
         const prim = await fetchPrimitive( job.id )
         if( prim ){
@@ -97,7 +97,7 @@ export class BaseQueue {
                 if( this.notifyTracker["_child_" + job.mode]){
                     const [childId, childMode] = childJob.split("-")
                     const child = await fetchPrimitive( childId)
-                    notifyResponse = await this.notifyTracker["_child_" + job.mode](prim, child, result, childMode, job.mode)
+                    notifyResponse = await this.notifyTracker["_child_" + job.mode](prim, child, result, childMode, job.mode, parentJob)
                 }
             }else{
                 if( this.notifyTracker[job.mode]){

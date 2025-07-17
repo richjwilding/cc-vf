@@ -19,6 +19,7 @@ import { Logo } from "./logo";
 import WorkflowStructurePreview from "./WorkflowStructurePreview";
 import PrimitiveConfig from "./PrimitiveConfig";
 import { Icon } from "@iconify/react/dist/iconify.js";
+import GanttChart from "./GanttChart";
 
 
 export default function FlowInstancePage({primitive, ...props}){
@@ -36,6 +37,7 @@ export default function FlowInstancePage({primitive, ...props}){
         primitive?.processing?.run_flow_instance ? undefined :{ title: 'Assistant', id: "ai" },
         { title: 'Inputs', id: "input" },
         { title: 'Progress', id: "progress"},
+        { title: 'Timeline', id: "timeline"},
  //       primitive?.processing?.run_flow_instance ? { title: 'Results', id: "results" } : undefined
     ].filter(d=>d)
     const [activeTab, setActiveTab ] = useState( tabs[0].id )
@@ -57,8 +59,9 @@ export default function FlowInstancePage({primitive, ...props}){
     const [missing, setMissing ]= useState({})
     const [statusMap, setStatusMap ]= useState({})
     const [stepsToProcess, setStepsToProcess ]= useState([])
+    const [timelineData, setTimelineData ]= useState([])
 
-    const ids = [primitive?.id, ...primitive?.primitives.origin.allIds]
+    const ids = primitive ? [primitive.id, ...primitive.primitives.origin.allIds] : []
 
     useDataEvent('relationship_update set_field set_parameter',ids, (...args)=>{
         forceUpdate()
@@ -102,7 +105,7 @@ export default function FlowInstancePage({primitive, ...props}){
 
     function createNewInstance(){
         if( isForNewInstance ){
-            MainStore().doPrimitiveAction(targetFlow, "create_flowinstance", dataForNewInstance)
+            MainStore().doPrimitiveAction(targetFlow, "create_flowinstance", {data: dataForNewInstance})
         }
     }
 
@@ -117,10 +120,10 @@ export default function FlowInstancePage({primitive, ...props}){
         }
     })
     useEffect(()=>{
-        if( primitive && activeTab === "progress"){
+        if( primitive && (activeTab === "progress" || activeTab === "timeline")){
             primitive.instanceStatus.then(d=>{
                 
-                const {nodes, edges, visibleIds} = PrimitiveConfig.flowInstanceStatusToMap( d, {showHidden: false, showSkipped: false, groupByLabels: true})
+                const {nodes, edges, visibleIds} = PrimitiveConfig.flowInstanceStatusToMap( d, {showHidden: false, showSkipped: false, groupByLabels: activeTab === "progress"})
                 
                 const depth = PrimitiveConfig.convertEdgesToDepth( edges )
                
@@ -138,6 +141,63 @@ export default function FlowInstancePage({primitive, ...props}){
                         details: d
                     }
                 })
+
+                const timeline = nodes.flatMap(d=>{
+                    let multiple = d.itemIds.length > 1
+                    let minStart, maxEnd
+                    const lineItems = d.itemIds.map(id=>{
+                        const p = MainStore().primitive(id)
+                        if( p.type === "page"){
+                            return
+                        }
+                        let start = p.type === "flowinstance" ? p.processing?.flow?.started : p.processing?.run_step?.pending
+                        let end = p.type === "flowinstance" ? p.processing?.flow?.completed : p.processing?.run_step?.completed
+
+
+                        if(p.type === "search"){
+                            start = p.processing?.query?.running
+                            end = p.processing?.query?.completed ?? new Date()
+                            const children = p.primitives.origin.allSearch
+                            if( children ){
+                                for(const c of children){
+                                    let thisStart = c.processing?.query?.running
+                                    let thisEnd = c.processing?.query?.completed
+                                    if( !start || (thisStart < start) ){
+                                        start = thisStart
+                                    }
+                                    if( !end || (thisEnd > end) ){
+                                        end = thisEnd
+                                    }
+                                }
+                            }
+                        }
+
+                        if( !(start && end)){
+                            return
+                        }
+                        if( !minStart || start < minStart){ minStart = start}
+                        if( !maxEnd || end > maxEnd){ maxEnd = end}
+                        return {
+                            id: p.id,
+                            title: multiple ? p.configParent.title : d.name,
+                            start,
+                            end,
+                            parentId: multiple ? d.id : undefined,
+                            childrenIds: multiple ? undefined : edges.filter(d=>d.from === id).map(d=>d.to)
+                        }
+                    })
+                    if( multiple){
+                        lineItems.unshift({
+                            id: d.id,
+                            title: d.name,
+                            start: minStart,
+                            end: maxEnd,
+                            childrenIds: edges.filter(d2=>d2.from === d.id).map(d=>d.to)
+                        })
+                    }
+                    return lineItems
+                }).filter(Boolean)
+                setTimelineData( timeline )
 
                 setStepsToProcess(steps)
                 setStatusMap(d)
@@ -187,10 +247,12 @@ export default function FlowInstancePage({primitive, ...props}){
                             label="Select option" 
                             variant="bordered" 
                             selectedKeys={currentValue ?? []} 
-                            selectionMode={info.can_select_multiple === true ? "multiple" : ""} 
-                            onChange={(e)=>setValue(key, info.can_select_multiple === true ? e.target.value.split(",").map(d=>d.trim()) : e.target.value)
-
-                            }>
+                            selectionMode={info.can_select_multiple === true ? "multiple" : "single"} 
+                            onChange={(e)=>{
+                                const value = e.target.value
+                                setValue(key, info.can_select_multiple === true ? value.split(",").map(d=>d.trim()) : value)
+                            }}
+                            >
                     {info.options.map((option) => (
                     <SelectItem key={option.id}>{option.title}</SelectItem>
                     ))}
@@ -256,14 +318,14 @@ export default function FlowInstancePage({primitive, ...props}){
                             </Tabs>
                             <div className="absolute right-0 space-x-2 place-items-center flex">
                                 {!showOutput && !isForNewInstance && <Button isIconOnly variant="flat" onClick={()=>setShowOutput(true)}><Icon icon="fluent:slide-text-sparkle-20-regular" className='w-6 h-6'/></Button>}
-                                {<Button isIconOnly variant="flat" color="primary" onClick={()=>MainStore().doPrimitiveAction( primitive, "continue_flow_instance")}><Icon icon="solar:play-circle-linear" className='w-6 h-6'/></Button>}
+                                {<Button isIconOnly variant="flat" color="primary" onClick={()=>MainStore().doPrimitiveAction( primitive, "continue_flow_instance", {organizationId: MainStore().activeOrganization?.id})}><Icon icon="solar:play-circle-linear" className='w-6 h-6'/></Button>}
                                 
                             </div>
                         </div>
                     <div className="flex-1 min-h-0">
                         {chatState && activeTab === "ai" && <div className={clsx([
                                                                 animateState ? "animate-border bg-[length:400%_400%] bg-gradient-to-r from-green-500 to-blue-500 via-purple-500 " : "",
-                                                                "border absolute flex-col left-[calc(100vh_-_39rem)] left-[105%] top-[7rem] rounded-[20px] shadow-lg text-xs w-[28rem] z-50 p-[1px]",
+                                                                "border absolute flex-col left-[calc(100vh_-_30rem)] left-[105%] top-[7rem] rounded-[20px] shadow-lg text-xs w-[28rem] z-50 p-[1px]",
                                                                 "hidden min-[2150px]:flex "
                                                             ])}>
                                                                 <div className="bg-ccgreen-50 rounded-[18px] px-3 py-2 flex flex-col overflow-y-scroll  @container  space-y-1.5 max-h-[calc(100vh_-_12rem)]">
@@ -343,7 +405,7 @@ export default function FlowInstancePage({primitive, ...props}){
                                 items={stepsToProcess.map(d=>({
                                     ...d, 
                                     content: d.title, 
-                                    secondary: d.progress, 
+                                    //secondary: d.progress, 
                                     onClick:()=>{
                                         if( d.ids?.length > 0 ){
                                             MainStore().sidebarSelect(d.ids, {forFlow: true})
@@ -355,6 +417,10 @@ export default function FlowInstancePage({primitive, ...props}){
                                 {statusMap && <WorkflowStructurePreview statusMap={statusMap} onClick={(id)=>MainStore().sidebarSelect(id, {forFlow: true})}/>}
                             </div>}
                         </div>}
+                        {activeTab === "timeline" && <div className="flex w-full h-full">
+                            <GanttChart items={timelineData} width={1000} />
+                            </div>
+                        }
                     </div>
                 </div>
                 {showOutput && !isForNewInstance && <div className="w-full h-full flex ">

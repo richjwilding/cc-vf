@@ -2439,8 +2439,9 @@ registerRenderer( {type: "categoryId", id: [34, 78], configs: "overview"}, (prim
     let ox =  config.padding[3]
     let oy =  config.padding[0]
 
+    
 
-    const logo = imageHelper( `/api/image/${primitive.id}`, {
+    const logo = imageHelper( `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : ""), {
         x: ox,
         y: oy,
         size: config.height - config.padding[0] - config.padding[2],
@@ -2516,7 +2517,7 @@ registerRenderer( {type: "categoryId", id: 44, configs: "overview"}, (primitive,
         g.add(r)
 
 
-        const logo = imageHelper( `/api/image/${primitive.id}`, {
+        const logo = imageHelper( `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : ""), {
             x: ox,
             y: oy,
             size: config.itemSize,
@@ -2616,7 +2617,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
         g.add(r)
 
 
-        const logo = imageHelper( `/api/image/${primitive.id}`, {
+        const logo = imageHelper( `/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`, {
             x: ox,
             y: oy,
             size: config.itemSize,
@@ -2775,7 +2776,7 @@ registerRenderer( {type: "categoryId", id: [29,78], configs: "ranking"}, (primit
 
         let url
         if( primitive.referenceParameters?.hasImg ){
-            url = `/api/image/${primitive.id}`
+            url = `/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`
         }else{
             if( primitive.referenceParameters?.url ){
                 let domain = getRegisteredDomain( primitive.referenceParameters?.url) 
@@ -3154,7 +3155,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
             }).filter(d=>d).slice(0,5)
             
             for(const d of primitives){
-                const logo = imageHelper( `/api/image/${d.id}`, {
+                const logo = imageHelper( `/api/image/${d.id}` + (d.imageCount ? `?${d.imageCount}` : ""), {
                     x: x,
                     y: y,
                     width: companySizing,
@@ -3405,7 +3406,7 @@ function baseSocialMedia(primitive, options){
         let imageHeight = 0
         if( primitive.referenceParameters?.hasImg){
             imageHeight = (imageWidth / 16 * 9) + 10
-            const img = imageHelper( `/api/image/${primitive.id}`, {
+            const img = imageHelper( `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : ""), {
                 x: 0,
                 y: 0,
                 padding: config.padding,
@@ -3495,6 +3496,102 @@ function baseSocialMedia(primitive, options){
     return g
 }
 
+export function renderPlaceholder(renderOptions = {}){
+    let { 
+        id, 
+        x = 0, 
+        y = 0, 
+        width = 128, 
+        height = 128, 
+        type, 
+        text, 
+        fontFamily = "Poppins", 
+        ...options 
+    } = { 
+        ...renderOptions 
+    };
+
+    width = Math.abs(width)
+    height = Math.abs(height)
+    
+
+    const og = new Konva.Group({
+        id: id,
+        x,
+        y,
+        width,
+        height,
+        opacity: 0.6,
+        id: options.ids?.[0],
+        name:"inf_track primitive shape_element"
+    })
+    const g = new Konva.Group({
+        id: id,
+        x,
+        y,
+        width,
+        height,
+        opacity: 0.6,
+        id: options.ids?.[0],
+        name:"inf_track primitive shape_element"
+    })
+    const padding = Math.min(width, height) * 0.05 
+
+    const usableHeight = height - (padding * 2)
+    const usableWidth = width - (padding * 2)
+    
+    const r = new Konva.Rect({
+        x: padding,
+        y: padding,
+        width: usableWidth,
+        height: usableHeight,
+        stroke: "#e2e2e2",
+        strokeWidth: 10 * options.scale,
+        cornerRadius: padding
+    })
+    g.add(r)
+    
+    
+
+    switch(options.style){
+        case "text":{
+            const h = usableHeight < 120 ? 10 * options.scale : 30 * options.scale
+            const widths = [0.6, 0.8, 0.4, 0.7, 0.2]
+            const lenW = widths.length
+            const cornerRadius = h * 0.3
+            for( let y = h + (padding * 2), i = 0 ; (y + h) < usableHeight; i++, y += ( h * 2)){
+                const thisWidth = (usableWidth - (2 * padding)) * widths[i % lenW]
+                console.log(i, thisWidth)
+                g.add(new Konva.Rect({
+                    x: padding * 2,
+                    y,
+                    width: thisWidth,
+                    height: h,
+                    cornerRadius, 
+                    fill: "#e2e2e2"
+                }))
+            }
+        }
+        if( options.status?.message ){
+            const t = new Konva.CustomText({
+                text: options.status?.message,
+                fontSize: usableWidth > 150 ? 40 * options.scale : 20 * options.scale ,
+                align: "center",
+                width: usableWidth,
+                maxHeight: usableHeight,
+                wrap: true
+            })
+            t.x( (width - t.width()) / 2)
+            t.y( (height - t.height()) / 2)
+            g.add(t)
+        }
+        break
+    }
+    
+    og.add(g)
+    return og
+
+}
 export function renderPlainObject(renderOptions = {}){
     let { 
         id, 
@@ -3727,7 +3824,7 @@ function baseImageWithText(primitive, options){
         let imageHeight = 0
         if( primitive.referenceParameters?.hasImg){
             imageHeight = (config.width / 16 * 9) + 10
-            const img = imageHelper( `/api/image/${primitive.id}`, {
+            const img = imageHelper( `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : ""), {
                 x: 0,
                 y: 0,
                 padding: config.padding,
@@ -4260,7 +4357,7 @@ registerRenderer( {type: "categoryId", id: 100, configs: "default"}, (primitive,
     })
     if( g ){
 
-        const logo = imageHelper( `/api/image/${primitive.id}`, {
+        const logo = imageHelper( `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : ""), {
             x: 0,
             y: 0,
             padding: config.padding,

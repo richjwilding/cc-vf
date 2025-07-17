@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Input, Chip } from "@heroui/react";
+import clsx from "clsx";
 
-export default function TagsInput({ value = [], onChange, ...props }) {
+export default function TagsInput({ value = [], className, onChange, ...props }) {
   const [tags, setTags] = useState(value);
   const [input, setInput] = useState("");
 
@@ -34,7 +35,7 @@ export default function TagsInput({ value = [], onChange, ...props }) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className={clsx(["flex flex-wrap items-center gap-2", className])}>
       <Input
         {...props}
         value={input}

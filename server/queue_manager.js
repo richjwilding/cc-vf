@@ -163,12 +163,12 @@ class QueueManager {
 
                                 if( parentJob ){
                                     if( childResponse?.keepAlive ){
-                                        logger.info(`--- Child requested to not notify parent`)
+                                        logger.info(`--- Child ${message.jobId} requested to not notify parent ${parentJob.id}`)
                                     }else{
                                         const [qId, qType] = parentJob.queueName.split("-")
                                         const qo = this.getQueueObject(qType)
                                         
-                                        logger.info(`Sending notification for child ${qType} from ${this.type} ${parentJob.id} ${message.jobId} (${message.requestId})`)
+                                        logger.info(`Sending notification for child ${qType} from msgId ${message.jobId} (${message.requestId}) to ${this.type} ${parentJob.id} `)
                                         await qo.sendNotification(
                                             parentJob.id,
                                             {

@@ -18,6 +18,8 @@ import { unpack, pack } from 'msgpackr';
 import { handleChat } from '../actions/agent';
 import { findCompanyURLByNameLogoDev } from '../task_processor';
 import { compareTwoStrings } from '../actions/SharedTransforms';
+import { replicateWorkflow } from '../workflow';
+import Organization from '../model/Organization';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -31,12 +33,12 @@ async function userCanAccessPrimitive(primitive, req, res){
             res.status(401).json({message: "Permission denied"})
             return false
         }
-        return true
+        return realPrim
     }
     if( req.user ){
         if( req.user.workspaceIds ){
             if( req.user.workspaceIds.includes(primitive.workspaceId)){
-                return true
+                return primitive
             }
         }
     }
@@ -630,8 +632,13 @@ router.post('/set_field', async function(req, res, next) {
     let data = req.body
     console.log(`${data.receiver} - ${data.field} = ${data.value}`)
     let result
+    let primitive = await userCanAccessPrimitive(data.receiver, req, res) 
 
-    if( !await userCanAccessPrimitive(data.receiver, req, res) ){
+    if( !primitive ){
+        return
+    }
+    if( primitive.replication ){
+        res.status(501).json({message: "Permission denied"})
         return
     }
 
@@ -1040,6 +1047,79 @@ router.get('/primitive/:id/analyzeQuestions', async function(req, res, next) {
         res.status(400).json( {error: err.message})
     }
     
+})
+router.post('/workflow/:id/import/:sourceId', async function(req, res, next) {
+
+    let data = req.body
+    const targetWorkspaceId = req.params.id
+    const sourceFlowId = req.params.sourceId
+    const options = req.body
+    try{
+        let result
+        const user = await User.findOne({_id: req.user?._id, workspaces: {$in: targetWorkspaceId}})
+        if( !user ){
+            throw "Permission denied"
+        }
+        const primitive = await fetchPrimitive(sourceFlowId)
+        if( !primitive?.published?.public){
+            throw "Permission denied 2a"
+        }
+        
+        try{
+            const workspace = await Workspace.findOne({_id: targetWorkspaceId })
+            if( workspace ){
+                console.log(`clone ${primitive.id} to ${targetWorkspaceId}`)
+                result = await replicateWorkflow( primitive, workspace)
+            }
+        }catch(e){
+            console.log(`Error cloning workflow ${primitive.id} to ${targetWorkspaceId}`, e)
+        }
+        if( result && result.error ){
+            res.json({success: false, error: result.error})
+        }else{
+            res.json({success: true, result: result})
+        }
+    }catch(error){
+        console.log(error)
+        res.status(501).json({message: "Error", error: error})
+    }
+})
+router.get('/organizations', async function(req, res, next) {
+    const userId = req.user?._id
+    try{
+        if( userId ){
+            const organizations = await Organization.find({
+                members: {
+                    $elemMatch: { user: ObjectId(userId) }
+                }
+            })
+            const data = organizations.map(d=>{
+                const role = (d.members ?? []).find(d=>d.user.toString() === userId)?.role
+                const includeBilling = role === "owner" || role === "admin"
+                const includeUsage = role === "owner" || role === "admin"
+                const includePlan = role === "owner" || role === "admin"
+
+                const out = d.toJSON()
+                if( !includeBilling){ delete out["billing"]}
+                if( !includePlan){ delete out["plan"]}
+                if( !includeUsage){ delete out["usage"]}
+
+
+                out.id = out._id.toString()
+                out.members = out.members.map(d=>({userId: d.user.toString(), role: d.role}))
+                out.workspaces = out.workspaces.map(d=>d.toString())
+
+                delete out["_id"]
+                return out
+            })
+            res.json(data)
+            return 
+        }
+        res.status(501).json({message: "Permission denied"})
+    }catch(error){
+        console.log(error)
+        res.status(501).json({message: "Error", error: error})
+    }
 })
 
 

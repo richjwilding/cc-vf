@@ -1471,6 +1471,16 @@ export async function analyzeText(text, options = {}){
     }
     return {success: true, response: interim}
 }
+
+const MAX_EMBED_TOKENS = 8192;
+
+function truncateToMaxTokens(text) {
+  const toks = encode(text);
+  if (toks.length <= MAX_EMBED_TOKENS) return text;
+  const truncated = toks.slice(0, MAX_EMBED_TOKENS);
+  return decode(truncated);
+}
+
 export async function buildEmbeddings( text, attempt = 3 ){
     if( !text ){
         return {success: true, embeddings: undefined}
@@ -1479,9 +1489,10 @@ export async function buildEmbeddings( text, attempt = 3 ){
     if( !text ){
         return {success: true, embeddings: undefined}
     }
-
-    try{
-        
+    text = text.trim();
+    text = truncateToMaxTokens(text);
+    
+    try{   
         const openai = new OpenAI({
             apiKey: process.env.OPEN_API_KEY,
             timeout: 5000,

@@ -1,10 +1,11 @@
 import { child } from 'winston';
 import { BaseQueue } from './base_queue';
 import { getLogger } from './logger';
-import { addRelationship, dispatchControlUpdate, fetchPrimitive, getConfig, primitiveParentsOfType, removeRelationship } from './SharedFunctions';
-import { runFlow, runFlowInstance, scaffoldWorkflow, runStep } from './workflow';
+import { addRelationship, dispatchControlUpdate, fetchPrimitive, getConfig, primitiveOrigin, primitiveParentsOfType, removeRelationship } from './SharedFunctions';
+import { runFlow, runFlowInstance, scaffoldWorkflow, runStep, flowInstanceStepsStatus } from './workflow';
+import Primitive from './model/Primitive';
 
-const logger = getLogger('case-queue'); // Debug level for moduleA
+const logger = getLogger('flow-queue', "debug"); // Debug level for moduleA
 
 export async function processQueue( job, cancelCheck ){
     const primitive = await fetchPrimitive( job.data.id )
@@ -35,14 +36,37 @@ class FlowQueueClass extends BaseQueue {
         super('flow', undefined, 3); // Call the base constructor with queue name and options
 
         this.registerNotification("run_flow_instance", async (primitive, result, mode, parentJob)=>{
-            if( result.success === true){
+            if( result.started ){
+                console.log(`Flow instance ${primitive.id} / ${primitive.plainId} started notification`)
+                return
+            }
+
+            console.log(`Flow instance ${primitive.id} / ${primitive.plainId} finished all allocated steps for iteration`)
+            /*if( result.success === true){
                 if( primitive.processing?.flow.last_run?.steps ){
                     console.log(`Flow instance ${primitive.plainId} finished step`)
-                    console.log(`------------------------------------------------------------\n---------- CHECKING FOR NEXT STEP IN FLOW WITHIN CURRENT JOB\n------------------------------------------------------------`)
                     
                     await this._queue.invokeWorkerJob({ id: primitive.id, mode: "run_flow_instance", field:  "processing.run_flow_instance"}, parentJob, {nextStep: true, workspaceId: primitive.workspaceId})
 
                     return {keepAlive: true}
+                }else if( primitive.processing?.flow.last_run?.still_running ){
+                    console.log(`Flow instance ${primitive.plainId} still running - check for new steps`)
+                    try{
+                        logger.info(`Looking for follow-on steps for ${primitive.id}`)
+                        const flowInstance = await fetchPrimitive( primitiveOrigin(primitive) )
+                        if( flowInstance.type === "flowinstance"){
+                            const stepStatus = await flowInstanceStepsStatus( flowInstance )
+                            const stepsToRun = stepStatus.filter(d=>d.can && d.need && !d.running)
+                            if( stepsToRun.length > 0){
+                                logger.info(`Found new steps (non fast follow-on) - invoking run_flow_instance`)
+                                await this._queue.invokeWorkerJob({ id: primitive.id, mode: "run_flow_instance", field:  "processing.run_flow_instance"}, parentJob, {nextStep: true, workspaceId: primitive.workspaceId})
+                                return {keepAlive: true}
+                            }
+                        }
+                    }catch(err){
+                        logger.error(`Exception thrown looking for next steps post flow completion ${primitive.id}`, err)                    
+                    }
+
                 }else{
                     console.log(`Flow instance ${primitive.plainId} finished last step`)
                     const update = {
@@ -52,11 +76,36 @@ class FlowQueueClass extends BaseQueue {
                     }
                     primitive = await dispatchControlUpdate(primitive.id, "processing.flow", update)
                 }
+            }*/
+        })
+        this.registerChildNotification("run_flow_instance", async (primitive, child, result, childMode, parentMode, parentJob)=>{
+            if( primitive.type === "flowinstance"){
+                logger.debug(`Step finished in flowinstance ${primitive.id} [run_flow_instance] - ${child?.id} [${childMode}] chaining check for next steps`)
+                if(!result.started){
+                    const counter = result.error ? "error_steps" : "completed_steps"
+                    await Primitive.updateOne(
+                        { _id: primitive },
+                        { $inc: { [`processing.flow.audit.${counter}`]: 1 }}
+                    );
+                }
+
+                try{
+                    //   const flowInstance = await fetchPrimitive( primitiveOrigin(primitive) )
+                    await this._queue.invokeWorkerJob({ id: primitive.id, mode: "run_flow_instance", field:  "processing.run_flow_instance"}, parentJob, {nextStep: true, workspaceId: primitive.workspaceId})
+                }catch(err){
+                    logger.error(`Exception thrown looking for fast follow steps ${primitive.id}`, err)                    
+                }
             }
         })
         this.registerNotification("run_step", async (primitive, result, mode, parentJob)=>{
+            if( result.started ){
+                console.log(`Step ${primitive.id} ${primitive.plainId} started notification`)
+                return
+
+            }
+            console.log(`Step ${primitive.id} ${primitive.plainId} finished ${result.success === true} ${!result.error}`)
             if( result.success === true){
-                console.log(`Step ${primitive.id} ${primitive.plainId} finished`)
+                
                 const update = {
                     ...primitive.processing?.flow,
                     status: "complete"
@@ -99,13 +148,21 @@ class FlowQueueClass extends BaseQueue {
                 await dispatchControlUpdate(primitive.id, "processing.flow", update)
                 
             }else{
-
+                if( result.error){
+                    // Exception thrown rather than graceful error handlie 
+                    console.log(`Step ${primitive.id} ${primitive.plainId} finished with exception`)
+                    const update = {
+                        ...primitive.processing?.flow,
+                        status: "error"
+                    }
+                    await dispatchControlUpdate(primitive.id, "processing.flow", update)
+                }
             }
         })
         this.registerChildNotification("run_step", async (primitive, child, result, childMode)=>{
             if( primitive && child){
                 if( primitive.id !== child.id ){
-                    console.log(`Step ${primitive.id} / ${primitive.plainId} finished for child ${child.id} / ${child.plainId} (${childMode})`)
+                    console.log(`Step ${primitive.id} / ${primitive.plainId} [run_step] finished for child ${child.id} / ${child.plainId} (${childMode})`)
 
                     let existingRels = (child.parentPrimitives?.[primitive.id] ?? []).filter(d=>d === "done" || d === "fail")
                     let targetRel
@@ -138,6 +195,16 @@ class FlowQueueClass extends BaseQueue {
                     if( targetRel ){
                         await addRelationship(primitive.id, child.id, targetRel)
                         logger.debug(`-- ${primitive.id} => ${child.id} : ${targetRel}`)
+                    }
+                }else{
+                    if( primitive.type === "flowinstance" ){
+                        logger.debug(`Flowinstance primitive completed child action ${childMode} `)
+                        if( childMode === "run_flow_instance" ){
+                            logger.debug(` -- Nested flow ${primitive.id} completed in run_step`)
+                            if( primitive.processing?.flow?.status !== "complete"){
+                                return {keepAlive: true}
+                            }                                
+                        }
                     }
                 }
             }
@@ -180,8 +247,22 @@ class FlowQueueClass extends BaseQueue {
 
     async runStep(primitive, options) {
         const field = "processing.run_step";
-
-        await this.addJob(primitive.workspaceId, { id: primitive.id, mode: "run_step", options, field });
+        const lockStepForExecution = await Primitive.updateOne(
+            {
+                _id: primitive.id,
+                workspaceId: primitive.workspaceId,
+                $or:[
+                    {"processing.run_step.flowStarted": {$ne: options.flowStarted}}
+                ]
+            },{
+                $set: {"processing.run_step.flowStarted": options.flowStarted}
+            }
+        )
+        if( lockStepForExecution.modifiedCount > 0 ) {
+            await this.addJob(primitive.workspaceId, { id: primitive.id, mode: "run_step", updateFields: {flowStarted: options.flowStarted}, options, field });
+        }else{
+            logger.debug(`Could not secure lock for ${primitive.id} for run_step`)
+        }
     }
 }
 

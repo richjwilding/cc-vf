@@ -2,7 +2,7 @@ import { combineGroupsToChunks, expandFragmentsForContext, extractSentencesAndKe
 import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
 import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
-import { findFilterMatches, modiftyEntries } from "./actions/SharedTransforms";
+import { compareTwoStrings, findFilterMatches, modiftyEntries } from "./actions/SharedTransforms";
 import { lookupCompanyByName } from "./crunchbase_helper";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
 import { getLogger } from "./logger";
@@ -382,10 +382,12 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
     
     logger.debug(config)
     logger.info(`Got ${segments.length} target segments and ${currentAggregators.length} aggregators`)
+    const matchedAggregations = []
     
     for( const segment of segments){
         let existing = config.split ? undefined : currentAggregators.find(d=>Object.keys(d.parentPrimitives).includes(segment.id))
         if( existing ){
+            matchedAggregations.push( existing.id )
             if( !options.force ){
                 if( existing.referenceParameters?.summary){
                     logger.debug(`Skipping existing item`)
@@ -424,6 +426,11 @@ export async function baselineItemProcess( parent, primitive, options = {}, exec
             }
         }
         
+    }
+    const orphanAggregations = currentAggregators.filter(d=>!matchedAggregations.find(d2=>d.id === d2))
+    logger.debug(`-- Have ${orphanAggregations.length} orphan aggregations to remove`)
+    for(const d of orphanAggregations){
+        await removePrimitiveById( d )
     }
     if( execOptions.primitivesOnly ){
         return out
@@ -1210,6 +1217,28 @@ export async function loopkupOrganization( value, referenceCategory, workspaceId
         console.log(`created new ${newPrim?.id}`)
         return newPrim
     }
+}
+export async function companyLogoURL( {name, domain}, context){
+    let key = process.env.LOGODEV_KEY_PK
+    if( !domain ){
+            const { data } = await axios.get('https://api.logo.dev/search', {
+                params: { q: name },
+                headers: {
+                    'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
+                }
+            });
+            const scored  = data.map(d=>[d, compareTwoStrings(d.name.toLowerCase(), name.toLowerCase())]).sort((a,b)=>b[1] - a[1])
+            const sorted = scored.filter(d=>d[0].domain)
+            
+            const winner = sorted[0][0]
+            if( winner?.domain  ){                
+                domain = winner.domain
+                key = process.env.LOGODEV_KEY
+            }else{
+                return res.status(400).send('Couldnt find a match');
+            }
+    }
+    return `https://img.logo.dev/${domain}?token=${key}`
 }
 export async function findCompanyURLByNameLogoDev( name, context = {}){
     try{

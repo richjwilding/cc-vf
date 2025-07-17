@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PrimitiveCard } from '../PrimitiveCard';
-import MainStore from '../MainStore';
+import MainStore, { uniquePrimitives } from '../MainStore';
 import { Table } from '../Table';
 import MarkdownEditor from '../MarkdownEditor';
 import { HeroIcon } from '../HeroIcon';
@@ -75,7 +75,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
             }else if( output?.config === "primitive"){
               if( output.data?.length > 0){
                 empty = false
-                tableData = output.data
+                tableData = uniquePrimitives( output.data)
               }
             }
           }
@@ -85,7 +85,9 @@ export function FlowContent({ primitives, axisData, ...props }) {
           //empty = false
         }
       }
-      if( tableData ){
+      if( primitive.type == "page"){
+        thisContent = <p>RenderPage</p>
+      }else if( tableData ){
         if(tableData.length === 1){
           thisContent = <>
             <PrimitiveCard variant={true} primitive={tableData[0]} title={false}/>
@@ -171,15 +173,17 @@ export function FlowContent({ primitives, axisData, ...props }) {
               const primitive = d.primitive.configParent ?? d.primitive
               const showRetry = name === "child_error" || name === "error"
               let innerContent
+              const progress = d.primitive.progress
 
               if( (primitive.type === "search" && d.primitive.primitives.config.allIds.length > 0)){
                 const nestedSearches = d.primitive.primitives.config.allItems
                 innerContent = <div className='flex flex-col text-sm w-full'>
-                  <span className='font-semibold'>{primitive.title}</span>
+                  <span className='font-semibold'>{primitive.title}{progress ? ` - ${progress}` : ""}</span>
                   <ul class="list-disc list-outside pl-6 w-full">
                     {nestedSearches.map(d=>{
-                      const hasError = d.processing.query.error
+                      const hasError = d.processing.query?.error
                       const overrideTextColor = showRetry && !hasError
+                      
                       if( hasError ){
                         return <li>
                         <span className='flex flex-col w-full my-1'>
@@ -196,7 +200,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
                       return <li className={clsx(overrideTextColor ? "marker:text-slate-500" : "")}>
                           <span className={clsx('flex w-full justify-between', overrideTextColor ? "text-slate-500" : "")}>
                             <p>Search for {d.searchFor?.title}</p>
-                            <p className='mr-2'>{d.primitives.origin.allUniqueIds.length} items</p>
+                            {d.processing?.query?.status === "pending" ? <p className='mr-2'>Queued</p>: <p className='mr-2'>{d.progressStats?.totalCount ?? 0} items</p>}
                           </span>
                           </li>
                       })}
@@ -205,12 +209,18 @@ export function FlowContent({ primitives, axisData, ...props }) {
               }else{
                 innerContent = <>
                   <div className='flex flex-col'>
-                    <span className='text-sm font-semibold'>{primitive.title}</span>
+                    <span className='text-sm font-semibold'>{primitive.title}{progress ? ` - ${progress}` : ""}</span>
                     <span className='text-md'>{d.childErrors?.map(d=>d.error).filter((d,i,a)=>a.indexOf(d)===i).join(", ")}</span>
                   {showRetry && <div className='flex w-full justify-end flex space-x-2 mb-2'>
                     {d.severity === "rerun" && <Button variant="flat" size="sm" onPress={()=>d.primitive.setFlow("error")}>Marked for retry</Button>}
                     {d.severity === "error" && <Button variant="bordered" size="sm" onPress={()=>d.primitive.setFlow("rerun")}>Mark to retry</Button>}
-                    <Button variant="bordered" size="sm">Run from here</Button>
+                    <Button 
+                      onPress={()=>{
+                        const flowInstance = d.primitive.findParentPrimitives({type: ["flowinstance"]})[0]
+                        MainStore().doPrimitiveAction(flowInstance, "run_flowinstance_from_step", {from: d.primitive?.id, force: true})
+                      }}
+                      variant="bordered" 
+                      size="sm">Run from here</Button>
                   </div>}
                   </div>
                   {!showRetry && <p className='text-sm'>{title}</p>}
@@ -277,7 +287,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
               >{content}</Accordion>}
       </div>
       
-      {false && <button
+      {true && <button
         type="button"
         className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
         onClick={() => {

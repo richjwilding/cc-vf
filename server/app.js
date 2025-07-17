@@ -25,6 +25,7 @@ import { fetchPrimitive } from './SharedFunctions';
 import { body, validationResult } from 'express-validator'
 import { updateBrightDataWhitelist } from './brightdata';
 import NodeCache from 'node-cache'
+import Organization from './model/Organization';
 
 
 export const userCache = new NodeCache({ stdTTL: 300, checkperiod: 60 })
@@ -360,8 +361,6 @@ app.use('/api', apiRouter);
 app.get("/google/failed", (req, res) => {
   res.send("Failed")
 })
-
-
 
 app.get('/api/refresh', async (req, res) => {
     let user = req.user
