@@ -10,6 +10,7 @@ import { SIO } from "./socket";
 import PrimitiveConfig from "./PrimitiveConfig";
 import User from "./model/User";
 import Organization from "./model/Organization";
+import { findOrganizationForWorkflowAllocation, recordCreditUsageEvent } from "./CreditHandling";
 var ObjectId = require('mongoose').Types.ObjectId;
 
 
@@ -106,81 +107,6 @@ registerAction("create_flowinstance", {id: "flow"}, async (p,a,o)=>{
 
 const logger = getLogger('workflow', 'debug'); // Debug level for moduleA
 
-async function findOrganizationForWorkflowAllocation( flowInstance, {userInstantiated, ...details} ){
-    userInstantiated ||= flowInstance.processing?.flow?.instantiatedBy
-    const instantiatedForOrganizationId = flowInstance.processing?.flow?.instantiatedForOrganizationId
-    if( !userInstantiated ){
-        logger.info(`Flowinstance ${flowInstance.id} doesnt have any instaniation data`)
-        return undefined
-    }
-
-    const orgs = await Organization.find({ 'members.user': userInstantiated })
-    let chargeToOrg = orgs.find(d=>d._id.toString() === instantiatedForOrganizationId) 
-    if( !chargeToOrg){
-        logger.info(`User doesnt belong to org ${instantiatedForOrganizationId} that this flow was instantiated for (is a member of ${orgs.map(d=>d.id).join(", ")})`)
-    }
-    if( !chargeToOrg ){
-        chargeToOrg = orgs[0]
-        if( orgs.length > 1){
-            logger.info(`User belongs to multiple organizations - charging ${flowInstance.id} to ${chargeToOrg.id}`)
-        }
-    }
-    if( !chargeToOrg ){
-        logger.error(`Couldnt charge for ${flowInstance.id} for user ${userInstantiated} - couldnt find org`)
-    }
-    return chargeToOrg
-}
-
-async function recordCreditUsageEvent( organization, {userId, targetId, delta, message}){
-    /*await Organization.updateOne(
-        {
-            _id: organization.id
-        },
-        {
-            $push: {usage: {
-                timestamp: new Date().toISOString(),
-                userId,
-                targetId,
-                delta,
-                message
-            }},
-            $inc: {
-                credits: delta
-            }
-        }
-    )*/
-     const now = new Date().toISOString();
-
-    await Organization.updateOne(
-        { _id: organization.id },
-        [
-            {
-                $set: {
-                    credits: { $add: ["$credits", delta] }
-                }
-            },
-            {
-                $set: {
-                usage: {
-                    $concatArrays: [
-                    "$usage",
-                    [
-                        {
-                            timestamp: now,
-                            userId,
-                            targetId,
-                            delta,
-                            message,
-                            post: "$credits"     // <-- now refers to the updated field
-                        }
-                    ]
-                    ]
-                }
-                }
-            }
-        ]   
-    )
-}
 
 async function preWorkflowInstanceActions( flowInstance, {userInstantiated, ...details} ){
     logger.info(`Flowinstance ${flowInstance.id} / ${flowInstance.plainId} completed all steps (initiated by ${userInstantiated})`)

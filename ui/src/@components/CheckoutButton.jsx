@@ -5,15 +5,16 @@ import { Button } from '@heroui/react'; // or your HeroUI button
 
 const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY);
 
-export default function CheckoutButton({ priceId, email }) {
+export default function CheckoutButton({ priceId, isDisabled, ...props }) {
   const [loading, setLoading] = useState(false);
+
 
   const handleClick = async () => {
     setLoading(true);
     const res = await fetch('/stripe/create-checkout-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ priceId, customerEmail: email }),
+      body: JSON.stringify({ priceId }),
     });
     const { sessionId } = await res.json();
     const stripe = await stripePromise;
@@ -22,7 +23,7 @@ export default function CheckoutButton({ priceId, email }) {
   };
 
   return (
-    <Button onClick={handleClick} disabled={loading} className="mt-4">
+    <Button onPress={handleClick} isDisabled={ loading || isDisabled} className="mt-4" {...props}>
       {loading ? 'Redirecting…' : 'Subscribe'}
     </Button>
   );

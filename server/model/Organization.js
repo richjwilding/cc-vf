@@ -59,15 +59,7 @@ const OrganizationSchema = new Schema({
       default: false,
     },
   },
-  billing: {
-    cost: {
-      type: Number,
-    },
-    stripe: {
-      type: String,
-      trim: true,
-    },
-  },
+  billing: {},
 }, {
   timestamps: true, // adds createdAt / updatedAt
   strict: false

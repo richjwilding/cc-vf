@@ -1,5 +1,5 @@
 import React, { Fragment, useEffect, useMemo, useReducer, useState } from "react";
-import {Card, CardHeader, CardBody, Button, Avatar, Tabs, Tab, Chip, Divider, DropdownMenu, Dropdown, DropdownTrigger, Input, DropdownItem} from "@heroui/react";
+import {Card, CardHeader, CardBody, Button, Avatar, Tabs, Tab, Chip, Divider, DropdownMenu, Dropdown, DropdownTrigger, Input, DropdownItem, RadioGroup, Badge} from "@heroui/react";
 import MainStore from "./MainStore";
 import { useNavigate, useParams } from "react-router-dom";
 import useDataEvent from "./CustomHook";
@@ -15,8 +15,12 @@ import {
   parseISO,
   addMonths,
   startOfToday,
+  addHours,
 } from 'date-fns'
 import CheckoutButton from "./@components/CheckoutButton";
+import BillingPortalButton from "./@components/BillingPortalButton";
+import PlanRadio from "./@components/plan-radio";
+import { main } from "@popperjs/core";
 
  const permissionLabels = {
     "viewer": "Viewer",
@@ -34,6 +38,7 @@ export default function AccountScreen(props){
     const [companyName, setCompanyName] = useState( mainstore.activeOrganization?.name )
     const [organizationUsage, setOrganizationUsage] = useState(false)
     const [selectedKeys, setSelectedKeys] = React.useState(new Set(["viewer"]));
+    const [localActivePlanId, setLocalActivePlanId] = React.useState( mainstore.activeOrganization.activePlanId )
 
     const organizationInfo = mainstore.activeOrganization ?? []
     const planInfo = organizationInfo.plan ?? {}
@@ -56,7 +61,7 @@ export default function AccountScreen(props){
             const dates = usage.map(d=>d.timestamp).filter(Boolean)
             const parsed = dates.map(parseISO).sort((a, b) => a - b)
             
-            const fmt = 'yyyy-MM-dd HH:mm'
+            const fmt = 'yyyy-MM-dd HH'
             
             // bucket counts
             const counts = usage.reduce((acc, d) => {
@@ -68,7 +73,7 @@ export default function AccountScreen(props){
             
             // build full day range
             const from = parsed[0]
-            const to   = addMinutes(parsed[parsed.length - 1],1)
+            const to   = addHours(parsed[parsed.length - 1],1)
             if(from && to ){
                 let d = from
                 const data = []
@@ -77,7 +82,7 @@ export default function AccountScreen(props){
                         name:   format(d, fmt),
                         count: counts[format(d, fmt)] || 0
                     })
-                    d = addMinutes(d, 1)
+                    d = addHours(d, 1)
                 }
                 return data
             }
@@ -109,7 +114,7 @@ export default function AccountScreen(props){
     const daysAway = differenceInCalendarDays(next, today)
     const nextRenewal = new Date(2000, 0, planInfo.renews_day)
 
-    const renewMesage = `Renews on the ${format(nextRenewal, "do")} of each month  (${daysAway} ${daysAway > 1 ? "days" : "day"} away)`
+    //const renewMesage = `Renews on the ${format(nextRenewal, "do")} of each month  (${daysAway} ${daysAway > 1 ? "days" : "day"} away)`
 
     return ( 
     <div className="flex h-full  w-full items-start justify-center overflow-scroll">
@@ -140,27 +145,27 @@ export default function AccountScreen(props){
                         onChange={value => setCompanyName(value)}
                         placeholder="Enter Company"
                     />
-                    <Button size="sm" isDisabled variant="flat" className="place-self-end">Update</Button>
+                    <Button size="sm" isDisabled variant="flat" fullWidth={true} className="place-self-end">Update</Button>
                     <Divider className="col-span-3 my-3"/>
-                    <p className="text-small text-default-500">Plan</p>
-                    <ul>
-                        <li className="flex items-center gap-1">
-                            <p className="text-small text-default-600">
-                                {planInfo.name}
-                            </p>
-                        </li>
-                        <li className="flex items-center gap-1">
-                            <p className="text-small text-default-500">
-                                {renewMesage}
-                            </p>
-                        </li>
-                        <li className="flex items-center gap-1">
-                            <p className="text-small text-default-500">
-                                {planInfo?.credits} credits ({organizationInfo?.credits} remaining)
-                            </p>
-                        </li>
-                    </ul>
-                    <Button size="sm" isDisabled variant="flat">Change</Button>
+                    <p className="text-small text-default-500 row-span-2">Plan</p>
+
+                    <RadioGroup aria-label="Plans" classNames={{wrapper: "gap-3"}} value={localActivePlanId} onValueChange={setLocalActivePlanId}>
+                        {(mainstore.activeOrganization?.validPlans ?? []).map(plan=>
+                            <PlanRadio
+                                description={plan.featureDescription}
+                                current={mainstore.activeOrganization.activePlanId === plan._id}
+                                icon={
+                                    <Icon className="text-secondary" icon="solar:box-minimalistic-linear" width={18} />
+                                }
+                                label={plan.name}
+                                monthlyPrice={plan.price}
+                                value={plan._id}
+                            />
+                        )}
+                    </RadioGroup>
+
+                    <CheckoutButton isDisabled={true} size="sm"/>
+                    {mainstore.activeOrganization.billing?.stripe?.subscriptionId &&  <BillingPortalButton/>}
                     <Divider className="col-span-3 my-3"/>
                     <p className="text-small text-default-500">Users</p>
                     <div className="">
@@ -220,15 +225,6 @@ export default function AccountScreen(props){
                         </div>
                     </div>
                     <Button size="sm" isDisabled variant="flat" className="mt-[1.375rem]">Invite</Button>
-                    <Divider className="col-span-3 my-3"/>
-                    <p className="text-small text-default-500">Billing</p>
-                    <CheckoutButton/>
-                    <Button color="secondary" variant="ghost" className='col-span-2' startContent={
-                            <Icon icon="fa-brands:cc-stripe" className="w-6 h-6"/>
-                        }>
-
-                        Manage payment with Stripe
-                    </Button>
                     <Divider className="col-span-3 my-3"/>
                     <p className="text-small text-default-500">Usage</p>
                     <ResponsiveContainer width="100%" height={300} className="col-span-2">

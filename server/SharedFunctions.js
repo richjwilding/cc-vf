@@ -35,6 +35,7 @@ import mongoose, { Types } from 'mongoose';
 import { reviseUserRequest } from './prompt_helper.js';
 import Workspace from './model/Workspace.js';
 import User from './model/User.js';
+import Organization from './model/Organization.js';
 
 const logger = getLogger('sharedfn', "debug"); // Debug level for moduleA
 
@@ -5926,4 +5927,121 @@ async function doStep(data, step, scope, cache){
     }
     return out
     
+}
+export async function getOrganizationsWithSubscription( orgId){
+    return (await queryOrganizationsWithSubscriptionPlans( 
+        { _id: orgId },
+    ))?.[0]
+
+}
+export async function getOrganizationsWithSubscriptionPlans( userId ){
+    const organizations = await queryOrganizationsWithSubscriptionPlans( 
+        // 1) only the orgs this user belongs to
+        { $match: { "members.user": ObjectId(userId) } },
+    )
+     const data = organizations.map(d=>{
+                const role = (d.members ?? []).find(d=>d.userId === userId)?.role
+                const includeBilling = role === "owner" || role === "admin"
+                const includeUsage = role === "owner" || role === "admin"
+                const includePlan = role === "owner" || role === "admin"
+
+                const out = d
+                if( !includeBilling){ delete out["billing"]}
+                if( !includePlan){ delete out["plan"]}
+                if( !includeUsage){ delete out["usage"]}
+
+
+                out.id = out._id
+                
+                delete out["_id"]
+                return out
+            })
+    return data
+
+}
+async function queryOrganizationsWithSubscriptionPlans( query ){
+    try{
+        const orgs = await Organization.aggregate([
+            query,
+
+        // 2) join in only active plans that either have no restrictions or include this org
+        {
+            $lookup: {
+            from: "subscriptionplans",
+            let: { orgId: "$_id" },
+            pipeline: [
+                { $match: { status: "live" } },
+                {
+                $match: {
+                    $expr: {
+                    $or: [
+                        { $not: [ "$restrictions" ] },
+                        { $in: [ "$$orgId", "$restrictions.organizations" ] }
+                    ]
+                    }
+                }
+                }
+            ],
+            as: "validPlans"
+            }
+        },
+        {
+            $lookup: {
+                from: "subscriptionplans",
+                localField: "activePlanId",   // the field on your org docs
+                foreignField: "_id",
+                as: "activePlanArray"
+            }
+        },
+        {
+            $unwind: {
+                path: "$activePlanArray",
+                preserveNullAndEmptyArrays: true
+            }
+        },
+        // rename it from “activePlanArray” → “activePlan”
+        {
+            $addFields: {
+                activePlan: "$activePlanArray"
+            }
+        },
+
+        // 3) project out what the client needs, plus compute include flags
+        {
+            $project: {
+            _id: 0,
+            id: { $toString: "$_id" },
+            name: 1,
+            members: {
+                $map: {
+                input: "$members",
+                as: "m",
+                in: { userId: { $toString: "$$m.user" }, role: "$$m.role" }
+                }
+            },
+            workspaces: {
+                $map: {
+                input: "$workspaces",
+                as: "w",
+                in: { $toString: "$$w" }
+                }
+            },
+            billing: 1,
+            plan: 1,
+            usage: 1,
+            avatarUrl: 1,
+            companyUrl: 1,
+            validPlans: 1,
+            activePlanId: { $toString: "$activePlanId" },
+            activePlan: 1
+        },
+
+        },
+
+        ]);
+        return orgs
+    }catch(e){
+        logger.error(`Error in getSubscriptionPlans`, e, query)
+
+    }
 }

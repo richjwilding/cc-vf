@@ -9,7 +9,7 @@ import Primitive from '../model/Primitive';
 import PrimitiveParser from '../PrimitivesParser';
 import { Storage } from '@google-cloud/storage';
 import { buildEmbeddingsForPrimitives, getDocument, getDocumentAsPlainText, importGoogleDoc, locateQuote, removeDocument, replicateURLtoStorage } from '../google_helper';
-import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge, fetchPrimitives, DONT_LOAD, executeConcurrently, DONT_LOAD_UI, createWorkspace, updateWorkspace} from '../SharedFunctions'
+import {createPrimitive, flattenPath, doPrimitiveAction, removeRelationship, addRelationship, removePrimitiveById, dispatchControlUpdate, euclideanDistance, primitiveChildren, primitiveDescendents, cosineSimilarity, primitiveOrigin, queueStatus, queueReset, updateFieldWithCallbacks, fetchPrimitive, recoverPrimitive, doPurge, fetchPrimitives, DONT_LOAD, executeConcurrently, DONT_LOAD_UI, createWorkspace, updateWorkspace, getOrganizationsWithSubscriptionPlans} from '../SharedFunctions'
 import { encode } from 'gpt-3-encoder';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
@@ -20,6 +20,7 @@ import { findCompanyURLByNameLogoDev } from '../task_processor';
 import { compareTwoStrings } from '../actions/SharedTransforms';
 import { replicateWorkflow } from '../workflow';
 import Organization from '../model/Organization';
+import SubscriptionPlan from '../model/SubscriptionPlan';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -1088,7 +1089,7 @@ router.post('/workflow/:id/import/:sourceId', async function(req, res, next) {
         res.status(501).json({message: "Error", error: error})
     }
 })
-router.get('/organizations', async function(req, res, next) {
+/*router.get('/organizations', async function(req, res, next) {
     const userId = req.user?._id
     try{
         if( userId ){
@@ -1124,7 +1125,20 @@ router.get('/organizations', async function(req, res, next) {
         console.log(error)
         res.status(501).json({message: "Error", error: error})
     }
-})
+})*/
+router.get('/organizations', async (req, res) => {
+  const userId = req.user?._id;
+  if (!userId) return res.status(401).json({ message: "Permission denied" });
+
+  try {
+    const orgs = await getOrganizationsWithSubscriptionPlans( userId )
+
+    res.json(orgs);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error", error: err });
+  }
+});
 
 
 

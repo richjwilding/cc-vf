@@ -153,7 +153,6 @@ setRefreshTokenHandler(refresh)
 var app = express();
 
 app.use('/stripe', stripeWebhooks);
-app.use('/stripe', stripeCheckout);
 
 updateBrightDataWhitelist()
 
@@ -192,6 +191,8 @@ app.use(bodyParser.json());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
+
+app.use('/stripe', stripeCheckout);
 
 app.use((req, res, next) => {
     if (req.url.endsWith('.wasm')) {
