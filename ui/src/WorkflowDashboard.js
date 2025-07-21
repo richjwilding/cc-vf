@@ -24,7 +24,14 @@ export default function WorkflowDashboard(props){
 
     const {id} = useParams()
 
-    MainStore().loadActiveWorkspace( id)
+    if( id ){
+        MainStore().loadActiveWorkspace( id)
+    }else{
+        if( MainStore().activeWorkspaceId ){
+            navigate(`/workflows/${id}`)
+        }
+    }
+    
 
 
     const filterForWorksapce = (array)=>{

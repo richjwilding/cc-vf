@@ -143,7 +143,7 @@ const actions = {
     flowStatus(d, receiver, obj){
         const root = d.processing?.flow
         return {
-            status: root ? (root.error === "child_error" ? "child_error" : root.status) : "not_executed",
+            status: root ? (root.error === "child_error" ? "child_error" : (root.status === "rerun" ? "complete" : root.status)) : "not_executed",
             ...(receiver.flowErrors ?? {})
         }
     },
@@ -3473,7 +3473,7 @@ function MainStore (prims){
         obj.loadProgress = []
             const status = await fetch('/api/status').then(response => response.json())
             if( !status.logged_in ){
-                if( window.location.pathname !== "/signup" && window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
+                if( window.location.pathname !== "/signup" && !window.location.pathname.startsWith("/reset") && window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
                     window.location.href = "/login"
                 }
                 obj.data.categories = []

@@ -76,7 +76,7 @@ export default function WorkspaceEditor({isOpen, onClose, workspace, newWorkspac
     console.log("reset")
   }, [isOpen, workspace, newWorkspace])
 
-  const { logo: companyLogo, color: companyColor, palette: companyPalette } = useCompanyLogo(company)
+  const { logo: companyLogo, color: companyColor, palette: companyPalette } = useCompanyLogo({company})
   const {gradient} = useSmoothGradient(color, 400);
 
   let logoComponent

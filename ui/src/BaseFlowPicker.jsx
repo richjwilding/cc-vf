@@ -24,16 +24,8 @@ import {
   Tabs,
   Tab,
 } from "@heroui/react";
-import {Icon} from "@iconify/react";
-import TagsInput from "./@components/TagsInput";
-import { useSmoothGradient } from "./@components/SmoothGradient";
-import { useCompanyLogo } from "./@components/CompanyLogo";
-import { DebouncedInput } from "./@components/DebouncedInput";
-import { ColorSelector } from "./@components/ColorSelector";
 import colors from 'tailwindcss/colors';
-import useDataEvent from "./CustomHook";
 import WorkflowCard from "./WorkflowCard";
-import { useNavigate } from "react-router-dom";
 import MainStore from "./MainStore";
 import clsx from "clsx";
 

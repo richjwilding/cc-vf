@@ -4,6 +4,8 @@ import nodemailer from 'nodemailer';
 import User from '../model/User';
 import { body, validationResult } from 'express-validator';
 import passport from 'passport';   
+import Organization from '../model/Organization';
+import { getCompanyInfoFromDomain } from '../task_processor';
 
 
 
@@ -170,20 +172,40 @@ router.post(
       // At this point, newUser.hash & newUser.salt are set behind-the-scenes
 
       // Log them in immediately:
-      req.login(newUser, (err) => {
+      req.login(newUser, async (err) => {
         if (err) {
           console.error('Login after register failed:', err);
           return res.status(500).json({ error: 'Login failed.' });
         }
-        return res.status(201).json({
-          message: 'Registered successfully',
-          user: {
-            _id: newUser._id,
-            email: newUser.email,
-            name: newUser.name,
-            avatarUrl: newUser.avatarUrl,
-          },
-        });
+        try{
+
+          const orgName = `${name.split(" ").at(0) ?? "User"}'s Organization`
+          const domain = normalized.split("@").at(1)
+          const companyInfo = await getCompanyInfoFromDomain( domain )
+          Organization.create({
+            name: companyInfo?.name ?? orgName,
+            companyUrl: domain,
+            avatarUrl: companyInfo?.logo,
+            members: [{
+              user: newUser.id,
+              role: "owner"
+            }]        
+            
+          })
+          return res.status(201).json({
+            message: 'Registered successfully',
+            user: {
+              _id: newUser._id,
+              email: newUser.email,
+              name: newUser.name,
+              avatarUrl: newUser.avatarUrl,
+            },
+          });
+        }catch(err){
+          console.error('Registration error:', err);
+          return res.status(500).json({ error: 'Registration failed.' });
+
+        }
       });
     } catch (err) {
       console.error('Registration error:', err);

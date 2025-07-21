@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Vibrant } from "node-vibrant/browser";
 
-export function useCompanyLogo(company) {
-    const url = `/api/companyLogo?name=${encodeURIComponent(company)}`
+export function useCompanyLogo({company, domain, url: pUrl}) {
+    const url = pUrl ? `/api/remoteImage?url=${encodeURIComponent(pUrl)}` : domain ? `/api/companyLogo?name=${encodeURIComponent(company)}` : `/api/remoteImage?url=${encodeURIComponent(`https://img.logo.dev/${domain}`)}`
   const alt = `${company} logo`
   const [color, setColor] = useState()
   const [palette, setPalette] = useState([])
@@ -12,7 +12,6 @@ export function useCompanyLogo(company) {
     let isMounted = false
     if( company ){
         isMounted = true
-        const url = `/api/companyLogo?name=${encodeURIComponent(company)}`
         
         // 2) Kick off palette extraction when `company` changes
         Vibrant
@@ -36,11 +35,8 @@ export function useCompanyLogo(company) {
     return () => { isMounted = false }
   }, [company])
 
-  if( !company ){
-    return {logo: undefined, color: undefined, palette: []}
-  }
 
-   const logo = { src: url, alt }
+   const logo = url ? { src: url, alt } : undefined
 
   return { logo, color, palette }
 }

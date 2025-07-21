@@ -1,54 +1,66 @@
-import { useMemo, useReducer, useState } from "react"
+import { useEffect, useMemo, useReducer, useState } from "react"
 import MainStore from "./MainStore"
 import { useNavigate, useParams } from 'react-router-dom';
 import useDataEvent from "./CustomHook"
 import { BarChart, Bar, Rectangle, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { eachDayOfInterval, format, parseISO } from "date-fns";
+import { addMinutes, addSeconds, eachDayOfInterval, eachMinuteOfInterval, format, parseISO } from "date-fns";
 
 
 export default function UsageScreen(props){    
     const mainstore = MainStore()
     const navigate = useNavigate()        
-    const [showNew, setShowNew] = useState(false)
+    const [organizationUsage, setOrganizationUsage] = useState(false)
     const {id} = useParams()
     const [update, forceUpdate] = useReducer(x=>x+1)
 
     useDataEvent('new_primitive delete_primitive',undefined, forceUpdate)
     
-    const {workflows, instances} = useMemo(()=>{
-        const workflows = MainStore().primitives().filter((p)=>p.type==="flow" && !p.inFlow)
-        const instances = workflows.flatMap(d=>d.primitives.origin.allFlowinstance)
-        return {workflows, instances}
-    },[update])    
+    useEffect(()=>{
+        fetch(`/api/organizations`,{
+            method: 'get',
+            }).then(d=>d.json()).then(org=>{
+                setOrganizationUsage( org[0] )
+            })
+    },[])    
+
+    console.log(organizationUsage)
 
     const data = useMemo(()=>{
-        let start, end, track = {}
-        const dates = instances.map(d=>d.processing?.flow?.started).filter(Boolean)
-        // parse and sort
-        const parsed = dates.map(parseISO).sort((a, b) => a - b)
+        if( organizationUsage ){
 
-        // bucket counts
-        const counts = parsed.reduce((acc, d) => {
-            const key = format(d, 'yyyy-MM-dd')
-            acc[key] = (acc[key] || 0) + 1
-            return acc
-        }, {})
-
-        // build full day range
-        const from = parsed[0]
-        const to   = parsed[parsed.length - 1]
-        if(from && to ){
-            const allDays = eachDayOfInterval({ start: from, end: to })
+            let start, end, track = {}
+            const usage = organizationUsage.usage ?? []
+            const dates = usage.map(d=>d.timestamp).filter(Boolean)
+            const parsed = dates.map(parseISO).sort((a, b) => a - b)
             
-            const data = allDays.map(d => ({
-                name:   format(d, 'yyyy-MM-dd'),
-                count: counts[format(d, 'yyyy-MM-dd')] || 0
-            }))
-            return data
+            const fmt = 'yyyy-MM-dd HH:mm'
+            
+            // bucket counts
+            const counts = usage.reduce((acc, d) => {
+                const key = format(parseISO(d.timestamp), fmt)
+                //acc[key] = (acc[key] || 0) + d.delta
+                acc[key] = d.post ?? 0
+                return acc
+            }, {})
+            
+            // build full day range
+            const from = parsed[0]
+            const to   = addMinutes(parsed[parsed.length - 1],1)
+            if(from && to ){
+                let d = from
+                const data = []
+                while( d <= to){
+                    data.push({
+                        name:   format(d, fmt),
+                        count: counts[format(d, fmt)] || 0
+                    })
+                    d = addMinutes(d, 1)
+                }
+                return data
+            }
+            return []
         }
-        return []
-
-    }, [instances.map(d=>d.id)])
+    }, [organizationUsage?.usage?.length])
 
 
 

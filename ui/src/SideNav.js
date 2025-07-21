@@ -48,10 +48,7 @@ const navigation = [
 ].filter(Boolean)
 
 function setWorkspace(id){
-  props.setWorkspace(id)
-  if( urlPath.includes("/item/")){
-    navigate("/")
-  }
+  navigate(`/workflows/${id}`)
 }
 
 
@@ -297,7 +294,7 @@ const mainMenu = navigation.map((item) => (
             </nav>
             <div className='flex flex-col !mt-auto space-y-4'>
               <div className='bg-slate-100 rounded-lg p-3 text-slate-700 text-sm border'>
-                <span>Credits:<strong>Unlimited</strong></span>
+                <span>Credits:<strong>{MainStore().activeOrganization?.credits ?? 0}</strong></span>
               </div>
               <UIHelper.Dropdown
                 anchor="top end"

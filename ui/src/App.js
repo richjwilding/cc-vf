@@ -31,6 +31,8 @@ import { PrimitivePopup } from './PrimitivePopup.js';
 import ResetPasswordPage from './ResetPassword.js';
 import ProjectScreen from './ProjectScreen.js';
 import UsageScreen from './UsageScreen.js';
+import { QueuePage } from './QueuePage.jsx';
+import AccountScreen from './AccountScreen.js';
 
 library.add(faTags, faRobot, faTrash, faChevronDown, faLinkedin, faFilter, faCircleInfo, faSpinner, faTriangleExclamation)
 
@@ -183,6 +185,8 @@ function App() {
                 </SideNav>}>
                   <Route path="/workflow/:id/new_instance" element={<FlowInstancePage />}/>
                   <Route path="/usage/" element={<UsageScreen />}/>
+                  <Route path="/account/" element={<AccountScreen/>}/>
+                  <Route path="/queue/:id?" element={<QueuePage />}/>
                   <Route path="/workflows/:id?" element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage}/>}/>
                   <Route path="/item/:id" element={<PrimitivePage key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} primitive={pagePrimitive} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
                   <Route path="/project/:id" element={<ProjectScreen/>}/>

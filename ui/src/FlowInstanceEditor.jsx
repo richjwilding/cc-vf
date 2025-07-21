@@ -25,19 +25,12 @@ import {
   Tab,
   CardFooter,
   Chip,
+  Progress,
 } from "@heroui/react";
-import {Icon} from "@iconify/react";
 import TagsInput from "./@components/TagsInput";
-import { useSmoothGradient } from "./@components/SmoothGradient";
-import { useCompanyLogo } from "./@components/CompanyLogo";
-import { DebouncedInput } from "./@components/DebouncedInput";
-import { ColorSelector } from "./@components/ColorSelector";
 import colors from 'tailwindcss/colors';
-import useDataEvent from "./CustomHook";
-import WorkflowCard from "./WorkflowCard";
 import { useNavigate } from "react-router-dom";
 import MainStore from "./MainStore";
-import clsx from "clsx";
 import { format, parseISO } from "date-fns";
 import { ClockIcon } from "@heroicons/react/24/outline";
 import { SparklesIcon } from "@heroicons/react/20/solid";
@@ -69,7 +62,7 @@ export default function FlowInstanceEditor({flowInstance, isOpen, onClose, ...pr
     const [description, setDescription] = useState('');
     const [status, setStatus] = useState('');
     const [tags, setTags] = useState( []);
-    const [showWorking, setShowWorking] = useState(false)
+    const [showWorking, setShowWorking] = useState( false)
     const [showPicker, setShowPicker] = useState(false)
     const [selectedWorkflow, setSelectedWorkflow] = useState()
     const navigate = useNavigate()        
@@ -83,7 +76,7 @@ export default function FlowInstanceEditor({flowInstance, isOpen, onClose, ...pr
         setStatus(flowInstance?.referenceParameters?.status ?? '');
         setTags(flowInstance?.referenceParameters?.tags ?? []);
         setSelectedWorkflow(flowInstance ? flowInstance.origin : undefined)
-        setShowWorking(false)
+        setShowWorking( false )
     }, [isOpen])
 
     async function importFlowTemplate(p){
@@ -157,6 +150,7 @@ export default function FlowInstanceEditor({flowInstance, isOpen, onClose, ...pr
           {false && <p className="text-small text-default-500">
             Start from a template or create a custom project
           </p>}
+          {showWorking && <Progress isIndeterminate aria-label="Working..." size="sm" />}
         </ModalHeader>
         <ModalBody>
               <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-3">

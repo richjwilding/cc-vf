@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Button, Input, Checkbox, Link, Divider } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { Logo } from "./logo";
+import { useNavigate } from "react-router-dom";
 
 export default function SignUpPage() {
   const [isVisible, setIsVisible] = useState(false);
@@ -27,6 +28,7 @@ export default function SignUpPage() {
 
   const toggleVisibility = () => setIsVisible(!isVisible);
   const toggleConfirmVisibility = () => setIsConfirmVisible(!isConfirmVisible);
+  const navigate = useNavigate()
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -156,6 +158,7 @@ export default function SignUpPage() {
           agreeToTerms: false,
         });
         setIsSuccess(false);
+        navigate(`/`)
       }, 2000);
     } catch (err) {
       console.error("Error calling /auth/register:", err);

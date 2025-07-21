@@ -27,6 +27,10 @@ import { updateBrightDataWhitelist } from './brightdata';
 import NodeCache from 'node-cache'
 import Organization from './model/Organization';
 
+dotenv.config()
+import stripeWebhooks from './stripeWebhooks.js';
+import stripeCheckout from './stripeCheckout.js';
+
 
 export const userCache = new NodeCache({ stdTTL: 300, checkperiod: 60 })
 
@@ -63,7 +67,8 @@ export async function fetchUserProfile(userId) {
     return profile
   }
 
-dotenv.config()
+
+
 
 mongoose.set('strictQuery', false);
 mongoose.connect(process.env.MONGOOSE_URL)
@@ -147,6 +152,9 @@ setRefreshTokenHandler(refresh)
 
 var app = express();
 
+app.use('/stripe', stripeWebhooks);
+app.use('/stripe', stripeCheckout);
+
 updateBrightDataWhitelist()
 
 const session = cookieSession({
@@ -180,7 +188,7 @@ app.use(passport.session());
 app.use(logger('dev'));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-app.use(bodyParser.raw());
+//app.use(bodyParser.raw());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -299,7 +307,7 @@ app.get('/api/status', (req, res) => {
 })
 
 var ensureAuthenticated = async function (req, res, next) {
-    const publicUrls = ['/login', '/signup', '/manifest.json', '/logo192.png'];
+    const publicUrls = ['/login', '/reset', '/signup', '/manifest.json', '/logo192.png'];
     const staticPrefixes = ['/auth','/static/css/', '/static/js/', '/images/'];
   
     if (

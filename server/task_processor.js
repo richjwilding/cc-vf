@@ -1240,6 +1240,14 @@ export async function companyLogoURL( {name, domain}, context){
     }
     return `https://img.logo.dev/${domain}?token=${key}`
 }
+export async function getCompanyInfoFromDomain( domain ){
+    const { data } = await axios.get(`https://api.logo.dev/describe/${domain}`, {
+    headers: {
+        'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
+        }
+    });
+    return data
+}
 export async function findCompanyURLByNameLogoDev( name, context = {}){
     try{
         const { data } = await axios.get('https://api.logo.dev/search', {
@@ -1251,12 +1259,8 @@ export async function findCompanyURLByNameLogoDev( name, context = {}){
         if( context.withDescriptions){
             const withDescriptions = await executeConcurrently(data, async (d)=>{
                 try{
-                    const { data } = await axios.get(`https://api.logo.dev/describe/${d.domain}`, {
-                        headers: {
-                            'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
-                            }
-                        });
-                        return data
+                    return await getCompanyInfoFromDomain(d.domain)
+
                     }catch(e){
                         logger.error(`Error in findCompanyURLByNameLogoDev`, name, context, e)
                         return undefined                        
@@ -2042,10 +2046,16 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                     }else{
 
                         
-                        let combined = activeIds.map(idx => ({
-                            item:      items[idx],
-                            summary:   toSummarize[idx]
-                        }));
+                        let combined = activeIds.map(idx => {
+                            if(items[idx] && toSummarize[idx]){
+                                return {
+                                    item:      items[idx],
+                                    summary:   toSummarize[idx]
+                                }
+                            }
+                            logger.warning(`Couldnt find item / summary at idx ${idx}`)
+                            return undefined
+                        }).filter(Boolean);
                         
                         combined.sort((a, b) => {
                             if (a.item.id === b.item.id) {

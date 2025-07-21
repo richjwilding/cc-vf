@@ -119,13 +119,17 @@ router.get('/companyLogo', async (req, res) => {
     }
   });
 router.get('/remoteImage', async (req, res) => {
-    const imageUrl = req.query.url;
-
-    if (!imageUrl) {
-      return res.status(400).send('Missing image URL');
-    }
-  
     try {
+        let imageUrl = req.query.url;
+
+        if(imageUrl.startsWith("https://img.logo.dev/")){
+            imageUrl += `?token=${process.env.LOGODEV_KEY_PK}`
+        }
+
+        if (!imageUrl) {
+        return res.status(400).send('Missing image URL');
+        }
+  
       const response = await axios({
         method: 'get',
         url: imageUrl,

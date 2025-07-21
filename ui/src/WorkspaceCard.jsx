@@ -4,7 +4,6 @@ import { Logo } from "./logo";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { Vibrant } from "node-vibrant/browser";
 import { Icon } from "@iconify/react/dist/iconify.js";
-import { useCompanyLogo } from "./@components/CompanyLogo";
 import { useSmoothGradient } from "./@components/SmoothGradient";
 import useDataEvent from "./CustomHook";
 

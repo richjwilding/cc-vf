@@ -203,7 +203,7 @@ export default function GanttChart({
           return (
             <Group key={item.id}>
               <Rect
-                x={x} y={y} width={w} height={barHeight}
+                x={x} y={y} width={Math.max(0,w)} height={barHeight}
                 fill={fill} cornerRadius={3}
                 onMouseEnter={e => handleMouseEnter(e,item)}
                 onMouseMove={handleMouseMove}
@@ -224,7 +224,7 @@ export default function GanttChart({
           const color = groupColorMap.get(edge.from.id) || '#444';
           return (
             <Arrow key={i} points={[x1,y1,xm,y1,xm,y2,x2,y2]} pointerLength={6} pointerWidth={6} stroke={color} fill={color} strokeWidth={1} />
-          );
+          )
         })}
 
         {/* tooltip */}

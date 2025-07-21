@@ -198,9 +198,13 @@ export function FlowContent({ primitives, axisData, ...props }) {
                         </li>
                       }
                       return <li className={clsx(overrideTextColor ? "marker:text-slate-500" : "")}>
-                          <span className={clsx('flex w-full justify-between', overrideTextColor ? "text-slate-500" : "")}>
+                          <span className={clsx('flex w-full place-items-center justify-between', overrideTextColor ? "text-slate-500" : "")}>
                             <p>Search for {d.searchFor?.title}</p>
-                            {d.processing?.query?.status === "pending" ? <p className='mr-2'>Queued</p>: <p className='mr-2'>{d.progressStats?.totalCount ?? 0} items</p>}
+                            <div className='space-x-2 flex place-items-center p-1'>
+                              {(d.processing.query.status === "complete" && d.primitives.origin.allIds.length === 0) && <Button variant="bordered" size="sm" className="p-0.5" onPress={()=>d.setFlow("rerun")}>Rerun</Button>}
+                              {(d.processing.query.status === "rerun" ) && <Button variant="flat" size="sm" onPress={()=>d.setFlow("complete")}>Marked for rerun</Button>}
+                              {d.processing?.query?.status === "pending" ? <p className='mr-2'>Queued</p>: <p className='mr-2'>{d.progressStats?.totalCount ?? 0} items</p>}
+                            </div>
                           </span>
                           </li>
                       })}
@@ -292,7 +296,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
         className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
         onClick={() => {
           const flowInstance = primitives[0].findParentPrimitives({type: ["flowinstance"]})[0]
-          MainStore().doPrimitiveAction(flowInstance, "run_flowinstance_from_step", {from: primitives[0]?.id, force: true})
+          MainStore().doPrimitiveAction(flowInstance, "run_flowinstance_from_step", {from: primitives[0]?.id, organizationId: MainStore().activeOrganization?.id, force: true})
         }}
       >
         Run from here
