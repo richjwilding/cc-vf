@@ -17,7 +17,7 @@ import BrightDataQueue from './brightdata_queue';*/
 
 const asyncLocalStorage = require('./asyncLocalStorage');
 
-const logger = getLogger('queue-manager', "info"); // Debug level for moduleA
+const logger = getLogger('queue-manager', "debug"); // Debug level for moduleA
 
 
 class QueueManager {
@@ -168,7 +168,21 @@ class QueueManager {
                                         const [qId, qType] = parentJob.queueName.split("-")
                                         const qo = this.getQueueObject(qType)
                                         
-                                        logger.info(`Sending notification for child ${qType} from msgId ${message.jobId} (${message.requestId}) to ${this.type} ${parentJob.id} `)
+                                        let grandparentJob
+                                        const grandparentJobFromRedis = await this.redis.get(`job:${parentJob.id}:parent`)
+                                        if( grandparentJobFromRedis ){
+                                            try{
+                                                grandparentJob = JSON.parse( grandparentJobFromRedis )
+                                                logger.info(`---- GRANDPARENT `, grandparentJob)
+                                            }catch(error){
+                                                logger.error(`Couldnt parse grandparent data`)
+                                                logger.error(grandparentJob)
+                                                logger.error(error)
+                                                logger.error(error.stack)
+                                            }
+                                        }
+                                        
+                                        logger.info(`Sending notification for child ${qType} from msgId ${message.jobId} (${message.requestId}) to ${this.type} ${grandparentJob?.id} `)
                                         await qo.sendNotification(
                                             parentJob.id,
                                             {
@@ -177,7 +191,8 @@ class QueueManager {
                                                 success: message.success,
                                             },
                                             {
-                                                childJob: message.jobId
+                                                childJob: message.jobId,
+                                                parentJob: grandparentJob
                                             }
                                         )
                                     }
@@ -372,7 +387,7 @@ class QueueManager {
     }
     getQueueObject(queueType){
         if( this.type === queueType ){
-            logger.debug(`Fetching same queue type - returning parent`)
+            logger.verbose(`Fetching same queue type - returning parent`)
             return this.parentObject
         }
         return getQueueObjectByName( queueType )

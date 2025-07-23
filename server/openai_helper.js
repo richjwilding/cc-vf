@@ -724,6 +724,8 @@ function tokensForModel(model){
         defaultTokens = 115000
     }else if( model === "o4-mini" ){
         defaultTokens = 115000
+    }else if( model === "gpt-41-nano" || model === "gpt-41-mini"){
+        defaultTokens = 800000
     }else if( model === "gpt-41" ){
         defaultTokens = 800000
     }else if( model === "gpt3" || model === "gpt3t"){
@@ -1014,6 +1016,14 @@ async function executeAI(messages, options = {}){
         })
     }else if( options.engine === "gpt-41" ){
         model = "gpt-4.1"
+        output = 32768
+        response_format = { type: "json_object" }
+    }else if( options.engine === "gpt-41-nano" ){
+        model = "gpt-4.1-nano-2025-04-14"
+        output = 32768
+        response_format = { type: "json_object" }
+    }else if( options.engine === "gpt-41-mini" ){
+        model = "gpt-4.1-mini-2025-04-14"
         output = 32768
         response_format = { type: "json_object" }
     }

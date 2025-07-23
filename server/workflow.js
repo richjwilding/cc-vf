@@ -109,54 +109,60 @@ const logger = getLogger('workflow', 'debug'); // Debug level for moduleA
 
 
 async function preWorkflowInstanceActions( flowInstance, {userInstantiated, ...details} ){
-    logger.info(`Flowinstance ${flowInstance.id} / ${flowInstance.plainId} completed all steps (initiated by ${userInstantiated})`)
-    if( userInstantiated ){
-        const flowId = primitiveOrigin( flowInstance )
-        const flow = await fetchPrimitive( flowId )
-        if( !flow.inFlow ){
-            logger.info( `Checking allocations` )
-            const organizationToChargeTo = await findOrganizationForWorkflowAllocation( flowInstance, {userInstantiated} )
-            const credits = flow.referenceParameters?.credits
+    try{
 
-            const availableCredits = organizationToChargeTo.credits ?? 0
-            if( availableCredits < credits ){
-                logger.info(`Insufficient credits ${availableCredits} for flow ${credits}`)
-                await recordCreditUsageEvent( organizationToChargeTo, {userId: userInstantiated, targetId: flowInstance.id, delta: 0, message: `Insufficient credits (need ${credits})`})
-                return false
+        logger.info(`Flowinstance ${flowInstance.id} / ${flowInstance.plainId} completed all steps (initiated by ${userInstantiated})`)
+        if( userInstantiated ){
+            const flowId = primitiveOrigin( flowInstance )
+            const flow = await fetchPrimitive( flowId )
+            if( !flow.inFlow ){
+                logger.info( `Checking allocations` )
+                const organizationToChargeTo = await findOrganizationForWorkflowAllocation( flowInstance, {userInstantiated} )
+                const credits = flow.referenceParameters?.credits
+                
+                const availableCredits = organizationToChargeTo.credits ?? 0
+                if( availableCredits < credits ){
+                    logger.info(`Insufficient credits ${availableCredits} for flow ${credits}`)
+                    await recordCreditUsageEvent( organizationToChargeTo, {userId: userInstantiated, targetId: flowInstance.id, delta: 0, message: `Insufficient credits (need ${credits})`})
+                    return false
+                }
+                
+                
+                console.log(`Will charge ${organizationToChargeTo?.name} ${credits} credits (currently available = ${availableCredits})`)
+                await recordCreditUsageEvent( organizationToChargeTo, {userId: userInstantiated, targetId: flowInstance.id, delta: -credits, message: `Charge for flow`})
+                
+                let steps = await fetchExpandedFlowSteps(flowInstance)
+                logger.info(`Resetting run_step lock - got ${steps.length} nodes to do`)
+                
+                const lockCleared = await Primitive.updateMany(
+                    {
+                        _id: steps.map(d=>d.id),
+                        workspaceId: flowInstance.workspaceId,
+                    },{
+                        $set: {"processing.run_step.flowStarted": null}
+                    }
+                )
+                logger.info(`- lock cleared on ${lockCleared?.modifiedCount} steps`)
+                await Primitive.updateOne(
+                    {
+                        _id: flowInstance.id,
+                        workspaceId: flowInstance.workspaceId,
+                    },{
+                        $unset: {"processing.flow.audit": true}
+                    }
+                )
+                
+                return true
             }
-            
-            console.log(`Will charge ${organizationToChargeTo?.name} ${credits} credits (currently available = ${availableCredits})`)
-            await recordCreditUsageEvent( organizationToChargeTo, {userId: userInstantiated, targetId: flowInstance.id, delta: -credits, message: `Charge for flow`})
-
-
-            let steps = await fetchExpandedFlowSteps(flowInstance)
-            logger.info(`Resetting run_step lock - got ${steps.length} nodes to do`)
-            
-            const lockCleared = await Primitive.updateMany(
-                {
-                    _id: steps.map(d=>d.id),
-                    workspaceId: flowInstance.workspaceId,
-                },{
-                    $set: {"processing.run_step.flowStarted": null}
-                }
-            )
-            logger.info(`- lock cleared on ${lockCleared?.modifiedCount} steps`)
-            await Primitive.updateOne(
-                {
-                    _id: flowInstance.id,
-                    workspaceId: flowInstance.workspaceId,
-                },{
-                    $set: {"processing.flow.audit": null}
-                }
-            )
-
-            return true
+        }else{
+            logger.warn(`Flow initiated without user id`)
         }
-    }else{
-        logger.warn(`Flow initiated without user id`)
+    }catch(e){
+        logger.error(`Error in preWorkflowInstanceActions`, r)
     }
 }
 async function postWorkflowInstanceActions( flowInstance, details = {} ){
+    try{
         const userInstantiated = flowInstance.processing?.flow?.instantiatedBy
         
         logger.info(`Flowinstance ${flowInstance.id} / ${flowInstance.plainId} completed all steps (initiated by ${userInstantiated})`)
@@ -180,6 +186,9 @@ async function postWorkflowInstanceActions( flowInstance, details = {} ){
 
             }
         }
+    }catch(e){
+        logger.error(`Error in postWorkflowInstanceActions`, r)
+    }
 }
 
 export async function getScaffoldWorkflow( flow, options = {} ){
@@ -358,7 +367,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
                 await scaffoldWorkflowInstance( instanceInfo.instance, flow, steps, flowImports, options)
             }
         }
-        return {instances: instanceList}
+        return {instances: instanceList.map(d=>d.instance)}
     }else{
         logger.info(`Flow fed from inputs`);
         for(const instance of baseInstances){
@@ -1369,9 +1378,6 @@ export async function runFlowInstance( flowInstance, options = {}){
         await dispatchControlUpdate(flowInstance.id, "processing.flow.last_run", {steps: thisRun, iteration, started: flowStarted})
         
         for(const step of stepsToRun ){
-            if( step.step.id === "68752ed18071a8d68c420f97"){
-                continue
-            }
             if( step.needReason === "scaffold_flow"){
                 logger.info(`Scaffolding flow prior to run`)
                 const lockStepForFlowInstantiation = await Primitive.updateOne(
@@ -1395,6 +1401,12 @@ export async function runFlowInstance( flowInstance, options = {}){
                             await scaffoldWorkflowInstance( instance  )
                         }
                     }*/
+                }
+                if( stepsToRun.length === 1){
+                    logger.info(`Scaffold was only step - invoking flowinstances now....`)
+                    for( const fi of scaffoldResult ){
+                        await FlowQueue().runStep(fi, {flowStarted})
+                    }
                 }
                 continue
             }

@@ -44,7 +44,7 @@ turndownService.addRule('skipJunk', {
     filter: ['input', 'img', 'button','script', 'style', 'iframe', 'header'],
     replacement: () => ""
   });
-function extractMarkdown(html, fullHTML = false) {
+export function extractMarkdown(html, fullHTML = false) {
     function extractTitle(html) {
         const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
         return match ? match[1].trim() : '';
@@ -1946,7 +1946,7 @@ export async function queryGoogleSERP(keywords, options = {}){
                         })
                     }
 
-                    if( options.filterPre && !(await options.filterPre({text: item.snippet, term: term})) ){
+                    if( options.filterPre && !(await options.filterPre({text: item.snippet, term: term, dataSource: item.url})) ){
                         return
                     }
                     
@@ -1961,7 +1961,7 @@ export async function queryGoogleSERP(keywords, options = {}){
                     if( !pageContent ){
                         return
                     }
-                    let filterData = {text: pageContent.fullText, snippet: item.snippet, term: term}
+                    let filterData = {text: pageContent.fullText, snippet: item.snippet, term: term, dataSource: item.url}
                     if( options.filterMid && !(await options.filterMid( filterData )) ){
                         return
                     }
@@ -2544,7 +2544,7 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                     // too large or unprocessable
                     return downloadURLContentViaProxy( url )
                 }
-                return undefined
+                return response
             }
             const contentType = response.headers.get('zr-content-type') ?? response.headers.get('content-type')
             if( contentType.startsWith('application/pdf')){
@@ -2833,11 +2833,18 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
         ].filter(d=>d.exec)
 
         for(const attempt of attempts){
-            console.log("Trying " + attempt.title)
+            console.log(`Trying ${attempt.title} : ${url}` )
             result = await attempt.exec()
             if( result){
-                console.log("Success " + attempt.title)
-                return result
+                if( result.error ){
+                    if( result.error?.status === 404 ){
+                        console.log( `404 - stopping chain`)
+                        return
+                    }
+                }else{
+                    console.log(`Success ${attempt.title} : ${url}`)
+                    return result
+                }
             }
         }
 

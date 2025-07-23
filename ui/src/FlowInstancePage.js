@@ -11,7 +11,7 @@ import UIHelper from "./UIHelper";
 import clsx from "clsx";
 import { VFImage } from "./VFImage";
 import { useLocation, useParams } from "react-router-dom";
-import { Button, Select, SelectItem, Tab, Tabs } from "@heroui/react";
+import { Button, Progress, Select, SelectItem, Tab, Tabs } from "@heroui/react";
 import { ChevronDoubleLeftIcon, ChevronRightIcon, DocumentArrowDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import FlowInstanceOutput from "./FlowInstanceOutput";
 import AgentChat from "./AgentChat";
@@ -279,6 +279,7 @@ export default function FlowInstancePage({primitive, ...props}){
         return a
     }, {})
 
+    const showWorking = primitive.processing?.flow?.status === "running"
     return <div className={clsx([
             "flex w-full relative flex-1 min-h-0 bg-gray-50",
             showOutput ? "p-6 space-x-6" : ""
@@ -290,14 +291,14 @@ export default function FlowInstancePage({primitive, ...props}){
                     <div className={clsx([
                         "flex relative mb-4",                    
                         showOutput ? "min-h-32 -mx-6 -mt-6 mb-0 overflow-hidden rounded-t-2xl" : "min-h-32 [@media(min-height:1024px)]:min-h-64 -mx-9 -mt-6 shadow-md ",
-                        ])}>
+                    ])}>
                         {showImage && <VFImage 
                                             src={`/api/image/${targetFlow.id}`} 
                                             className={clsx([
                                                 'w-full object-cover',
                                                 showOutput ? "max-h-32" : "max-h-32 [@media(min-height:1024px)]:max-h-64"
                                             ])}
-                                        />}
+                                            />}
                         {!showImage && <div className={clsx([
                             "w-full",
                             `pattern-isometric pattern-${color}-600 pattern-bg-${color}-500 pattern-opacity-20 pattern-size-8`
@@ -312,6 +313,7 @@ export default function FlowInstancePage({primitive, ...props}){
                             <PrimitiveCard.Title primitive={targetFlow} major={true}/>
                         </div>
                     </div>
+                        {showWorking && <Progress color="secondary" isIndeterminate aria-label="Working..." size="sm" className="top-0 absolute left-0 h-2 " />}
                         <div className="flex place-items-center py-3 justify-center relative ">
                             <Tabs variant="solid" selectedKey={activeTab} onSelectionChange={((id)=>setActiveTab(id))}>
                                 {tabs.map(d=><Tab key={d.id} title={d.title}/>)}
@@ -408,13 +410,13 @@ export default function FlowInstancePage({primitive, ...props}){
                                     //secondary: d.progress, 
                                     onClick:()=>{
                                         if( d.ids?.length > 0 ){
-                                            MainStore().sidebarSelect(d.ids, {forFlow: true})
+                                            MainStore().sidebarSelect(d.ids, {forFlow: true, flowInstance: primitive})
                                         }
                                     }
                                 }))}
                             />
                             {!showOutput && <div className="relative grow">
-                                {statusMap && <WorkflowStructurePreview statusMap={statusMap} onClick={(id)=>MainStore().sidebarSelect(id, {forFlow: true})}/>}
+                                {statusMap && <WorkflowStructurePreview statusMap={statusMap} onClick={(id)=>MainStore().sidebarSelect(id, {forFlow: true, flowInstance: primitive})}/>}
                             </div>}
                         </div>}
                         {activeTab === "timeline" && <div className="flex w-full h-full">

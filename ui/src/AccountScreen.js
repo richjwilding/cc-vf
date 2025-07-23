@@ -40,6 +40,9 @@ export default function AccountScreen(props){
     const [selectedKeys, setSelectedKeys] = React.useState(new Set(["viewer"]));
     const [localActivePlanId, setLocalActivePlanId] = React.useState( mainstore.activeOrganization.activePlanId )
 
+    useDataEvent("organization_updated", mainstore.activeOrganization.id)
+    
+
     const organizationInfo = mainstore.activeOrganization ?? []
     const planInfo = organizationInfo.plan ?? {}
     const today = startOfToday()
@@ -164,7 +167,7 @@ export default function AccountScreen(props){
                         )}
                     </RadioGroup>
 
-                    <CheckoutButton isDisabled={true} size="sm"/>
+                    <CheckoutButton priceId={mainstore.activeOrganization?.validPlans.find(d=>d._id === localActivePlanId)?.stripe?.priceId} isDisabled={localActivePlanId === mainstore.activeOrganization.activePlanId} size="sm"/>
                     {mainstore.activeOrganization.billing?.stripe?.subscriptionId &&  <BillingPortalButton/>}
                     <Divider className="col-span-3 my-3"/>
                     <p className="text-small text-default-500">Users</p>

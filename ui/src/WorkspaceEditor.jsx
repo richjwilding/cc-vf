@@ -29,6 +29,7 @@ import { DebouncedInput } from "./@components/DebouncedInput";
 import { ColorSelector } from "./@components/ColorSelector";
 import colors from 'tailwindcss/colors';
 import useDataEvent from "./CustomHook";
+import MainStore from "./MainStore";
 
 const basePalette =  [
             "red",
@@ -101,6 +102,7 @@ export default function WorkspaceEditor({isOpen, onClose, workspace, newWorkspac
     event.preventDefault();
 
     const data = {
+      organizationId: MainStore().activeOrganization?.id,
       title,
       description,
       status,

@@ -837,7 +837,12 @@ export function deepEqualIgnoreOrder(a, b) {
     return false;
   }
   export function findFilterMatches(arr,target){
-    return findMatches(arr, target)
+    const testArr = arr.map(d=>{
+      const {title, ...toKeep} = d
+      return toKeep
+    })
+    const testTarget = Object.fromEntries( Object.entries(target ?? {}).filter(d=>d[1]) )
+    return findMatches(testArr, testTarget)
   }
   
   function findMatches(arr, target) {

@@ -1,5 +1,6 @@
 import { getLogger } from "./logger";
 import Organization from "./model/Organization"
+import { getOrganizationWithSubscription } from "./SharedFunctions";
 const logger = getLogger('credit_handling', "info"); // Debug level for moduleA
 
 export async function findOrganizationForWorkflowAllocation( flowInstance, {userInstantiated, ...details} ){
@@ -13,7 +14,7 @@ export async function findOrganizationForWorkflowAllocation( flowInstance, {user
 }
 export async function findOrganizationForCreditAllocation( userId, organizationId ){
 
-    const orgs = await Organization.find({ members: { $elemMatch: { user: userId, role: 'owner' } }})
+    const orgs = await Organization.find({ 'members.user': userId} )
     let chargeToOrg = organizationId ? orgs.find(d=>d._id.toString() === organizationId)  : undefined
     if( organizationId && !chargeToOrg){
         logger.info(`User doesnt belong to org ${organizationId} that this flow was instantiated for (is a member of ${orgs.map(d=>d.id).join(", ")})`)
@@ -30,7 +31,14 @@ export async function findOrganizationForCreditAllocation( userId, organizationI
     return chargeToOrg
 }
 export async function extendCreditsForSubscription( organization, credits ){
-    credits = credits ?? organization.plan?.creditsPerPeriod ?? 0
+    console.log(`extend credits`)
+    if( !organization.activePlan ){
+        organization = await getOrganizationWithSubscription( organization.id )
+        console.log("fetching org")
+    }
+    console.log(organization)
+    console.log(organization.activePlan)
+    credits = credits ?? organization.activePlan?.features?.credits ?? 0
     await recordCreditUsageEvent( organization, {delta: credits, message: `Subscription - ${credits}`})
 
 }

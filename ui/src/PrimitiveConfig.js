@@ -961,7 +961,7 @@ const PrimitiveConfig = {
             if( Array.isArray(val)){
                 return  {type: "segment_filter", value: val,  pivot: option.access, relationship: option.relationship, invert}
             }
-            return  {type: "segment_filter", value: val.idx ?? val, sourcePrimId: val.sourcePrimId, pivot: option.access, relationship: option.relationship, invert}
+            return  {type: "parent", segmentFilter: true, value: val.idx ?? val, sourcePrimId: val.sourcePrimId, pivot: option.access, relationship: option.relationship, invert}
         }else if( option.type === "parameter"){
             if( val?.bucket_min  !== undefined ){
                 return  {type: "parameter", param: option.parameter, value: {idx: val.idx, min_value: val.bucket_min, max_value: val.bucket_max}, pivot: option.access, relationship: option.relationship, invert}
@@ -1757,16 +1757,11 @@ const PrimitiveConfig = {
                 const match = steps.find(d2=>d2.id === d)
                 if( match ){
                     return match
-                }else{
-                    if( d !== flowId ){
-                        //console.log(`>>>> Couldnt find ${d} when checking for skip status of ${step.id}`)
-                    }
                 }
             }).filter(d=>d)
 
             let config = {}
             if( options.configPrimitives){
-                //const stepConfigId = Object.entries(step.parentPrimitives).filter(d=>d[1].includes("primitives.config"))[0]?.[0]
                 const stepConfigId = getConfigId(step)
                 if( stepConfigId ){
                     const configPrimitve = options.configPrimitives.find(d=>d.id === stepConfigId)
@@ -1798,10 +1793,22 @@ const PrimitiveConfig = {
             if( options.withPrimitives){
                 status.primitive = step
             }
+            let skipForImport = 0
+            const importIds = pp.imports.allIds
             for(const p of checkList){
                 await setupStep( p, status )
                 if( map[p.id]){
-                    const thisSkipped = (map[p.id].skip === true || map[p.id].skipDownstream === true) ? true : false
+                    let thisSkipped = (map[p.id].skip === true || map[p.id].skipDownstream === true) ? true : false
+                    if( importIds.includes(p.id)){
+                        if( thisSkipped ){
+                            skipForImport++
+                        }
+                    }else{
+                        if( !thisSkipped && skipForImport > 0 && skipForImport === importIds.length){
+                            console.log(`Step ${step.id} has all imports skipped - ignoring input status ${thisSkipped} of ${p.id} / ${p.plainId}`)
+                            thisSkipped = true
+                        }
+                    }
                     if( status.skipForUpstream === undefined ){
                         status.skipForUpstream = thisSkipped
                     }else{
@@ -1868,43 +1875,48 @@ const PrimitiveConfig = {
                     status.primitive = subFlow
                 }
                 map[status.id] = status
-                if(status.need){
 
                     
-                    const pp = functions.getPrimitives ? functions.getPrimitives(subFlow) : subFlow.primitives
-                    const checkListIds = [
-                        ...pp.imports.allIds, 
-                        ...pp.inputs.allIds,
-                    ]
-                    console.log(`Missing subflow origin is ${checkListIds.join(", ")}`)
-                    let can = true
-                    for(const id of checkListIds ){
-                        const resolved = steps.find(d=>getConfigId(d) === id)
-                        console.log(`Resolved ${id} to ${resolved?.id} / ${resolved?.plainId} / ${resolved?.title}`)
-                        let thisCan = false
-                        if( resolved ){
-                            await setupStep( resolved, status)
-                            
+                const pp = functions.getPrimitives ? functions.getPrimitives(subFlow) : subFlow.primitives
+                const checkListIds = [
+                    ...pp.imports.allIds, 
+                    ...pp.inputs.allIds,
+                ]
+                console.log(`Missing subflow origin is ${checkListIds.join(", ")}`)
+                let can = need
+                for(const id of checkListIds ){
+                    const resolved = steps.find(d=>getConfigId(d) === id)
+                    console.log(`Resolved ${id} to ${resolved?.id} / ${resolved?.plainId} / ${resolved?.title}`)
+                    let thisCan = false
+                    if( resolved ){
+                        await setupStep( resolved, status)
+                        if( map[resolved.id].skip ){
+                            continue
+                        }
+                        if( map[resolved.id].routing ){
+                            continue
+                        }
+                        if( need ){
                             const hasValidStart    = flowInstance.processing?.flow?.started !== undefined;
                             const otherFlowStarted = resolved.processing?.flow?.started;
                             const isComplete       = resolved.processing?.flow?.status === "complete" || resolved.processing?.flow?.status === "error_ignore";
                             const timingOk = otherFlowStarted <= flowStarted;
                             
                             thisCan = (hasValidStart && isComplete && timingOk);
-                        }else{
-                            if( getOrigin(flowInstance) === id){
-                                thisCan = true
-                            }else{
-                                console.log(`Couldnt resolve ${id} in flowinstance status check`)
-                            }
                         }
-                        can &&= thisCan
+                    }else{
+                        if( getOrigin(flowInstance) === id){
+                            thisCan = true
+                        }else{
+                            console.log(`Couldnt resolve ${id} in flowinstance status check`)
+                        }
                     }
-                    if( can ){
-                        status.can = true
-                        status.canReason = "all_ready"
-                        
-                    }
+                    can &&= thisCan
+                }
+                if( can ){
+                    status.can = true
+                    status.canReason = "all_ready"
+                    
                 }
             }
         }

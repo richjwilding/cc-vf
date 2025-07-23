@@ -5250,6 +5250,10 @@ export async function updateWorkspace( workspaceId, allData ){
 export async function createWorkspace( allData, owner, options={} ){
     try{
         let {users, ...data} = allData
+
+        if( options.organizationId){
+            data.organizationId = organizationId
+        }
         
         users.push(owner)
         users = users.filter((d,i,a)=>a.indexOf(d) === i)
@@ -5928,9 +5932,9 @@ async function doStep(data, step, scope, cache){
     return out
     
 }
-export async function getOrganizationsWithSubscription( orgId){
+export async function getOrganizationWithSubscription( orgId){
     return (await queryOrganizationsWithSubscriptionPlans( 
-        { _id: orgId },
+        {$match: { _id: new ObjectId(orgId) }}
     ))?.[0]
 
 }
@@ -5950,10 +5954,6 @@ export async function getOrganizationsWithSubscriptionPlans( userId ){
                 if( !includePlan){ delete out["plan"]}
                 if( !includeUsage){ delete out["usage"]}
 
-
-                out.id = out._id
-                
-                delete out["_id"]
                 return out
             })
     return data
@@ -6009,7 +6009,7 @@ async function queryOrganizationsWithSubscriptionPlans( query ){
         // 3) project out what the client needs, plus compute include flags
         {
             $project: {
-            _id: 0,
+            _id: 1,
             id: { $toString: "$_id" },
             name: 1,
             members: {

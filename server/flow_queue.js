@@ -79,22 +79,27 @@ class FlowQueueClass extends BaseQueue {
             }*/
         })
         this.registerChildNotification("run_flow_instance", async (primitive, child, result, childMode, parentMode, parentJob)=>{
-            if( primitive.type === "flowinstance"){
-                logger.debug(`Step finished in flowinstance ${primitive.id} [run_flow_instance] - ${child?.id} [${childMode}] chaining check for next steps`)
-                if(!result.started){
-                    const counter = result.error ? "error_steps" : "completed_steps"
-                    await Primitive.updateOne(
-                        { _id: primitive },
-                        { $inc: { [`processing.flow.audit.${counter}`]: 1 }}
-                    );
-                }
+            try{
 
-                try{
-                    //   const flowInstance = await fetchPrimitive( primitiveOrigin(primitive) )
-                    await this._queue.invokeWorkerJob({ id: primitive.id, mode: "run_flow_instance", field:  "processing.run_flow_instance"}, parentJob, {nextStep: true, workspaceId: primitive.workspaceId})
-                }catch(err){
-                    logger.error(`Exception thrown looking for fast follow steps ${primitive.id}`, err)                    
+                if( primitive.type === "flowinstance"){
+                    logger.debug(`Step finished in flowinstance ${primitive.id} [run_flow_instance] - ${child?.id} [${childMode}] chaining check for next steps (parent: ${JSON.stringify(parentJob)})`)
+                    if(!result.started){
+                        const counter = result.error ? "error_steps" : "completed_steps"
+                        await Primitive.updateOne(
+                            { _id: primitive },
+                            { $inc: { [`processing.flow.audit.${counter}`]: 1 }}
+                        );
+                    }
+
+                    try{
+                        //   const flowInstance = await fetchPrimitive( primitiveOrigin(primitive) )
+                        await this._queue.invokeWorkerJob({ id: primitive.id, mode: "run_flow_instance", field:  "processing.run_flow_instance"}, parentJob, {nextStep: true, workspaceId: primitive.workspaceId})
+                    }catch(err){
+                        logger.error(`Exception thrown looking for fast follow steps ${primitive.id}`, err)                    
+                    }
                 }
+            }catch(err){
+                logger.error(`Error in registerChildNotification- run_flow_instance`, err)
             }
         })
         this.registerNotification("run_step", async (primitive, result, mode, parentJob)=>{

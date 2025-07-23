@@ -2885,6 +2885,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             let y = node.y()
             let s = node.scaleX()
             while(node.parent){
+                if( node.parent.attrs.name?.includes("frame")){
+                    break
+                }
                 let ps = node.parent.scaleX()
                 x *= ps
                 y *= ps
@@ -2892,9 +2895,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 x += node.parent.x()
                 y += node.parent.y()
                 node = node.parent
-                if( node.attrs.name?.includes("frame")){
-                    break
-                }
             }
             return {x,y,s}
         }

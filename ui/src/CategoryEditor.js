@@ -96,7 +96,7 @@ export default function GenericEditor({item, primitive,...props}) {
       }
   }
 
-  const waiting = primitive.processing?.categorize && primitive.processing?.categorize.status !== "completed"
+  const waiting = primitive.processing?.categorize && primitive.processing?.categorize.status !== "complete"
 
     function validateAndSetParameter( paramaterName, paramater, value ){
         if( paramater.type === "float" ){

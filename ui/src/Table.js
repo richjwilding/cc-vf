@@ -251,6 +251,7 @@ export function Table(props) {
             const hasRow = "row" in data[0] 
             const activeColumn = hasColumn && data.find(d=>d.column)
             const activeRow = hasRow && data.find(d=>d.row)
+
             
             if(  hasColumn || hasRow ){
                 dynamic = buildDynamicFieldsForPrimitiveList( data.map(d=>d.primitive), (r)=>r.primitive )
@@ -267,6 +268,18 @@ export function Table(props) {
 
                return dynamic 
             }
+        }
+        if( props.primitive.type === "search" && props.primitive.metadata.actingOn){
+            const contentParentCategoryId = props.primitive.metadata.actingOn
+            dynamic.push(
+                {
+                    field: 'parent',
+                    title: "Related to", 
+                    width: 180, 
+                    accessorFn: (r)=>{
+                            return r.findParentPrimitives({referenceId:[contentParentCategoryId],first:true})?.[0]?.title
+                    }
+                })
         }
         const metadata = data.find(d=>d?.metadata)?.metadata
         if( metadata?.id === PrimitiveConfig.Constants.GENERIC_SUMMARY){

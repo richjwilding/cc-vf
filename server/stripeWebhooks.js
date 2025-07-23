@@ -6,8 +6,11 @@ import { getLogger } from './logger';
 import User from './model/User';
 import { extendCreditsForSubscription, findOrganizationForCreditAllocation } from './CreditHandling';
 import Organization from './model/Organization';
+import { getOrganizationsWithSubscription, getOrganizationWithSubscription } from './SharedFunctions';
+import { SIO } from './socket';
 
 const logger = getLogger('stripe_webhook', "info"); // Debug level for moduleA
+var ObjectId = require('mongoose').Types.ObjectId;
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const router = express.Router();
@@ -30,17 +33,14 @@ router.post(
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-
-    console.log(event.type)
-    console.log(event.data)
+    let orgId, sendUpdate = false
     const stripeData = event.data.object
     const stripeCustomerId = stripeData.customer
-
 
     switch (event.type) {
         case 'checkout.session.completed':
             try{
-                const orgId = stripeData.client_reference_id
+                orgId = stripeData.client_reference_id
                 await Organization.updateOne({
                     _id: orgId,
                     $set: {
@@ -55,24 +55,34 @@ router.post(
             break;
         case 'customer.subscription.created':
             try{
-                const orgId = stripeData.metadata?.orgId
-                await Organization.updateOne({
-                    _id: orgId,
-                    $set: {
-                        "subscriptionActive": true,
-                        "billing.stripe.customerId": stripeCustomerId,
-                        "billing.stripe.subscriptionId": stripeData.id,
-                        "billing.stripe.planId": stripeData.plan?.id
-                    },
-                    $push: {"billing.stripe.events": {id: stripeData.id, type: event.type, info: JSON.stringify(stripeData.plan)}}
-                })
+                orgId = stripeData.metadata?.orgId
+                
+                const org = await getOrganizationWithSubscription( orgId )
+                const internalPlanId = org.validPlans.find(d=>d.stripe?.priceId === stripeData.plan.id)?._id
+                if( internalPlanId ){
+
+                    
+                    await Organization.updateOne({
+                        _id: orgId,
+                        $set: {
+                            "billing.stripe.customerId": stripeCustomerId,
+                            "billing.stripe.subscriptionId": stripeData.id,
+                            "billing.stripe.planId": stripeData.plan.id,
+                            "activePlanId": new ObjectId(internalPlanId)
+                        },
+                        $push: {"billing.stripe.events": {id: stripeData.id, type: event.type, info: JSON.stringify(stripeData.plan)}}
+                    })
+                }else{
+                    throw `Couldnt find plan with id ${stripeData.plan.id} for ${org.id}`
+                }
+                sendUpdate = true
             }catch(err){
                 logger.error(`Error creating subscription`, err)
             }
             break;
         case 'invoice.paid':
             try{
-                const orgId = stripeData.subscription_details?.metadata?.orgId
+                orgId = stripeData.subscription_details?.metadata?.orgId
                 const org = await Organization.findOneAndUpdate({
                     _id: orgId,
                     $push: {"billing.stripe.events": {id: stripeData.id, type: event.type, info: {invoiceUrl: stripeData.hosted_invoice_url, invoicePdfUrl: stripeData.invoice_pdfa, amount_due: stripeData.amount_due, amount_paid: stripeData.amount_paid}}}
@@ -80,6 +90,7 @@ router.post(
                 if( org ){
                     await extendCreditsForSubscription( org )
                 }
+                sendUpdate = true
             }catch(err){
                 logger.error(`Error handling ${event.type}`, err)
             }
@@ -87,7 +98,7 @@ router.post(
             break
         case 'invoice.payment_failed':
             try{
-                const orgId = stripeData.subscription_details?.metadata?.orgId
+                orgId = stripeData.subscription_details?.metadata?.orgId
                 await Organization.updateOne({
                     _id: orgId,
                     $push: {"billing.stripe.events": {id: stripeData.id, type: event.type, info: {invoiceUrl: stripeData.hosted_invoice_url, invoicePdfUrl: stripeData.invoice_pdfa, amount_due: stripeData.amount_due, amount_paid: stripeData.amount_paid}}}
@@ -99,13 +110,12 @@ router.post(
             break
         case "customer.subscription.updated":
               try{
-                const orgId = stripeData.metadata?.orgId
+                orgId = stripeData.metadata?.orgId
                 const hasBeenCancelled = stripeData.cancel_at  || stripeData.cancel_at_period_end
                 if( hasBeenCancelled ){
                     await Organization.updateOne({
                         _id: orgId,
                         $set:{
-                            "subscriptionActive": "cancelled",
                             "billing.stripe.sub_timestamp": stripeData.created,
                             "billing.stripe.cancel_at": stripeData.cancel_at,
                             "billing.stripe.cancel_at_period_end": stripeData.cancel_at_period_end,
@@ -114,20 +124,29 @@ router.post(
                         $push: {"billing.stripe.events": {id: stripeData.id, type: event.type, info: {cancelled: true, cancel_at: stripeData.cancel_at, cancel_at_period_end: stripeData.cancel_at_period_end, canceled_at: stripeData.cancel_at, cancellation_details: stripeData.cancellation_details, plan: stripeData.plan.id}}}
                     })
                 }else{
-                    await Organization.updateOne({
-                        _id: orgId,
-                        $set:{
-                            "subscriptionActive": true,
-                            "billing.stripe.sub_timestamp": stripeData.created,
-                        },
-                        $unset:{
-                            "billing.stripe.cancel_at": true,
-                            "billing.stripe.cancel_at_period_end": true,
-                            "billing.stripe.canceled_at": true
-                        },
-                        $push: {"billing.stripe.events": {id: stripeData.id, type: event.type, info: {cancelled: false, plan: stripeData.plan.id}}}
-                    })
+                    const org = await getOrganizationWithSubscription( orgId )
+                    const internalPlanId = org.validPlans.find(d=>d.stripe?.priceId === stripeData.plan.id)?._id
+
+                    if( internalPlanId ){
+                        await Organization.updateOne({
+                            _id: orgId,
+                            $set:{
+                                "billing.stripe.sub_timestamp": stripeData.created,
+                                "billing.stripe.planId": stripeData.plan.id,
+                                "activePlanId": new ObjectId(internalPlanId)
+                            },
+                            $unset:{
+                                "billing.stripe.cancel_at": true,
+                                "billing.stripe.cancel_at_period_end": true,
+                                "billing.stripe.canceled_at": true
+                            },
+                            $push: {"billing.stripe.events": {id: stripeData.id, type: event.type, info: {cancelled: false, plan: stripeData.plan.id}}}
+                        })
+                    }else{
+                        throw `Couldnt find plan with id ${stripeData.plan.id} for ${org.id}`
+                    }
                 }
+                sendUpdate = true
             }catch(err){
                 logger.error(`Error handling ${event.type}`, err)
             }
@@ -136,6 +155,21 @@ router.post(
 
       default:
         console.log(`Unhandled event type ${event.type}`);
+    }
+    if( orgId ){
+        try{
+            const updatedOrg = await getOrganizationWithSubscription( orgId )
+            const usersToNotify = updatedOrg.members.map(d=>d.userId)
+            await SIO.notifyUsers( usersToNotify, [
+                {
+                    type: "organization_update",
+                    id: updatedOrg.id,
+                    data: updatedOrg
+                }
+            ])
+        }catch(e){
+            logger.error(`Error sending notification`, err)
+        }
     }
 
     res.json({ received: true });

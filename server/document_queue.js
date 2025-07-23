@@ -514,42 +514,50 @@ async function doDataQuery( options ) {
                     let validTypes = ["result", "summary"]
                     const node = await fetchPrimitive( scope )
                     scopeNode = node
-                    if( node.type === "view" || node.type === "working" || node.type === "query" || node.type === "segment" ){
-                        let interim
-                        if( Object.keys(node?.primitives ?? {}).filter(d=>d !== "imports").length > 0){
-                            interim = await getDataForImport(node)
-                        }else if(Object.keys(primitive?.primitives ?? {}).includes("imports")){
-                            interim = await getDataForImport(node, undefined, true)
-                        }else{
-                            interim =  await getDataForImport(primitive, undefined, true) 
-                        }
-
-                        
-
-                        if( config.group || thisCategory.type === "iterator" ){
-                            console.log(`Will go via groups - have ${interim.length} to do`)
-                            if( config.onlyNew ){
-                                const existing = await primitiveChildren(primitive)
-                                const linked = existing.flatMap(d=>[d.primitives?.link, d.primitives?.source]).flat().filter((d,i,a)=>d && a.indexOf(d)===i)
-                                interim = interim.filter(d=>!linked.includes(d.id) )
-                            }
-
-                            if( interim.length > 0){
-                                await executeConcurrently(interim, async (d, idx)=>{
-                                    console.log(`++ Doing iter ${idx} for ${d.plainId} / ${d.title}`)
-                                    await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: false, doingIter: true})
-                                    return
-                                }, undefined, undefined, 10)
-                            }
-                            console.log(`Groups all done - leaving`)
-                            return
-                        }
-
-                        console.log(`Got ${interim.length} for view `)
-                        items = [interim.filter(d=>validTypes.includes(d.type)), await primitiveDescendents( interim, validTypes, {fields: "referenceId"})].flat()
-                        console.log(`BACK FROM DESCEND`)
+                    if( options.doingIter ){
+                        logger.debug(`Fetching iteration prim ${options.doingIter} (for scope ${node.id})`)
+                        const iter = await fetchPrimitive( options.doingIter )
+                        items = [iter, ...(await primitiveDescendents( iter, validTypes))]
                     }else{
-                        items = [node, ...(await primitiveDescendents( node, validTypes))]
+
+                        if( node.type === "view" || node.type === "working" || node.type === "query" || node.type === "segment" ){
+                            let interim
+                            if( Object.keys(node?.primitives ?? {}).filter(d=>d !== "imports").length > 0){
+                                interim = await getDataForImport(node)
+                            }else if(Object.keys(primitive?.primitives ?? {}).includes("imports")){
+                                interim = await getDataForImport(node, undefined, true)
+                            }else{
+                                interim =  await getDataForImport(primitive, undefined, true) 
+                            }
+                            
+                            
+                            
+                            if( config.group || thisCategory.type === "iterator" ){
+                                console.log(`Will go via groups - have ${interim.length} to do`)
+                                if( config.onlyNew ){
+                                    const existing = await primitiveChildren(primitive)
+                                    const linked = existing.flatMap(d=>[d.primitives?.link, d.primitives?.source]).flat().filter((d,i,a)=>d && a.indexOf(d)===i)
+                                    interim = interim.filter(d=>!linked.includes(d.id) )
+                                }
+                                
+                                if( interim.length > 0){
+                                    await executeConcurrently(interim, async (d, idx)=>{
+                                        console.log(`++ Doing iter ${idx} for ${d.plainId} / ${d.title}`)
+                                        //await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, scope: d.id, linkAsChild: false, doingIter: true})
+                                        await doDataQuery({...options, inheritValue: d.title, inheritField: "scope", group: undefined, linkAsChild: false, doingIter: d.id})
+                                        return
+                                    }, undefined, undefined, 10)
+                                }
+                                console.log(`Groups all done - leaving`)
+                                return
+                            }
+                            
+                            console.log(`Got ${interim.length} for view `)
+                            items = [interim.filter(d=>validTypes.includes(d.type)), await primitiveDescendents( interim, validTypes, {fields: "referenceId"})].flat()
+                            console.log(`BACK FROM DESCEND`)
+                        }else{
+                            items = [node, ...(await primitiveDescendents( node, validTypes))]
+                        }
                     }
                     
                 }

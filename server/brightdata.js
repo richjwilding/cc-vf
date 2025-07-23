@@ -4,6 +4,7 @@ import axios from 'axios';
 import moment from "moment";
 import { addRelationship, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives } from "./SharedFunctions";
 import BrightDataQueue from "./brightdata_queue";
+import { extractMarkdown } from "./google_helper";
 
 
 async function getCurrentIP() {
@@ -82,6 +83,55 @@ function instagramPostData(data){
 }
 
 const bdExtractors = {
+    "chatgpt_search":{
+        datasetId: "gd_m7aof0k82r803d5bjm",
+        id: (data)=>data.url,
+        linkConfig:linkToPrimitiveViaSearchPath,
+        queryParams: "&include_errors=true",
+        data:  (data)=>{
+            const timestamp = moment()
+            return {
+                title: `Chat Answer ${timestamp.format("MM-DD-YYYY HH:MM:SS")}`,
+                referenceId: 151,
+                referenceParameters:{
+                    url: data.url,
+                    api_source: "bd_chatgpt",
+                    source:"ChatGPT",
+                    date: timestamp.toISOString(),
+                    plain: data.answer_text,
+                    response: data.answer_text_markdown,
+                    links: data.links_attached,
+                    citations: data.citations,
+                    additional_prompt: data.additional_prompt,
+                    additional_answer_text: data.additional_answer_text,
+                    search_sources: data.search_sources
+                }
+            }
+        }
+    },
+    "perplexity_search":{
+        datasetId: "gd_m7dhdot1vw9a7gc1n",
+        id: (data)=>data.url,
+        queryParams: "&include_errors=true",
+        linkConfig:linkToPrimitiveViaSearchPath,
+        data:  (data)=>{
+            const converted = data.answer_html ? extractMarkdown( data.answer_html) : undefined
+            const timestamp = moment()
+            return {
+                title: converted?.title ?? `Chat Answer ${timestamp.format("MM-DD-YYYY HH:MM:SS")}`,
+                referenceId: 151,
+                referenceParameters:{
+                    url: data.url,
+                    api_source: "bd_perplexity",
+                    source:"Perplexity",
+                    date: timestamp.toISOString(),
+                    plain: data.answer_text,
+                    response: data.answer_text_markdown,
+                    search_sources: data.sources
+                }
+            }
+        }
+    },
     "mse_post":{
         datasetId: "c_m9ydj3e41diwo5tth3",
         id: (data)=>data.url,
@@ -426,6 +476,34 @@ const bdExtractors = {
     }
 }
 
+export async function queryPerplexityViaBD(primitive, query, options) {
+    
+    const count = options?.count ?? 1
+    const input =  []
+    for( let idx = 0; idx < count; idx++){
+        input.push({
+            url: "https://www.perplexity.ai",
+            prompt: query,
+            country:"US",
+            index: idx
+        })
+    }
+    await triggerBrightDataCollection(input, "perplexity_search", primitive, query,options)
+}
+export async function queryChatGPTViaBD(primitive, query, options) {
+    
+    const count = options?.count ?? 1
+    const input =  []
+    for( let idx = 0; idx < count; idx++){
+        input.push({
+            url: "https://chatgpt.com/",
+            prompt: query,
+            country:"US",
+            index: idx
+        })
+    }
+    await triggerBrightDataCollection(input, "chatgpt_search", primitive, query,options)
+}
 export async function queryReviewsIO(primitive, terms, options) {
     const termList = terms.split(",").map(d=>d.trim()).filter(d=>d)
     const input = termList.map(d=>({
@@ -840,7 +918,7 @@ export async function fetchViaBrightDataProxy(url, options = {}) {
             console.log(`Error in fetchViaBrightDataProxy`)
             console.log(`${error.response?.status} : ${error.response?.statusText} for ${url}`)
         }
-        return {status: 500, error} 
+        return {status: error.response?.status ?? 500, error} 
     }
 }
 //BRIGHTDATA_SERP

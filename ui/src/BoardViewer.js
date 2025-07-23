@@ -631,7 +631,7 @@ function SharedRenderView(d, primitive, myState) {
         break;
   
       default:
-        if (d.type === "query" && d.processing?.ai?.data_query) {
+        if (false && d.type === "query" && d.processing?.ai?.data_query) {
           renderView = {
             ...baseRenderView,
             canChangeSize: true,
@@ -3288,8 +3288,24 @@ export default function BoardViewer({primitive,...props}){
                                         }
                                         target.setField(`frames.${frameId}.showItems`, !(data?.open ?? false))
                                     },
-                                    cell:(id, frameId)=>{
-                                        const cell = id?.[0]
+                                    column_header:(id, frameId, data, konvaNode)=>{
+                                        setActiveBoard(frameId)
+                                    },
+                                    row_header:(id, frameId, data, konvaNode)=>{
+                                        setActiveBoard(frameId)
+                                    },
+                                    cell:(id, frameId, data, konvaNode)=>{
+                                        let cell = id?.[0]
+                                        let nested 
+                                        const cellAncestors = konvaNode.findAncestors('.cell')
+                                        if( cellAncestors.length > 0 ){
+                                            const baseCell = cellAncestors.shift()
+                                            nested = cell
+                                            cell = baseCell.attrs.id
+                                            if( cellAncestors.length > 0 ){
+                                                console.warn(`Cant handle multiple nested cells`)
+                                            }
+                                        }
                                         if( cell ){
                                             let sourceState = myState[frameId]
                                             if( sourceState.axisSource ){
@@ -3300,30 +3316,33 @@ export default function BoardViewer({primitive,...props}){
                                                 sourceState = myState[axisSource.id]
                                             }
 
-                                            let cIdx, rIdx, infoPane
+                                            let cIdx, rIdx, filters
 
                                             if(myState[frameId].data){
                                                 const data = myState[frameId].data
                                                 const cellData = data.cells.find(d=>d.id === cell)
-                                                infoPane = {
-                                                    filters: [
-                                                        PrimitiveConfig.encodeExploreFilter( data.defs?.columns, cellData.columnIdx ),
-                                                        PrimitiveConfig.encodeExploreFilter( data.defs?.rows, cellData.rowIdx ),
-                                                    ].filter(d=>d)
+                                                console.log(nested)
+                                                filters = [
+                                                    PrimitiveConfig.encodeExploreFilter( data.defs?.columns, cellData.columnIdx ),
+                                                    PrimitiveConfig.encodeExploreFilter( data.defs?.rows, cellData.rowIdx ),
+                                                ]
+                                                if( nested ){
+                                                    const idx = parseInt(nested.split("-")[1])
+                                                    filters.push(
+                                                        PrimitiveConfig.encodeExploreFilter( data.defs.allocations?.[0], Object.values(cellData.allocations)[0]?.[idx]?.idx )
+                                                    )
                                                 }
                                             }else if(myState[frameId].axis){
                                                 [cIdx,rIdx] = cell.split("-")
-                                                infoPane = {
-                                                    filters: [
-                                                        PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
-                                                        PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
-                                                    ].filter(d=>d)
-                                                }
+                                                filters = [
+                                                    PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
+                                                    PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
+                                                ]
                                                 
                                             }
 
-                                            console.log(infoPane.filters[0])
-                                            setCollectionPaneInfo({frame:  sourceState.underlying ??  sourceState.primitive, board: primitive, filters: infoPane.filters})
+                                            console.log(filters)
+                                            setCollectionPaneInfo({frame:  sourceState.underlying ??  sourceState.primitive, board: primitive, filters: filters.filter(d=>d)})
                                             if( !myState.activeBoard || myState.activeBoard.id !== frameId){
                                                 setActiveBoard(frameId)
                                                 canvas.current.selectFrame( frameId )

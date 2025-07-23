@@ -316,11 +316,15 @@ router.post('/workspace/:id/update/', async function(req, res, next) {
 router.post('/workspace/new/', async function(req, res, next) {
         try {
             const owner = req.user._id
-            const data = req.body
-            const ownerUser = await User.findOne({_id: owner})
-            if( ownerUser?.permissions?.manageWorkspaces || ownerUser.workspaces?.length === 0 ){
-                console.log(owner, data)
-                const result = await createWorkspace( data, owner)
+            const {organizationId, ...data} = req.body
+            const organizationWithPlan = (await getOrganizationsWithSubscriptionPlans( owner )).find(d=>d.id === organizationId)
+            if( !organizationId ){
+                throw `User ${owner} not a member of ${organizationId}`
+            }
+            const canCreate = !organizationWithPlan.activePlan?.limitProjects
+            //if( ownerUser?.permissions?.manageWorkspaces || ownerUser.workspaces?.length === 0 ){
+            if( canCreate ){
+                const result = await createWorkspace( data, owner, {organizationId})
                 res.json({success: true, result})
             }else{
                 res.json({success: false, error: "Permission denied"})

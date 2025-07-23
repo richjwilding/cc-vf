@@ -631,7 +631,7 @@ class CollectionUtils{
                                     newRemap[title] = filterConfig.value
                                     
                                     remap[d.id] = title
-                                    return {idx: filterConfig.value, label: title, sourcePrimId}
+                                    return {idx: filterConfig.value, label: title, sourcePrimId: filterConfig.sourcePrimId ?? sourcePrimId}
                                 }else{
                                     remap[d.id] = "None"
                                     return {idx: d.id, label: "None", sourcePrimId}
@@ -642,7 +642,7 @@ class CollectionUtils{
                                 if( !newRemap[value] ){
                                     newRemap[value] = d.id
                                 }
-                                return {idx: d.id, label: value, sourcePrimId}
+                                return {idx: d.id, label: value, sourcePrimId: filterConfig.sourcePrimId ?? sourcePrimId}
                             }
                         }
                     }else{
@@ -1120,11 +1120,14 @@ class CollectionUtils{
                             cell.allocations[d.field] = otherExtents[d.field].map((c)=>({idx: c.idx, label: c.label, count: 0, items: []}))
                             const pos = Object.fromEntries(cell.allocations[d.field].map((d,i)=>[d.idx, i]))
                             for(const item of subList){
-                                if( cell.allocations[d.field][pos[item[d.field]]] ){
-                                    cell.allocations[d.field][pos[item[d.field]]].count++
-                                    cell.allocations[d.field][pos[item[d.field]]].items.push( item.primitive)
-                                }else{
-                                    console.warn(`Couldnt find ${item[d.field]}`)
+                                const parts = [item[d.field]].flat()
+                                for( const part of parts){
+                                    if( cell.allocations[d.field][pos[part]] ){
+                                        cell.allocations[d.field][pos[part]].count++
+                                        cell.allocations[d.field][pos[part]].items.push( item.primitive)
+                                    }else{
+                                        console.warn(`Couldnt find ${part}`)
+                                    }
                                 }
                             }
                         }

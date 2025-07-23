@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Vibrant } from "node-vibrant/browser";
 
 export function useCompanyLogo({company, domain, url: pUrl}) {
-    const url = pUrl ? `/api/remoteImage?url=${encodeURIComponent(pUrl)}` : domain ? `/api/companyLogo?name=${encodeURIComponent(company)}` : `/api/remoteImage?url=${encodeURIComponent(`https://img.logo.dev/${domain}`)}`
+    const url = pUrl ? `/api/remoteImage?url=${encodeURIComponent(pUrl)}` : company ? `/api/companyLogo?name=${encodeURIComponent(company)}` : `/api/remoteImage?url=${encodeURIComponent(`https://img.logo.dev/${domain}`)}`
   const alt = `${company} logo`
   const [color, setColor] = useState()
   const [palette, setPalette] = useState([])

@@ -221,6 +221,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
                     <Button 
                       onPress={()=>{
                         const flowInstance = d.primitive.findParentPrimitives({type: ["flowinstance"]})[0]
+
                         MainStore().doPrimitiveAction(flowInstance, "run_flowinstance_from_step", {from: d.primitive?.id, force: true})
                       }}
                       variant="bordered" 
@@ -295,7 +296,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
         type="button"
         className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
         onClick={() => {
-          const flowInstance = primitives[0].findParentPrimitives({type: ["flowinstance"]})[0]
+          const flowInstance = props.flowInstance //primitives[0].findParentPrimitives({type: ["flowinstance"]})[0]
           MainStore().doPrimitiveAction(flowInstance, "run_flowinstance_from_step", {from: primitives[0]?.id, organizationId: MainStore().activeOrganization?.id, force: true})
         }}
       >

@@ -9,7 +9,7 @@ import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
 import { queryFacebookGroup, queryGoogleNews, queryGoogleSERP, queryGoogleScholar, queryYoutube } from "./google_helper";
 import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
-import { fetchInstagramPostsFromProfile, queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryLinkedInCompanyProfilePostsBrightData, queryLinkedInUserPostsBrightData, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
+import { fetchInstagramPostsFromProfile, queryChatGPTViaBD, queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryLinkedInCompanyProfilePostsBrightData, queryLinkedInUserPostsBrightData, queryPerplexityViaBD, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryLinkedInCompanyPostsByRapidAPI, queryQuoraByRapidAPI, queryTwitterProfilePostsByRapidAPI } from './rapid_helper';
 import { BaseQueue } from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
@@ -184,7 +184,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                     if( nestCandidates && ! parentSearch ){
                         const nestedReferenceCategoryId = nestCandidates.referenceCategoryId
                         origin = origin ?? await Primitive.findOne({_id: oId})
-                        if( origin.referenceId !== nestedReferenceCategoryId ){
+                        if( origin && origin?.referenceId !== nestedReferenceCategoryId ){
                             let parentForNestedSearch = ["view","segment","query"].includes(origin.type) ? origin : (await Primitive.findOne({_id: await primitiveTask( primitive ) }))
 
                             const nestedSearches = await primitiveChildren( primitive, "search")
@@ -406,6 +406,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                                         single:true, 
                                         type: resultCategory?.title, 
                                         engine: "gpt4o-mini" ?? primitive.referenceParameters?.engine})
+                                        logger.info(`Filter [${type}] for ${data.dataSource} = ${result.output} vs ${threshold}`)
                                     if( result.output >= threshold){
                                         return true
                                     }
@@ -550,6 +551,14 @@ export async function processQueue(job, cancelCheck, extendJob){
                         }
                         if( source.platform === "quora" ){
                             await queryQuoraByRapidAPI( terms, callopts) 
+                        }
+                        if( source.platform === "perplexity" ){
+                            await queryPerplexityViaBD( primitive, terms, callopts)
+                            collectionAsync = true
+                        }
+                        if( source.platform === "chatgpt" ){
+                            await queryChatGPTViaBD( primitive, terms, callopts)
+                            collectionAsync = true
                         }
                         if( source.platform === "meta_ads" ){
                             callopts.ignoreIds = primitive.checkCache?.items

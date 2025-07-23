@@ -1462,6 +1462,13 @@ function MainStore (prims){
                         }
                         obj.triggerCallback("workspace_updated", [targetWorkspaceId], entry.data, true)
                     }
+                }else if(entry.type === "organization_update"){
+                    const targetOrganizationId = entry.id
+                    const activeOrgId = obj.activeOrganization.id
+                    obj.data.organizations[targetOrganizationId] = entry.data
+                    obj.activeOrganization = obj.data.organizations[activeOrgId]
+                    obj.triggerCallback("organization_updated", [targetOrganizationId], entry.data, true)
+
                 }else if(entry.type === "set_fields"){
                     if( entry.fields){
                         const target = obj.primitive( entry.primitiveId)

@@ -63,49 +63,53 @@ export class BaseQueue {
     }
 
     async notify(job, result, {childJob, parentJob}) {
-        let status , error
-        let notifyResponse, timeField
-        if( result.started){
-            status = "running"
-            timeField = "running"
-        }else if(result.error ){
-            status = "error"
-            error = result.error
-            timeField = "completed"
+        try{
+            let status , error
+            let notifyResponse, timeField
+            if( result.started){
+                status = "running"
+                timeField = "running"
+            }else if(result.error ){
+                status = "error"
+                error = result.error
+                timeField = "completed"
 
-        }else if(result.success === true){
-            status = "complete"
-            timeField = "completed"
-        }
-        this.logger.info(`Got notification [${job.mode}] - ${status}`, { id:job.id, error, childJob});
-
-        const prim = await fetchPrimitive( job.id )
-        if( prim ){
-            const update = {
-                ...(prim.processing?.[job.mode] ?? {}),
-                status, 
-                error,
-                [timeField]: new Date().toISOString(), 
-                track: job.id
+            }else if(result.success === true){
+                status = "complete"
+                timeField = "completed"
             }
-            if( result.error){
+            this.logger.info(`Got notification [${job.mode}] - ${status}`, { id:job.id, error, childJob});
 
-            }
-            await dispatchControlUpdate(job.id, `processing.${job.mode}`, update);
-
-            if( childJob ){
-                if( this.notifyTracker["_child_" + job.mode]){
-                    const [childId, childMode] = childJob.split("-")
-                    const child = await fetchPrimitive( childId)
-                    notifyResponse = await this.notifyTracker["_child_" + job.mode](prim, child, result, childMode, job.mode, parentJob)
+            const prim = await fetchPrimitive( job.id )
+            if( prim ){
+                const update = {
+                    ...(prim.processing?.[job.mode] ?? {}),
+                    status, 
+                    error,
+                    [timeField]: new Date().toISOString(), 
+                    track: job.id
                 }
-            }else{
-                if( this.notifyTracker[job.mode]){
-                    notifyResponse = await this.notifyTracker[job.mode](prim, result, job.mode, parentJob)
+                if( result.error){
+
+                }
+                await dispatchControlUpdate(job.id, `processing.${job.mode}`, update);
+
+                if( childJob ){
+                    if( this.notifyTracker["_child_" + job.mode]){
+                        const [childId, childMode] = childJob.split("-")
+                        const child = await fetchPrimitive( childId)
+                        notifyResponse = await this.notifyTracker["_child_" + job.mode](prim, child, result, childMode, job.mode, parentJob)
+                    }
+                }else{
+                    if( this.notifyTracker[job.mode]){
+                        notifyResponse = await this.notifyTracker[job.mode](prim, result, job.mode, parentJob)
+                    }
                 }
             }
+            return notifyResponse
+        }catch(err){
+            this.logger.error(`Error in notify`, job, result, err)
         }
-        return notifyResponse
     }
 
     async myInit() {

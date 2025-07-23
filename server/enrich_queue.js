@@ -9,10 +9,10 @@ import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import Parser from "@postlight/parser";
-import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL, queryGoogleSERP } from "./google_helper";
+import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL, queryGoogleSERP, replicateURLtoStorage } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
-import { findCompanyURLByName } from "./task_processor";
+import { findCompanyURLByName, getCompanyInfoFromDomain } from "./task_processor";
 import { enrichEntityFromOwler } from "./owler_helper";
 import { BaseQueue } from "./base_queue";
 import { getBaseDomain, getRegisteredDomain } from "./actions/SharedTransforms";
@@ -828,6 +828,22 @@ export async function processQueue(job, cancelCheck){
                         SIO.notifyPrimitiveEvent( primitive, result)
                     }
                     if( job.data.options.source === "url" ){
+                        const domain = getRegisteredDomain(primitive.referenceParameters?.url )
+                        const info = await getCompanyInfoFromDomain( domain )
+                        if( info ){
+                            const logoUrl = info.logo 
+                            await dispatchControlUpdate( primitive.id, "title", info.name )
+                            await replicateURLtoStorage( logoUrl, primitive.id, "cc_vf_images")
+                            await dispatchControlUpdate( primitive.id, "referenceParameters", {
+                                ...(primitive.referenceParameters ?? {}),
+                                description: info.description,
+                                linkedIn: info.socials?.linkedin,
+                                facebook: info.socials?.facebook,
+                                twitter: info.socials?.twitter,
+                                instagram: info.socials?.instagram,
+                                hasImg: true
+                            })
+                        }else{
                             await doPrimitiveAction( primitive, "update_icon_url")
                             const meta = await getMetaDescriptionFromURL(primitive.referenceParameters?.url)
                             if( meta ){
@@ -844,6 +860,7 @@ export async function processQueue(job, cancelCheck){
                                     await dispatchControlUpdate( primitive.id, "title", response.output?.[0] )
                                 }
                             } 
+                        }
                     }
                     if( job.data.options.source === "name" ){
                         const task = await primitiveTask( primitive )
