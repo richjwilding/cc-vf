@@ -34,6 +34,7 @@ export default function ProjectScreen(props){
         }
     }, [MainStore().homescreenReady])
     
+    const flows = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="flow"))
     const boards = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="board" || p.type==="working"))
     const activities = filterForWorksapce(MainStore().primitives().filter((p)=>p.isTask))
     const ventures = filterForWorksapce(MainStore().primitives().filter((p)=>p.type === 'venture' || p.type==="concept"))
@@ -49,6 +50,15 @@ export default function ProjectScreen(props){
 
         <div className="w-full h-screen overflow-y-scroll p-4">
         <>
+            <Panel key='flows' titleButton={{title:"New board", action: ()=>setShowNew(['flow'])}} title='Flow templates' collapsable={true} count={flows.length} open={true} major='true' >
+                <div className="w-full flex overflow-x-scroll">
+                    <div className="w-fit flex gap-4 p-4">
+                        {flows.map((p)=>{
+                            return <PrimitiveCard.Hero primitive={p}/>
+                        })}
+                    </div>
+                </div>
+            </Panel>
             <Panel key='boards' titleButton={{title:"New board", action: ()=>setShowNew(['board','working'])}} title='Boards and analysis' collapsable={true} count={boards.length} open={true} major='true' >
                 <div className="w-full flex overflow-x-scroll">
                     <div className="w-fit flex gap-4 p-4">

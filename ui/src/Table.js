@@ -239,8 +239,6 @@ export function Table(props) {
     const hasLeftAction = props.onExpand || props.enableCopy !== false 
     
 
-
-
     function buildDynamicFieldsForPrimitiveList( data, getData = (r)=>r ){
         let dynamic = [
             {field: 'plainId', title: "ID", width: 100, allocSpace: false},

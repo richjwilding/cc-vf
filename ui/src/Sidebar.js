@@ -344,6 +344,33 @@ export function Sidebar({primitive, ...props}) {
 
     const showAsSummary = primitive.type === "summary" || (primitive.type === "segment" && primitive.referenceParameters.summary)
 
+    let rationaleList = <></>
+    if( (primitive.type === "result" || primitive.type === "entity")){
+        const categoryParents = primitive.parentPrimitives.filter(d=>d.type === "category")
+        if( categoryParents.length > 0){
+            const data = categoryParents.map(d=>({
+                        parent: d.origin?.title ?? "Unknown",
+                        category: d.title,
+                        rationale: d.rationale[primitive.id] ?? ""
+                    }))
+            rationaleList = 
+            <Panel title="Categories" collapsable={true} open={false} major>
+                <Table 
+                    className='!text-xs'
+                    primitive={primitive}
+                    page={0}
+                    pageItems={20}
+                    columns={[
+                        {field: "parent", title: "Parent"},
+                        {field: "category", title: "Category"},
+                        {field: "rationale", title: "Rationale"},
+                    ]}
+                    data={data}
+                />
+            </Panel>
+        }
+    }
+
     let sidebarContent
     if( props.forFlow ){
         sidebarContent = <FlowContent primitives={isMulti ? primitive : [primitive]} {...props} />
@@ -406,6 +433,7 @@ export function Sidebar({primitive, ...props}) {
             </div>}
             {!infoPane && !isMulti && !props.forFlow && !showAsSummary && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
+                {rationaleList}
                 {primitive.type === "result" && !fulltext && (primitive.referenceParameters?.url || primitive.referenceParameters?.notes) && <Panel.MenuButton title='View text' onClick={async ()=>setFullText((await primitive.getDocumentAsText())?.split(" ").slice(0,5000).join(" "))}/>}
                 {primitive.type === "result" && fulltext && <div className='p-3 border rounded-md text-sm'>{fulltext}</div>}
                 {primitive.type === "evidence" && (primitive.parentPrimitives.filter((d)=>d.type === 'hypothesis').length > 0) && 
@@ -429,11 +457,6 @@ export function Sidebar({primitive, ...props}) {
                                 variant: true
                             }}
                         />
-                    </Panel>
-                }
-                {Object.keys(primitive.primitives || {}).includes("imports") &&
-                    <Panel title="Input segments" collapsable={true} open={false} major>
-                        <PrimitiveCard.ImportList primitive={primitive}/>
                     </Panel>
                 }
                 {primitive.primitives.allUniqueEvidence.length > 0 && 

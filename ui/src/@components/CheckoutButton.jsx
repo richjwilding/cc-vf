@@ -1,8 +1,9 @@
 // CheckoutButton.jsx
-import { loadStripe } from '@stripe/stripe-js';
+import { loadStripe } from '@stripe/stripe-js/pure';
 import { useState } from 'react';
 import { Button } from '@heroui/react'; // or your HeroUI button
 
+loadStripe.setLoadParameters({advancedFraudSignals: false});
 const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY);
 
 export default function CheckoutButton({ priceId, isDisabled, ...props }) {

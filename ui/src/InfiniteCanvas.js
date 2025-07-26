@@ -134,6 +134,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             const br = convertSceneCoordToScreen( d.x + (d.node.attrs.width * d.node.attrs.scaleX), d.y + (d.node.attrs.height * d.node.attrs.scaleY))
                 
             const positions = {
+                id: d.id,
                 scene:{
                     x: d.x,
                     y: d.y,
@@ -1599,7 +1600,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
             orderNestedFrames(frame.node)
             resizeNestedFrame( id )
-            refreshLinks()
+            refreshLinks([{id: id, x: frame.x, y: frame.y}], true)
                 if( myState.current.frameSelect ){
                     if( myState.current.frameSelect.node.attrs.id === id ){
                         clearSelection()                    

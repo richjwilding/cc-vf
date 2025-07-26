@@ -1,5 +1,5 @@
 // ChatComponent.jsx (React)
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, forwardRef, useImperativeHandle } from 'react';
 import MarkdownEditor from './MarkdownEditor';
 import MainStore from './MainStore';
 import clsx from 'clsx';
@@ -8,8 +8,11 @@ import { PrimitiveCard } from './PrimitiveCard';
 import { HeroIcon } from './HeroIcon';
 import { Badge } from './@components/badge';
 import { deepEqualIgnoreOrder, isObjectId } from './SharedTransforms';
+import { Button } from '@heroui/react';
+import { Icon } from '@iconify/react/dist/iconify.js';
 
-export default function AgentChat({primitive, ...props}) {
+//export default function AgentChat({primitive, ...props}) {
+const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, ...props}, ref){
       const [messages, setMessages] = useState([]);
       const inputBox = useRef({})
       const editorRef = useRef()
@@ -17,6 +20,7 @@ export default function AgentChat({primitive, ...props}) {
       const [pending, setPending] = useState(false);
       const [context, setContext] = useState(false);
       const [chatState, setChatState] = useState({});
+      const [externalContext, setExternalContext] = useState({});
       const readerRef = useRef(null);
       const actionData = useRef([])
       const insertedCount = useRef(0)
@@ -24,17 +28,23 @@ export default function AgentChat({primitive, ...props}) {
       useEffect(()=>{
         const mainstore = MainStore()
         updateStatus( {active: !inputBox.current?.empty(), messages})
-        const contextMessages = messages.filter(d=>d.role === "assistant" && d.hidden).map(d=>d.content?.match(/\[\[chat_scope:([^\]]*)\]\]/)?.[1]?.split(",")).filter(d=>d)
-        const latestContext = contextMessages.at(-1)?.map(d=>{
-          const asNum = parseInt(d)
-          if( isObjectId(d) || isNaN(asNum)){
-            return mainstore.primitive(d)
-          }else{
-            return mainstore.primitive(asNum)
+        if( externalContext ){
+          if( externalContext?.id !== context?.id){
+            setContext([externalContext].flat())
           }
-        }).filter(d=>d)
-        setContext( latestContext )
-
+        }else{
+          const contextMessages = messages.filter(d=>d.role === "assistant" && d.hidden).map(d=>d.content?.match(/\[\[chat_scope:([^\]]*)\]\]/)?.[1]?.split(",")).filter(d=>d)
+          const latestContext = contextMessages.at(-1)?.map(d=>{
+            const asNum = parseInt(d)
+            if( isObjectId(d) || isNaN(asNum)){
+              return mainstore.primitive(d)
+            }else{
+              return mainstore.primitive(asNum)
+            }
+          }).filter(d=>d)
+          setContext( latestContext )
+        }
+          
         const stateMessages = messages.filter(d=>d.role === "assistant" && d.hidden).filter(d=>d.content?.startsWith("[[current_state:"))
         const latestStateMsg = stateMessages.at(-1)
         let latestState
@@ -53,8 +63,15 @@ export default function AgentChat({primitive, ...props}) {
           }
           setChatState( latestState )
         }
-      }, [messages])
+      }, [messages, externalContext])
 
+      useImperativeHandle(ref, () => {
+        return {
+          setContext: (context)=>{
+            setExternalContext(context)
+          }
+        }
+      }, [])
 
       useEffect(() => {
         if (insertedCount.current === 0 && messages.length > 0) {
@@ -126,6 +143,9 @@ export default function AgentChat({primitive, ...props}) {
     
       async function sendChat() {
         if( pending){return}
+        if( inputBox.current?.empty() ){
+          return
+        }
         setPending(true)
         const userMsg = { role: 'user', content: inputBox.current?.value().trim() };
         const nextFull = [...messages, userMsg, { role: 'assistant', content: "[[update:Thinking...]]"}]
@@ -138,7 +158,14 @@ export default function AgentChat({primitive, ...props}) {
         const res = await fetch(`/api/primitive/${primitive.id}/agent`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: nextFull, options: {parentId: primitive.origin?.id} }),
+          body: JSON.stringify({ 
+              messages: nextFull, 
+              options: {
+                parentId: primitive.origin?.id, 
+                agentScope: agentScope, 
+                immediateContext: externalContext ? [externalContext].flat().map(d=>d.id) : undefined,
+                mode:props.mode
+              }}),
         });
         const reader = res.body.getReader();
         const dec    = new TextDecoder();
@@ -194,10 +221,11 @@ export default function AgentChat({primitive, ...props}) {
                 })
                 contextText = `[[action_item:${itemId}:${text}]]`
               }
-              updateAssistantUI(contextText, payload.context.context?.canCreate ? false :true, {context: payload.context.context});
+              updateAssistantUI(contextText, payload.context.context?.canCreate ? false :true, payload);
                 displayContent = ""
             }else if(payload.preview){
-              updateAssistantUI(payload.preview, false, {preview: true});
+              const {preview, ...other} =  payload
+              updateAssistantUI(preview, false, {...other, preview: true});
                 displayContent = ""
             }
       
@@ -292,11 +320,12 @@ export default function AgentChat({primitive, ...props}) {
                 <div className="flex flex-1 items-stretch flex flex-1 items-stretch max-h-60 overflow-y-scroll">
                     <MarkdownEditor onFocus={handleInputFocus} onBlur={handleInputBlur} ref={inputBox} initialMarkdown={""} onKeyUp={handleInputKeyPress} float={props.seperateInput}/>
                 </div>
-                <button type="submit" style={{ padding: '0 16px' }} onClick={()=>sendChat()}>Send</button>
-                <button style={{ padding: '0 16px' }} onClick={rewind}>Rewind</button>
-                <button style={{ padding: '0 16px' }} onClick={clear}>Clear</button>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={()=>sendChat()} ><Icon icon="solar:round-arrow-up-linear" className='w-6 h-6 text-default-600 hover:text-default-800'/></Button>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={rewind}><Icon icon="solar:rewind-back-circle-outline" className='w-6 h-6 text-default-600 hover:text-default-800'/></Button>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={clear}><Icon icon="solar:trash-bin-trash-linear" className='w-6 h-6 text-default-600 hover:text-default-800'/></Button>
             </div>
         </>
 
       );
-}
+})
+export default AgentChat

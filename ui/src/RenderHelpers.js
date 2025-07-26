@@ -3561,7 +3561,6 @@ export function renderPlaceholder(renderOptions = {}){
             const cornerRadius = h * 0.3
             for( let y = h + (padding * 2), i = 0 ; (y + h) < usableHeight; i++, y += ( h * 2)){
                 const thisWidth = (usableWidth - (2 * padding)) * widths[i % lenW]
-                console.log(i, thisWidth)
                 g.add(new Konva.Rect({
                     x: padding * 2,
                     y,
@@ -6005,23 +6004,27 @@ function renderSubCategoryChart( title, data, options = {}){
     const innerSpacing = config.fontSize * 1.2
 
     let colors = categoryColors
-    let selectedPalette = heatMapPalette.find(d=>d.name === paletteName)
-    if( selectedPalette ){
-        if( selectedPalette.dynamic){
-            colors = interpolateHexColors(selectedPalette.colors.at(0), selectedPalette.colors.at(-1), data.length)
-            if( options.reversePalette ){
-                colors = [...selectedPalette.colors].reverse()
-            }
-        }else if( selectedPalette.category_colors ){
-            colors = selectedPalette.category_colors 
-        }else{
-            if( options.reversePalette === false){
-                colors = [...selectedPalette.colors]
-                if( colors.length > data.length){
-                    colors = colors.slice( -data.length)
+    if( options.colorMap ){
+        colors = data.map(d=>options.colorMap[d.label])
+    }else{
+        let selectedPalette = heatMapPalette.find(d=>d.name === paletteName)
+        if( selectedPalette ){
+            if( selectedPalette.dynamic){
+                colors = interpolateHexColors(selectedPalette.colors.at(0), selectedPalette.colors.at(-1), data.length)
+                if( options.reversePalette ){
+                    colors = [...selectedPalette.colors].reverse()
                 }
+            }else if( selectedPalette.category_colors ){
+                colors = selectedPalette.category_colors 
             }else{
-                colors = [...selectedPalette.colors].reverse()
+                if( options.reversePalette === false){
+                    colors = [...selectedPalette.colors]
+                    if( colors.length > data.length){
+                        colors = colors.slice( -data.length)
+                    }
+                }else{
+                    colors = [...selectedPalette.colors].reverse()
+                }
             }
         }
     }
@@ -6533,6 +6536,7 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         max,
         min,
         count,
+        colorMap: renderOptions.colorMap,
         showValue: renderOptions.show_value ?? false, 
         legendSize: renderOptions.legend_size,
         legendOnRight: renderOptions.show_legend === "right",
@@ -8075,13 +8079,16 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     const maxColIdx = columns.length - 1
     const maxRowIdx = rows.length - 1
 
-    let showSingleLegend = true
+    let showSingleLegend = !(typeof(renderOptions.show_legend) === "string" && renderOptions.show_legend.startsWith("each-"))
+    const legendPosition = typeof(renderOptions.show_legend) === "string" && renderOptions.show_legend.includes("right") ? "right" : "below"
 
-    let {show_legend, legend_size,...relayConfig} = renderOptions
+
+    let {show_legend, ...relayConfig} = renderOptions
     if(data.cells.length === 1 ){
         relayConfig = renderOptions
         showSingleLegend = false
     }
+    relayConfig.show_legend = showSingleLegend ? false : legendPosition
 
     let configForCells = data.cells.reduce((a,cell)=>{
         if( cell.cIdx > maxColIdx || cell.rId > maxRowIdx){
@@ -8145,7 +8152,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
             x, 
             y, 
             table: data, 
-            renderOptions: relayConfig,
+            renderOptions: {...relayConfig, colorMap: legendInfo?.colorMap},
             config, 
             cell})
 
@@ -8153,6 +8160,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
             const thisLegend = rendered.find(d=>d.attrs.legendInfo)?.[0]?.attrs?.legendInfo
             if( thisLegend ){
                 legendInfo = thisLegend
+                legendInfo.colorMap = thisLegend.data.reduce((a,d)=>{a[d.label]=thisLegend.colors[d.idx];return a},{})
             }
         }
         if( x + width > maxX){ maxX = x + width}
@@ -8177,8 +8185,8 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
         g.add( footers.rows)
     }
     if( showSingleLegend && legendInfo?.data){
-        const showOnRight = show_legend === "right"
-        const legendFontSize = legend_size ? legend_size : 12
+        const showOnRight = legendPosition === "right"
+        const legendFontSize = renderOptions.legend_size ? renderOptions.legend_size : 12
         const legend = renderLegend( legendInfo.data,{
                             ...options,
                             fontSize: legendFontSize,
@@ -8187,7 +8195,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
                             horizontalLegend: !showOnRight,
                             width: showOnRight ? 200 : maxX,
                             height: showOnRight ? maxY : 300,
-                            colors: legendInfo.colors
+                            colors: legendInfo?.colors
         })
         legend.name("inf_track row_header")
         g.add( legend)

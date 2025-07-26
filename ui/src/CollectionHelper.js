@@ -619,7 +619,7 @@ class CollectionUtils{
                     let filterConfig = d.referenceParameters?.importConfig?.[0]?.filters
                     const sourcePrimId = d.referenceParameters?.importConfig?.[0]?.id
                     if( filterConfig ){
-                       filterConfig = filterConfig[axis.axis]
+                       filterConfig = filterConfig[axis.axis ?? 0]
                         
                         if( filterConfig){
                             if(filterConfig.type ==="parent"){

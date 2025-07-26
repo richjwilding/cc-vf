@@ -285,7 +285,7 @@ export default function FlowInstancePage({primitive, ...props}){
             showOutput ? "p-6 space-x-6" : ""
         ])}>
                 <div className={clsx([
-                    "min-w-[30em] font-['Poppins'] @container flex flex-col min-h-0 relative",
+                    "min-w-[30em] font-['Poppins'] @container flex flex-col min-h-0 relative overflow-hidden",
                     showOutput ? "w-[25vw] max-w-2xl p-6 shadow-lg rounded-2xl bg-white" : "w-full mx-auto max-w-6xl px-9 bg-white"
                 ])}>
                     <div className={clsx([

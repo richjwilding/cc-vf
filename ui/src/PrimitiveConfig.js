@@ -796,7 +796,9 @@ const PrimitiveConfig = {
                         options: [
                             {id:false, title: "No"},
                             {id:true, title: "Below"},
-                            {id:"right", title: "On right"}
+                            {id:"right", title: "On right"},
+                            {id:"each-below", title: "Below each"},
+                            {id:"each-right", title: "Right of each"}
                         ]
                     },
                     "show_row_headers":{

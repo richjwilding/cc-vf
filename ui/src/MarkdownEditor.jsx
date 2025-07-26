@@ -489,7 +489,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
           );
         case "preview":
           return <div className='p-2'>
-            {element.data.map(d=><VisualizationPreview {...d} size="small" />)}
+            {element.data?.views?.map(d=><VisualizationPreview {...d} size="small" />)}
           </div>
         case "chat-message":
             return (

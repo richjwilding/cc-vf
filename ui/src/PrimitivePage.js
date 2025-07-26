@@ -98,7 +98,7 @@ export function PrimitivePage({primitive, ...props}) {
           return true
         }
       }
-      if( primitive.type === "board" || primitive.type==="flowinstance"|| primitive.type==="working" ){
+      if( primitive.type === "board" || primitive.type==="flowinstance"|| primitive.type==="working" || primitive.type==="flow" ){
         return true
       }
       return false
@@ -386,7 +386,10 @@ export function PrimitivePage({primitive, ...props}) {
     return <AnalysisPage primitive={primitive}/>
   }
   if(primitive?.type === "flow"  ){
-    return <FlowPage primitive={primitive}/>
+    //return <FlowPage primitive={primitive}/>
+    return <div className={`h-[calc(100vh_-_4em)] p-4`}>
+              <BoardViewer primitive={primitive}/>
+            </div>
   }
   if( primitive?.type === "flowinstance"  ){
     return <FlowInstancePage primitive={primitive}/>
@@ -565,7 +568,7 @@ export function PrimitivePage({primitive, ...props}) {
                       : `h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky ${props.widePage ? "2xl:top-[2em]" : "2xl:top-[6em]"} row-span-1 2xl:row-span-2`
                     }
                 >
-                <div ref={cvRef} className='bg-white rounded-lg shadow h-full flex flex-col @container'>
+                <div ref={cvRef} className='bg-white h-full flex flex-col @container'>
                     {showWorkingPane === "evidence" && 
                       <CollectionViewer 
                           closeButton={()=>setShowWorkingPane()}

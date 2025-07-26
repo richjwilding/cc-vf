@@ -1038,6 +1038,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         </>
                         }
                     </div>
+                    <Button fullWidth variant="bordered" onPress={()=>mainstore.doPrimitiveAction(frame, frame.metadata.actions[0]?.key)}>Run</Button>
                 </div>
             }
             {frame.type === "page" && 
@@ -1150,8 +1151,5 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             </div>
         </>
     }
-    return <div 
-            className='w-[32rem] 2xl:w-[40rem]'>
-                {content}
-            </div>
+    return content
 }

@@ -18,6 +18,7 @@ import { compareTwoStrings, expandStringLiterals, formatNumber } from "./SharedT
 import { getLogger } from './logger'
 import AgentChat from "./AgentChat";
 import clsx from "clsx";
+import { Tab, Tabs } from "@heroui/react";
 
 const log = getLogger('BoardViewer', { level: 'debug' })
 
@@ -89,64 +90,6 @@ async function moveItemWithinFrame(primitiveId, startZone, endZone, frame){
         return localItems
     }
 
-function buildIndicators(primitive, flowInstance, flow, state){
-    flowInstance ||= primitive?.findParentPrimitives({type: "flowinstance"})?.[0]
-    flow ||= flowInstance?.findParentPrimitives({type: "flow"})?.[0]
-    let step
-    if( flow && flowInstance ){
-        step = state.current.flowWatchList?.[flow.id]?.[flowInstance.id]?.status?.find(d=>d.step.id === primitive.id)
-    }
-    return translateIndicatorState( step )
-}
-function translateIndicatorState(step){
-    let out = {
-        icon: "Eye",
-        color: "#666"
-    }
-    if( step ){
-        if( step.running){
-            out = {
-                icon: "FAPlay",
-                color: "#3b82f6"
-            }
-        }else if( step.needReason === "complete"){
-            out = {
-                icon: "FACircleCheck",
-                color: "#4ade80"
-            }
-        }else if( step.canReason === "all_ready"){
-            out = {
-                icon: "FAPlay",
-                color: "#f97316"//#f59e0b
-            }
-        }else{
-            out = {
-                icon: "FAHand",
-                color: "#f97316"//#f59e0b
-            }
-        } 
-    }
-    return [out]
-}
-function _buildIndicators(primitive){
-    let indicatorMap = {
-        "complete": {
-            icon: "FACircleCheck",
-            color: "#4ade80"
-        },
-        "running": {
-            icon: "FAPlay",
-            color: "#3b82f6"
-        },
-        "default": {
-            icon: "FAHand",
-            color: "#f97316"//#f59e0b
-        }
-    }
-    return [
-        indicatorMap[primitive.processing?.flow?.status] ?? indicatorMap.default
-    ]
-}
 
 function preparePageElements( d, pageState ){
     
@@ -749,6 +692,18 @@ function SharedRenderView(d, primitive, myState) {
                 myState[stateId] = {id: stateId}
         }
         const basePrimitive = d
+        if( d.inFlow ){
+            if( !myState[d.originId]){
+                if(d.type === "flow"){
+                    myState[stateId].flowInstance = myState.mainFlowInstance
+                }else{
+                    const instanceForFlowInstance = d.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes( myState.mainFlowInstance?.id))
+                    myState[stateId].underlying = instanceForFlowInstance
+                    console.log(`-- Selected ${instanceForFlowInstance?.plainId} for ${d?.plainId}`)
+                    
+                }
+            }
+        }
 
         let primitiveToPrepare = myState[stateId].underlying ?? d
         let renderType = primitiveToPrepare.type
@@ -1459,13 +1414,15 @@ function SharedRenderView(d, primitive, myState) {
         }else if( renderType === "flow" ){
             let childNodes = d.primitives.origin.uniqueAllItems
             childNodes = [...childNodes.filter(d=>d.type !== "page"),...childNodes.filter(d=>d.type === "page")]
+
+            
             const flowInstances = childNodes.filter(child=>{
                 if( child.type !== "flowinstance" ){
                     return false
                 }
                 if( basePrimitive.flowElement){
                     // subflow
-                    if( myState[stateId].flowInstance ){
+                    if( myState[stateId].flowInstance){
                         return myState[stateId].flowInstance.primitives.subfi.allIds.includes( child.id)
                     }
                 }
@@ -1544,85 +1501,6 @@ function SharedRenderView(d, primitive, myState) {
     }
 
 
-async function watchFlowInstances( flow, flowInstances, state){
-    for(const fi of flowInstances ){
-        await watchFlowInstance(flow, fi, state)
-    }
-
-}
-async function stopWatchingFlowInstances( flow, flowInstances, state, filter){
-    if( filter ){
-        filter = [filter].flat()
-    }
-    for(const fi of flowInstances ){
-        if( filter && filter.includes(fi.id)){
-            continue
-        }
-        await stopWatchingFlowInstance( flow, fi, state)
-    }
-
-}
-async function stopWatchingFlowInstance( flow, flowInstance, state){
-    if( flow && flowInstance && flow.type === "flow" && flowInstance.type === "flowinstance"){
-        if( !state.current.flowWatchList ){
-            return
-        }
-        if( !state.current.flowWatchList[flow.id] ){
-            return
-        }
-        if( !state.current.flowWatchList[flow.id][flowInstance.id] ){
-            return
-        }
-        if( state.current.flowWatchList[flow.id][flowInstance.id].timer ){
-            clearTimeout(state.current.flowWatchList[flow.id][flowInstance.id].timer)
-        }
-        delete state.current.flowWatchList[flow.id][flowInstance.id]
-        console.log(`Stopped watching ${flowInstance.id}`)
-        
-    }
-}
-async function watchFlowInstance( flow, flowInstance, state){
-    if( flow && flowInstance && flow.type === "flow" && flowInstance.type === "flowinstance"){
-        if( !state.current.flowWatchList ){
-            state.current.flowWatchList = {}
-        }
-        if( !state.current.flowWatchList[flow.id] ){
-            state.current.flowWatchList[flow.id] = {}
-        }
-        if( !state.current.flowWatchList[flow.id][flowInstance.id] ){
-            state.current.flowWatchList[flow.id][flowInstance.id] = {}
-            await updateFlowInstanceState(flow, flowInstance, state)
-        }
-    }
-}
-async function updateFlowInstanceState(flow, flowInstance, state){
-    return
-    if(state.current.flowWatchList?.[flow.id]?.[flowInstance.id]){
-        try{
-
-            await MainStore().doPrimitiveAction(flowInstance, "instance_info",undefined, (data)=>{
-                console.log(`Got state`, data)
-                if(state.current.flowWatchList?.[flow.id]?.[flowInstance.id]){
-                    state.current.flowWatchList[flow.id][flowInstance.id].status = data
-                    
-                    if( state.current?.canvas){
-                        for(const d of data){
-                            state.current.canvas.updateIndicators( d.flowStepId, translateIndicatorState( d ) )
-                        }
-                    }
-                    state.current.flowWatchList[flow.id][flowInstance.id].timer = setTimeout(()=>{
-                        updateFlowInstanceState(flow, flowInstance, state)
-                    }, 5000)
-                }
-            })
-        }catch(e){
-                    state.current.flowWatchList[flow.id][flowInstance.id].timer = setTimeout(()=>{
-                        updateFlowInstanceState(flow, flowInstance, state)
-                    }, 5000)
-
-        }
-    }
-}
 
 export default function BoardViewer({primitive,...props}){
     const mainstore = MainStore()
@@ -1633,9 +1511,16 @@ export default function BoardViewer({primitive,...props}){
     const menu = useRef({})
     const colButton = useRef({})
     const rowButton = useRef({})
+    const agentRef = useRef({})
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
     const [agentStatus, setAgentStatus] = useState({activeChat: false})
+    const [panelTab, setPanelTab] = useState("info")
+    
+    if( primitive.type === "flow" && !myState.mainFlowInstances){
+        myState.mainFlowInstances = primitive.primitives.origin.allFlowinstance
+        myState.mainFlowInstance = myState.mainFlowInstances[primitive.referenceParameters?.explore?.view ?? 0 ]
+    }
 
 
     const setCanvasRef = (node) => {
@@ -1915,14 +1800,16 @@ export default function BoardViewer({primitive,...props}){
 
     const [boards,  renderedSet] = useMemo(()=>{
         log.info(`--- REDO BOARD RENDER ${primitive?.id}, ${update}`)
-        const boards = [...primitive.primitives.allUniqueView,
+        const boards = [
+                        primitive?.type === "flow" ? primitive : undefined,
+                        ...primitive.primitives.allUniqueView,
                         ...primitive.primitives.allUniquePage, 
                         ...primitive.primitives.allUniqueSummary,
                         ...primitive.primitives.allUniqueCategorizer,
                         ...primitive.primitives.allUniqueQuery,
                         ...primitive.primitives.allUniqueSearch,
                         ...primitive.primitives.allUniqueFlow,
-                        ...primitive.primitives.allUniqueAction]
+                        ...primitive.primitives.allUniqueAction].filter(Boolean)
         
         for(const d of boards){
             if(!myState[d.id] ){
@@ -2337,9 +2224,21 @@ export default function BoardViewer({primitive,...props}){
                 originalList: myState[id].originalList
             })
         }else{
+            if( primitive?.type ==="flow" ){
+                setCollectionPaneInfo({
+                    frame: primitive, 
+                    flowInstances: myState.mainFlowInstances, 
+                    inFlowInstance: undefined, 
+                    board: primitive,
+                    //localItems: []                    
+                })
+            }
             myState.activeBoard = undefined
             myState.menuOptions = {}
             hideMenu()
+        }
+        if( agentRef.current ){
+            agentRef.current.setContext( myState.activeBoard?.underlying ?? myState.activeBoard?.primitive )
         }
     }
 
@@ -2653,6 +2552,23 @@ export default function BoardViewer({primitive,...props}){
             let current = canvas.current.framePosition(myState.activeBoardId)?.scene
             if( current ){
                 position = {x:current.l, y: current.b + 30, s: current.s}
+            }
+        }else{
+            let all = canvas.current.framePosition()
+            if( all.length > 0){
+                let minX, maxY 
+                for(const d of all){
+                    if( d.id !== primitive.id){
+                        if(minX == undefined || d.scene.x < minX){
+                            minX = d.scene.x
+                        }
+                        if(maxY == undefined || d.scene.b > maxY){
+                            maxY = d.scene.b
+                        }
+                    }
+                }
+                position.x = minX  ?? 0 
+                position.y = (maxY ?? 0) + 30
             }
         }
         return position
@@ -3105,328 +3021,375 @@ export default function BoardViewer({primitive,...props}){
         return false
     }
 
-    return <>
+    const dockPaneInfo = true
+    const collectPaneWidget = collectionPaneInfo ? <CollectionInfoPane {...collectionPaneInfo} frameAction={frameActionCallback} newPrimitiveCallback={createNewQuery} createNewView={addBlankView} updateFrameExtents={updateExtents}/> : undefined
+
+    const agentScope = {
+        constrainTo: primitive.id,
+        activeFlowInstanceId: primitive.type === "flow" ? myState.mainFlowInstance.id : undefined
+    }
+
+    return <div className="flex w-full h-full bg-gray-100 space-x-4 overflow-hidden p-1">
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
-        <div key='chatbar' className={clsx([
-            'absolute bg-white border border-gray-200 bottom-4 space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
-            agentStatus.activeChat ? 'max-h-[80vh] w-[40vw] 4xl:max-w-3xl min-w-[24rem]' : "w-96 max-h-[80vh]"
-        ])}>
-            <AgentChat 
-                setStatus={setAgentStatus} 
-                contextClick={(d)=>mainstore.sidebarSelect(d)}
-                primitive={primitive}/>
-        </div>
-        
-        <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
-            <div className='p-3 flex place-items-start space-x-2 '>
-                    <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
-                    <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>pickNewItem()} flat placement='left-start' />
-                    <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
-                    {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
-                    {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
-                    {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
-                    {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
-                    {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
-            </div>
-            {collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
-                <CollectionInfoPane {...collectionPaneInfo} frameAction={frameActionCallback} newPrimitiveCallback={createNewQuery} createNewView={addBlankView} updateFrameExtents={updateExtents}/>
+            {dockPaneInfo &&  <div className='overflow-y-scroll shrink-0 bg-white rounded-lg shadow w-[24rem] xl:w-[32rem] 5xl:w-[40rem] py-2 px-3 flex-col flex'>
+                <Tabs fullWidth variant="solid" selectedKey={panelTab} onSelectionChange={((id)=>setPanelTab(id))}>
+                    <Tab key="info" title="Inspector"/>
+                    <Tab key="ai" title="SENSE AI"/>
+                </Tabs>
+                {collectionPaneInfo && panelTab === "info" && collectPaneWidget}
+                {<div key='chatbar' className={clsx([
+                            'flex flex-col overflow-hidden p-3 place-items-start text-sm grow',
+                            panelTab === "ai" ? "" : "hidden",
+                            "h-full w-full",
+                        ])}>
+                            {!agentStatus.hasReplies && <div className="w-full flex justify-center space-x-2 place-items-center grow h-full">
+                                <div className="bg-gray-50 rounded-xl border p-6 m-4 text-slate-700 w-72">
+                                    SENSE AI can help you setup this workflow.  Tell it what you're looking to do...
+                                </div>
+                            </div>}
+                            <AgentChat 
+                                    mode={primitive.type === "flow" ? "flow_editor" : "board"} 
+                                    externalContext={mainstore.activeBoard?.primitive}
+                                    setStatus={setAgentStatus} 
+                                    ref={agentRef}
+                                    scope={agentScope}
+                                    primitive={primitive} 
+                                    seperateInput={true}/>
+                        </div>
+                    }
             </div>}
-        </div>
-        {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-40 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
-            {myState.menuOptions?.addToView && <DropdownButton noBorder icon={<PlusIcon className='w-5 h-5'/>} onClick={addToView} flat placement='left-start' />}
-            {myState.menuOptions?.showAxis && <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-            {myState.menuOptions?.showAxis && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
-            {myState.menuOptions?.showAddChild && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
-            {myState.activeBoard && <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />}
-            {myState.activeBoard && myState.menuOptions?.showClone  && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
-            {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
-            {myState.createFromActivePin && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={createElementFromActivePin} flat placement='left-start' />}
-        </div>}
-        <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>
-            <InfiniteCanvas 
-                            primitive={primitive}
-                            board
-                            background="#fdfdfd"
-                            ref={setCanvasRef}
-                            ignoreAfterDrag={true}
-                            highlights={{
-                                "primitive":"border",
-                                "cell":"background",
-                                "pin":"background",
-                                "widget":"background"
-                            }}
-                            rerender={(frame, primitiveId)=>{
-                                const prim = MainStore().primitive(primitiveId)
-                                return RenderPrimitiveAsKonva( primitive)
-                            }}
-                            enableFrameSelection
-                            updateWatchList={updateWatchList}
-                            drag={{
-                                pin:{
-                                    pin: {
-                                        drop: (sourceId, sourcePin, targetId, targetPin)=>{
-                                            const canConnect = checkPinConnect( sourceId, sourcePin, targetId, targetPin )
-                                            if( canConnect){
-                                                const baseRel = canConnect.isInternalFlowPin ? "outputs" : "inputs"
-                                                if( targetPin === "impin"){
-                                                    console.log(`Will connect target ${canConnect.targetPrimitive.plainId} to source ${canConnect.sourcePrimitive.plainId} as import`)
-                                                    canConnect.targetPrimitive.addRelationship( canConnect.sourcePrimitive, "imports")
-                                                    if( sourcePin !== "impout"){
-                                                        const rel = `outputs.${sourcePin}_${targetPin}`
-                                                        console.log(`Will connect target ${canConnect.sourcePrimitive.plainId} to source ${canConnect.targetPrimitive.plainId} at ${rel}`)
-                                                        canConnect.sourcePrimitive.addRelationship( canConnect.targetPrimitive, rel)
+            <div className="flex relative w-full h-full @container rounded-lg shadow overflow-clip">
+                {!dockPaneInfo && <div key='chatbar' className={clsx([
+                    'absolute bg-white border border-gray-200 bottom-4 space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
+                    agentStatus.activeChat ? 'max-h-[80vh] w-[40vw] 4xl:max-w-3xl min-w-[24rem]' : "w-96 max-h-[80vh]"
+                ])}>
+                    <AgentChat 
+                        ref={agentRef}
+                        mode={primitive.type === "flow" ? "flow_editor" : "board"}
+                        setStatus={setAgentStatus} 
+                        contextClick={(d)=>mainstore.sidebarSelect(d)}
+                        primitive={primitive}/>
+                </div>}
+                
+                <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
+                    <div className='p-3 flex place-items-start space-x-2 '>
+                            <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
+                            <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>pickNewItem()} flat placement='left-start' />
+                            <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
+                            {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
+                            {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
+                            {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
+                            {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
+                            {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
+                    </div>
+                    {!dockPaneInfo && collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
+                        <div className='w-[32rem] 3xl:w-[40rem]'>
+                            {collectPaneWidget}
+                        </div>
+                    </div>}
+                </div>
+                {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-40 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
+                    {myState.menuOptions?.addToView && <DropdownButton noBorder icon={<PlusIcon className='w-5 h-5'/>} onClick={addToView} flat placement='left-start' />}
+                    {myState.menuOptions?.showAxis && <HierarchyNavigator ref={colButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Columns' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("column")} action={(d)=>updateAxis("column", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedColIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                    {myState.menuOptions?.showAxis && <HierarchyNavigator ref={rowButton} noBorder align={()=>menuSide()} icon={<HeroIcon icon='Rows' className='w-5 h-5 '/>} items={()=>CollectionUtils.axisToHierarchy(getAxisOptions())} flat placement='left-start' portal showTick selectedItemId={()=>getAxisId("row")} action={(d)=>updateAxis("row", d)} dropdownWidth='w-64' className={`hover:text-ccgreen-800 hover:shadow-md ${selectedRowIdx > 0 ? "!bg-ccgreen-100 !text-ccgreen-700" : ""}`}/>}
+                    {myState.menuOptions?.showAddChild && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={addWidgetChildView} flat placement='left-start' />}
+                    {myState.activeBoard && <DropdownButton noBorder icon={<HeroIcon icon='FAClearRectangle' className='w-5 h-5'/>} onClick={removeBoard} flat placement='left-start' />}
+                    {myState.activeBoard && myState.menuOptions?.showClone  && <DropdownButton noBorder icon={<HeroIcon icon='FACloneRectangle' className='w-5 h-5'/>} onClick={cloneBoard} flat placement='left-start' />}
+                    {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
+                    {myState.createFromActivePin && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={createElementFromActivePin} flat placement='left-start' />}
+                </div>}
+                <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>
+                    <InfiniteCanvas 
+                                    primitive={primitive}
+                                    board
+                                    background="#fdfdfd"
+                                    ref={setCanvasRef}
+                                    ignoreAfterDrag={true}
+                                    highlights={{
+                                        "primitive":"border",
+                                        "cell":"background",
+                                        "pin":"background",
+                                        "widget":"background"
+                                    }}
+                                    rerender={(frame, primitiveId)=>{
+                                        const prim = MainStore().primitive(primitiveId)
+                                        return RenderPrimitiveAsKonva( primitive)
+                                    }}
+                                    enableFrameSelection
+                                    updateWatchList={updateWatchList}
+                                    drag={{
+                                        pin:{
+                                            pin: {
+                                                drop: (sourceId, sourcePin, targetId, targetPin)=>{
+                                                    const canConnect = checkPinConnect( sourceId, sourcePin, targetId, targetPin )
+                                                    if( canConnect){
+                                                        const baseRel = canConnect.isInternalFlowPin ? "outputs" : "inputs"
+                                                        if( targetPin === "impin"){
+                                                            console.log(`Will connect target ${canConnect.targetPrimitive.plainId} to source ${canConnect.sourcePrimitive.plainId} as import`)
+                                                            canConnect.targetPrimitive.addRelationship( canConnect.sourcePrimitive, "imports")
+                                                            if( sourcePin !== "impout"){
+                                                                const rel = `outputs.${sourcePin}_${targetPin}`
+                                                                console.log(`Will connect target ${canConnect.sourcePrimitive.plainId} to source ${canConnect.targetPrimitive.plainId} at ${rel}`)
+                                                                canConnect.sourcePrimitive.addRelationship( canConnect.targetPrimitive, rel)
+                                                            }
+                                                        }else{
+                                                            const rel = `${baseRel}.${sourcePin}_${targetPin}`
+                                                            canConnect.targetPrimitive.addRelationship( canConnect.sourcePrimitive, rel)
+                                                            console.log(`Will connect target ${canConnect.targetPrimitive.plainId} to source ${canConnect.sourcePrimitive.plainId} at ${rel}`)
+                                                        }
+                                                        return true
+                                                    }
+                                                },
+                                                droppable: (sourceId, sourcePin, targetId, targetPin)=>{
+                                                    return checkPinConnect(sourceId, sourcePin, targetId, targetPin) !== false
+                                                }
+                                            }
+                                        },
+                                        "primitive": {
+                                            start: (id, frameId)=>{
+                                                const framePrimitive = mainstore.primitive( frameId )
+                                                if( framePrimitive.type === "element"){
+                                                    return "frame_parent"
+                                                }
+                                            },
+                                            cell:{
+                                                start: undefined,
+                                                droppable: (id,start, drop, sFrame, dFrame)=>{
+                                                    if( sFrame !== dFrame ){
+                                                        return false
+                                                    }                                                
+                                                    let frameId = sFrame
+                                                    
+                                                    const [sc,sr] = dropZoneToAxis(start)
+                                                    const [dc,dr] = dropZoneToAxis(drop)
+                                                    if( sr != dr && !myState[frameId].axis.row.allowMove){
+                                                        return false
+                                                    }
+                                                    if( sc != dc && !myState[frameId].axis.column.allowMove){
+                                                        return false
+                                                    }
+                                                    return true
+                                                },
+                                                drop: (id, start, drop, sFrame, dFrame)=>{
+                                                    if( sFrame !== dFrame ){
+                                                        return false
+                                                    }                                                
+                                                    let frameId = sFrame
+                                                    moveItemWithinFrame(id, start, drop, myState[frameId])
+                                                }
+                                            }
+                                        }
+                                    }}
+                                    callbacks={{
+                                        resizeFrame,
+                                        viewportWillMove:handleViewWillChange,
+                                        viewportCallback:()=>handleViewChange(),
+                                        frameMove: (d)=>{
+                                            const prim = MainStore().primitive(d.id)
+                                            if(prim){
+
+                                                console.log(d)
+
+                                                let target = primitive
+                                                let scaledWidth, scaledHeight
+
+
+                                                if( myState[d.id].parentRender ){
+                                                    target = myState[myState[d.id].parentRender].primitive
+                                                    console.log(`Will update position in flow parent`)
+                                                }
+
+                                                const updateData = {
+                                                    ...(target.frames?.[d.id] ?? {}),
+                                                    x: d.x, 
+                                                    y: d.y, 
+                                                    s: d.s
+                                                }
+                                                
+                                                target.setField(`frames.${d.id}`, updateData)
+
+                                                canvas.current.updateFramePosition( d.id, {x: updateData.x, y: updateData.y, s: updateData.s})
+                                            }
+                                        },
+                                        onClick:{
+                                            pin: (ids, frameId, {name, output})=>{
+                                                console.log(frameId, name, output)
+                                                setActivePin({frameId, name, output})
+                                            },
+                                            frame: (id)=>setActiveBoard(id),
+                                            primitive:(id, frameId)=>{
+                                                const frame = mainstore.primitive(frameId)
+                                                if( myState.activeBoard?.id ===  frameId){
+                                                    mainstore.sidebarSelect(id)
+                                                }else{
+                                                    setActiveBoard( frame.id )
+                                                    if( canvas.current ){
+                                                        canvas.current.selectFrame( frame.id )
+                                                    }
+
+                                                }
+                                                if( frame?.type === "element"){
+                                                    setActiveBoard( frame.id )
+                                                    if( canvas.current ){
+                                                        canvas.current.selectFrame( frame.id )
+                                                    }
+                                                }
+                                            },
+                                            canvas:(id)=>primitive?.type === "flow" ? setActiveBoard() : setCollectionPaneInfo(),
+                                            toggle_items:(id, frameId, data)=>{
+                                                let target = primitive
+                                                if( myState[frameId].parentRender ){
+                                                    target = myState[myState[frameId].parentRender].primitive
+                                                    console.log(`Will update toggle in flow parent`)
+                                                }
+                                                target.setField(`frames.${frameId}.showItems`, !(data?.open ?? false))
+                                            },
+                                            column_header:(id, frameId, data, konvaNode)=>{
+                                                setActiveBoard(frameId)
+                                                if( canvas.current ){
+                                                    canvas.current.selectFrame( frameId )
+                                                }
+                                            },
+                                            row_header:(id, frameId, data, konvaNode)=>{
+                                                setActiveBoard(frameId)
+                                                if( canvas.current ){
+                                                    canvas.current.selectFrame( frameId )
+                                                }
+                                            },
+                                            cell:(id, frameId, data, konvaNode)=>{
+                                                let cell = id?.[0]
+                                                let nested 
+                                                const cellAncestors = konvaNode.findAncestors('.cell')
+                                                if( cellAncestors.length > 0 ){
+                                                    const baseCell = cellAncestors.shift()
+                                                    nested = cell
+                                                    cell = baseCell.attrs.id
+                                                    if( cellAncestors.length > 0 ){
+                                                        console.warn(`Cant handle multiple nested cells`)
+                                                    }
+                                                }
+                                                if( cell ){
+                                                    let sourceState = myState[frameId]
+                                                    if( sourceState.axisSource ){
+                                                        let axisSource = sourceState.axisSource
+                                                        if( axisSource.inFlow && axisSource.configParent.flowElement ){
+                                                            axisSource = axisSource.configParent
+                                                        }
+                                                        sourceState = myState[axisSource.id]
+                                                    }
+
+                                                    let cIdx, rIdx, filters
+
+                                                    if(myState[frameId].data){
+                                                        const data = myState[frameId].data
+                                                        const cellData = data.cells.find(d=>d.id === cell)
+                                                        console.log(nested)
+                                                        filters = [
+                                                            PrimitiveConfig.encodeExploreFilter( data.defs?.columns, cellData.columnIdx ),
+                                                            PrimitiveConfig.encodeExploreFilter( data.defs?.rows, cellData.rowIdx ),
+                                                        ]
+                                                        if( nested ){
+                                                            const idx = parseInt(nested.split("-")[1])
+                                                            filters.push(
+                                                                PrimitiveConfig.encodeExploreFilter( data.defs.allocations?.[0], Object.values(cellData.allocations)[0]?.[idx]?.idx )
+                                                            )
+                                                        }
+                                                    }else if(myState[frameId].axis){
+                                                        [cIdx,rIdx] = cell.split("-")
+                                                        filters = [
+                                                            PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
+                                                            PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
+                                                        ]
+                                                        
+                                                    }
+
+                                                    console.log(filters)
+                                                    setCollectionPaneInfo({frame:  sourceState.underlying ??  sourceState.primitive, board: primitive, filters: filters.filter(d=>d)})
+                                                    if( !myState.activeBoard || myState.activeBoard.id !== frameId){
+                                                        setActiveBoard(frameId)
+                                                        canvas.current.selectFrame( frameId )
                                                     }
                                                 }else{
-                                                    const rel = `${baseRel}.${sourcePin}_${targetPin}`
-                                                    canConnect.targetPrimitive.addRelationship( canConnect.sourcePrimitive, rel)
-                                                    console.log(`Will connect target ${canConnect.targetPrimitive.plainId} to source ${canConnect.sourcePrimitive.plainId} at ${rel}`)
+                                                    return false
                                                 }
-                                                return true
+                                            },
+                                            widget:{
+                                                show_extra:(d,frameId)=>{
+                                                    const cellId = d.attrs.id
+                                                    const [cIdx,rIdx] = cellId.split("-")
+                                                    console.log(`Toggle extra of ${frameId} / ${cellId}`)
+                                                    const mappedColumn = myState[frameId].columns[cIdx] 
+                                                    const mappedRow = myState[frameId].rows[rIdx] 
+                                                    const current = primitive.frames?.[frameId]?.expand ?? {}
+                                                    const key = [mappedColumn?.idx, mappedRow?.idx].filter(d=>d).join("-")
+
+                                                    if( current[key] ){
+                                                        delete current[key]
+                                                    }else{
+                                                        current[key] = true
+                                                    }
+                                                    console.log(key, current)
+                                                    primitive.setField(`frames.${frameId}.expand`, current)
+                                                    canvas.current.updateFramePosition( frameId, {expand: current})
+                                                    canvas.current.refreshFrame( frameId)
+                                                }
+                                            }
+
+                                        },
+                                        onToggle:async (primitiveId, toggle, frameId)=>{
+                                            console.log(`Will toggle ${toggle} on ${primitiveId} for frame ${frameId}`)
+                                            if( toggle && primitiveId && myState[frameId]){
+                                                const axisValue = myState[frameId].extents[toggle].filter(d=>d.idx !== "_N_")?.[0]
+                                                const target = mainstore.primitive(primitiveId)
+                                                const category = mainstore.primitive(axisValue.idx)
+                                                if( target && category ){
+                                                    let result 
+                                                    const currentState = target.parentPrimitiveIds.includes(category.id)
+                                                    if( currentState ){
+                                                        await category.removeRelationship(target,"ref")
+                                                        result = false
+                                                    }else{
+                                                        await category.addRelationship(target,"ref")
+                                                        result = true
+                                                    }
+
+                                                    for(const targetBoard of boards){
+                                                        if( targetBoard.id !== frameId){
+                                                            prepareBoard( targetBoard )
+                                                            canvas.current.refreshFrame( targetBoard.id )
+                                                        }
+                                                    }
+                                                    return result
+                                                    
+                                                }
                                             }
                                         },
-                                        droppable: (sourceId, sourcePin, targetId, targetPin)=>{
-                                            return checkPinConnect(sourceId, sourcePin, targetId, targetPin) !== false
-                                        }
-                                    }
-                                },
-                                "primitive": {
-                                    start: (id, frameId)=>{
-                                        const framePrimitive = mainstore.primitive( frameId )
-                                        if( framePrimitive.type === "element"){
-                                            return "frame_parent"
-                                        }
-                                    },
-                                    cell:{
-                                        start: undefined,
-                                        droppable: (id,start, drop, sFrame, dFrame)=>{
-                                            if( sFrame !== dFrame ){
-                                                return false
-                                            }                                                
-                                            let frameId = sFrame
-                                            
-                                            const [sc,sr] = dropZoneToAxis(start)
-                                            const [dc,dr] = dropZoneToAxis(drop)
-                                            if( sr != dr && !myState[frameId].axis.row.allowMove){
-                                                return false
-                                            }
-                                            if( sc != dc && !myState[frameId].axis.column.allowMove){
-                                                return false
-                                            }
-                                            return true
+                                    }}
+                                    frameLinks={linkList}
+                                    framePositions={framePositions}
+                                    selectable={{
+                                        "frame":{
+                                            multiple: true
                                         },
-                                        drop: (id, start, drop, sFrame, dFrame)=>{
-                                            if( sFrame !== dFrame ){
-                                                return false
-                                            }                                                
-                                            let frameId = sFrame
-                                            moveItemWithinFrame(id, start, drop, myState[frameId])
+                                        "primitive":{
+                                            multiple: false
+                                        },
+                                        "pin":{
+                                            multiple: false
+                                        },
+                                        "cell":{
+                                            multiple: true
                                         }
-                                    }
-                                }
-                            }}
-                            callbacks={{
-                                resizeFrame,
-                                viewportWillMove:handleViewWillChange,
-                                viewportCallback:()=>handleViewChange(),
-                                frameMove: (d)=>{
-                                    const prim = MainStore().primitive(d.id)
-                                    if(prim){
-
-                                        console.log(d)
-
-                                        let target = primitive
-                                        let scaledWidth, scaledHeight
-
-
-                                        if( myState[d.id].parentRender ){
-                                            target = myState[myState[d.id].parentRender].primitive
-                                            console.log(`Will update position in flow parent`)
-                                        }
-
-                                        const updateData = {
-                                            ...(target.frames?.[d.id] ?? {}),
-                                            x: d.x, 
-                                            y: d.y, 
-                                            s: d.s
-                                        }
-                                        
-                                        target.setField(`frames.${d.id}`, updateData)
-
-                                        canvas.current.updateFramePosition( d.id, {x: updateData.x, y: updateData.y, s: updateData.s})
-                                    }
-                                },
-                                onClick:{
-                                    pin: (ids, frameId, {name, output})=>{
-                                        console.log(frameId, name, output)
-                                        setActivePin({frameId, name, output})
-                                    },
-                                    frame: (id)=>setActiveBoard(id),
-                                    primitive:(id, frameId)=>{
-                                        const frame = mainstore.primitive(frameId)
-                                        if( myState.activeBoard?.id ===  frameId){
-                                            mainstore.sidebarSelect(id)
-                                        }else{
-                                            setActiveBoard( frame.id )
-                                            if( canvas.current ){
-                                                canvas.current.selectFrame( frame.id )
-                                            }
-
-                                        }
-                                        if( frame?.type === "element"){
-                                            setActiveBoard( frame.id )
-                                            if( canvas.current ){
-                                                canvas.current.selectFrame( frame.id )
-                                            }
-                                        }
-                                    },
-                                    canvas:(id)=>setCollectionPaneInfo(),
-                                    toggle_items:(id, frameId, data)=>{
-                                        let target = primitive
-                                        if( myState[frameId].parentRender ){
-                                            target = myState[myState[frameId].parentRender].primitive
-                                            console.log(`Will update toggle in flow parent`)
-                                        }
-                                        target.setField(`frames.${frameId}.showItems`, !(data?.open ?? false))
-                                    },
-                                    column_header:(id, frameId, data, konvaNode)=>{
-                                        setActiveBoard(frameId)
-                                    },
-                                    row_header:(id, frameId, data, konvaNode)=>{
-                                        setActiveBoard(frameId)
-                                    },
-                                    cell:(id, frameId, data, konvaNode)=>{
-                                        let cell = id?.[0]
-                                        let nested 
-                                        const cellAncestors = konvaNode.findAncestors('.cell')
-                                        if( cellAncestors.length > 0 ){
-                                            const baseCell = cellAncestors.shift()
-                                            nested = cell
-                                            cell = baseCell.attrs.id
-                                            if( cellAncestors.length > 0 ){
-                                                console.warn(`Cant handle multiple nested cells`)
-                                            }
-                                        }
-                                        if( cell ){
-                                            let sourceState = myState[frameId]
-                                            if( sourceState.axisSource ){
-                                                let axisSource = sourceState.axisSource
-                                                if( axisSource.inFlow && axisSource.configParent.flowElement ){
-                                                    axisSource = axisSource.configParent
-                                                }
-                                                sourceState = myState[axisSource.id]
-                                            }
-
-                                            let cIdx, rIdx, filters
-
-                                            if(myState[frameId].data){
-                                                const data = myState[frameId].data
-                                                const cellData = data.cells.find(d=>d.id === cell)
-                                                console.log(nested)
-                                                filters = [
-                                                    PrimitiveConfig.encodeExploreFilter( data.defs?.columns, cellData.columnIdx ),
-                                                    PrimitiveConfig.encodeExploreFilter( data.defs?.rows, cellData.rowIdx ),
-                                                ]
-                                                if( nested ){
-                                                    const idx = parseInt(nested.split("-")[1])
-                                                    filters.push(
-                                                        PrimitiveConfig.encodeExploreFilter( data.defs.allocations?.[0], Object.values(cellData.allocations)[0]?.[idx]?.idx )
-                                                    )
-                                                }
-                                            }else if(myState[frameId].axis){
-                                                [cIdx,rIdx] = cell.split("-")
-                                                filters = [
-                                                    PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),
-                                                    PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
-                                                ]
-                                                
-                                            }
-
-                                            console.log(filters)
-                                            setCollectionPaneInfo({frame:  sourceState.underlying ??  sourceState.primitive, board: primitive, filters: filters.filter(d=>d)})
-                                            if( !myState.activeBoard || myState.activeBoard.id !== frameId){
-                                                setActiveBoard(frameId)
-                                                canvas.current.selectFrame( frameId )
-                                            }
-                                        }else{
-                                            return false
-                                        }
-                                    },
-                                    widget:{
-                                        show_extra:(d,frameId)=>{
-                                            const cellId = d.attrs.id
-                                            const [cIdx,rIdx] = cellId.split("-")
-                                            console.log(`Toggle extra of ${frameId} / ${cellId}`)
-                                            const mappedColumn = myState[frameId].columns[cIdx] 
-                                            const mappedRow = myState[frameId].rows[rIdx] 
-                                            const current = primitive.frames?.[frameId]?.expand ?? {}
-                                            const key = [mappedColumn?.idx, mappedRow?.idx].filter(d=>d).join("-")
-
-                                            if( current[key] ){
-                                                delete current[key]
-                                            }else{
-                                                current[key] = true
-                                            }
-                                            console.log(key, current)
-                                            primitive.setField(`frames.${frameId}.expand`, current)
-                                            canvas.current.updateFramePosition( frameId, {expand: current})
-                                            canvas.current.refreshFrame( frameId)
-                                        }
-                                    }
-
-                                },
-                                onToggle:async (primitiveId, toggle, frameId)=>{
-                                    console.log(`Will toggle ${toggle} on ${primitiveId} for frame ${frameId}`)
-                                    if( toggle && primitiveId && myState[frameId]){
-                                        const axisValue = myState[frameId].extents[toggle].filter(d=>d.idx !== "_N_")?.[0]
-                                        const target = mainstore.primitive(primitiveId)
-                                        const category = mainstore.primitive(axisValue.idx)
-                                        if( target && category ){
-                                            let result 
-                                            const currentState = target.parentPrimitiveIds.includes(category.id)
-                                            if( currentState ){
-                                                await category.removeRelationship(target,"ref")
-                                                result = false
-                                            }else{
-                                                await category.addRelationship(target,"ref")
-                                                result = true
-                                            }
-
-                                            for(const targetBoard of boards){
-                                                if( targetBoard.id !== frameId){
-                                                    prepareBoard( targetBoard )
-                                                    canvas.current.refreshFrame( targetBoard.id )
-                                                }
-                                            }
-                                            return result
-                                            
-                                        }
-                                    }
-                                },
-                            }}
-                            frameLinks={linkList}
-                            framePositions={framePositions}
-                            selectable={{
-                                "frame":{
-                                    multiple: true
-                                },
-                                "primitive":{
-                                    multiple: false
-                                },
-                                "pin":{
-                                    multiple: false
-                                },
-                                "cell":{
-                                    multiple: true
-                                }
-                            }}
-                            render={renderedSet}
-                />
-            {false && <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
-                <FilterPane/>
-            </div>}
-            
+                                    }}
+                                    render={renderedSet}
+                        />
+                    {false && <div className="flex flex-col w-[36rem] h-full justify-stretch space-y-1 grow border-l p-3">
+                        <FilterPane/>
+                    </div>}
+                    
+            </div>
+        </div>
     </div>
-    </>
 }
 BoardViewer.prepareBoard = SharedPrepareBoard
 BoardViewer.renderBoardView = SharedRenderView

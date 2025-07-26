@@ -2642,7 +2642,12 @@ export async function getDataForProcessing(primitive, action = {}, source, optio
                 let out = decodePath( d.referenceParameters, param)
                 if( out ){
                     outList.push( d )
-                    outFields.push( out )
+                    if( Array.isArray(out) || typeof(out) === "object"){
+                        outFields.push( JSON.stringify(out) )
+
+                    }else{
+                        outFields.push( out )
+                    }
                 }
             })
         }else{
@@ -2655,7 +2660,7 @@ export async function getDataForProcessing(primitive, action = {}, source, optio
             })
         }
         if( list.length !== outList.length){
-            console.log(`+++++ HAD ${list.length} now ${outList.length} +++++`)
+            logger.verbose(`+++++ HAD ${list.length} now ${outList.length} +++++`)
         }
         
         return [outList, outFields]
