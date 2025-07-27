@@ -306,7 +306,9 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
         if (slateRef.current && props.scrollToEnd && wasAtTop) {
           // you can hook into your scroll‐to‐bottom logic here
           setTimeout(() => {
-            slateRef.current.scrollTop = slateRef.current.scrollHeight;
+            if( slateRef.current){
+              slateRef.current.scrollTop = slateRef.current.scrollHeight;
+            }
           }, 50)
         }
       })

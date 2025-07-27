@@ -1,5 +1,6 @@
 import { createLogger, format, transports } from 'winston';
 import { LoggingWinston } from '@google-cloud/logging-winston';
+import { inspect } from 'node:util';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const globalLogLevel = process.env.LOG_LEVEL || (isProduction ? 'info' : 'debug');
@@ -9,7 +10,7 @@ const globalLogLevel = process.env.LOG_LEVEL || (isProduction ? 'info' : 'debug'
  * @param {string} moduleName - Name of the module.
  * @param {string} [level] - Log level for this module (optional, defaults to global level).
  */
-export function getLogger(moduleName, level = globalLogLevel) {
+export function getLogger(moduleName, level = globalLogLevel, depth = 0) {
   // Create a new logger instance
   
   const logger = createLogger({
@@ -17,22 +18,35 @@ export function getLogger(moduleName, level = globalLogLevel) {
     format: isProduction
       ? format.combine(
           format.timestamp(),
-          format.json() // JSON structured logging for production
+          format.json()
         )
       : format.combine(
-          format.colorize(),    // Adds color to the console output,
+          format.colorize(),
           format.timestamp(),
-          format.printf(({ level, message, timestamp, _expand, ...meta }) => {
-            const metaString = meta && Object.keys(meta).length > 0
-              ? _expand ? "\n" + JSON.stringify(meta, null, 2)
-                        : " " + Object.keys(meta).map(d=>`${d}: ${meta[d]}`).join(" ")
-              : '';
+          format.printf(info => {
+            const { level, message, timestamp, _expand, ...meta } = info;
+            let metaString = '';
+            if (Object.keys(meta).length > 0) {
+              if (_expand) {
+                // print with controlled depth:
+                metaString = '\n' + inspect(meta, {
+                  depth: objectDepth,
+                  colors: true,
+                  breakLength: 80
+                });
+              } else {
+                // summary on one line:
+                metaString = ' ' + Object.entries(meta)
+                  .map(([k, v]) => `${k}=${inspect(v, { depth: depth, colors: true })}`)
+                  .join(' ');
+              }
+            }
             return `[${timestamp}] [${moduleName}] ${message}${metaString}`;
           })
         ),
-    transports:  isProduction
-      ? [new LoggingWinston()] 
-      : [new transports.Console()]
+    transports: isProduction
+      ? [ new LoggingWinston() ]
+      : [ new transports.Console() ]
   });
   // Add Google Cloud Logging transport in production
   if (isProduction) {

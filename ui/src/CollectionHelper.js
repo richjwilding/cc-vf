@@ -1273,7 +1273,12 @@ class CollectionUtils{
 
             let orderMap
             if( order === undefined){
-                orderMap = new Map(axis.sort((a,b)=>(a.label ?? "").localeCompare(b.label ?? {})).map((d,i)=>[d,i]))
+                const isNUmeric = axis.some(d=>typeof(d.label) === "number")
+                if( isNUmeric ){
+                    orderMap = new Map(axis.sort((a,b)=>(a.label ?? 0) - (b.label ?? 0)).map((d,i)=>[d,i]))
+                }else{
+                    orderMap = new Map(axis.sort((a,b)=>(a.label ?? "").localeCompare(b.label ?? {})).map((d,i)=>[d,i]))
+                }
             }else if( Array.isArray(order) ){
                 orderMap = new Map(
                     order.map((idx, position) => [idx, position])

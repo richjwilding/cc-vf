@@ -16,7 +16,7 @@ import { registerAction, runAction } from "../action_helper";
 import { getLogger } from '../logger.js';
 import { createWorkflowInstance, flowInstanceStepsStatus } from "../workflow.js";
 import FlowQueue from "../flow_queue.js";
-const logger = getLogger('agent', "verbose"); // Debug level for moduleA
+const logger = getLogger('agent', "debug", 2); // Debug level for moduleA
 
 const isObjectId = id => /^[0-9a-fA-F]{24}$/.test(id);
 
@@ -347,7 +347,7 @@ const functionMap = {
                 description: d.description
             }))
             const result = `Looking for: ${params.company_name}\nContext: ${params.description}\n\nHere are some candidate(s), use the information provided and chat context to select the correct company\n${JSON.stringify(data)}`
-            logger.debug(result, scope.chatUUID)
+            logger.debug(result, {chatId: scope.chatUUID})
             return result
         }
         return {"result": `Couldnt find information about ${params.name}`}
@@ -358,7 +358,7 @@ const functionMap = {
             return {result: "Need an Id"}
         }
         const sources = await resolveId( params.id, scope )
-        logger.info(`--> Will get data from ${sources.map(d=>d.id).join(", ")}`, scope.chatUUID)
+        logger.info(`--> Will get data from ${sources.map(d=>d.id).join(", ")}`, {chatId: scope.chatUUID})
 
         notify(`Fetching data...`,true)
         let items = []
@@ -396,7 +396,7 @@ const functionMap = {
     },
     parameter_values_for_data: async (params, scope, notify = ()=>{})=>{
         const sources = await resolveId( params.source_ids, scope )
-        logger.info(`Will get data from ${sources.map(d=>d.id).join(", ")}`, scope.chatUUID)
+        logger.info(`Will get data from ${sources.map(d=>d.id).join(", ")}`, {chatId: scope.chatUUID})
 
         notify(`Fetching data...`,true)
         let items = []
@@ -530,7 +530,7 @@ const functionMap = {
                     try{
                         if (delta) pass.write(delta);
                     }catch(e){
-                        logger.error(`Got error`, scope.chatUUID)
+                        logger.error(`Got error`,  {chatId: scope.chatUUID})
                         logger.error(e)
                     }
                 },
@@ -557,7 +557,7 @@ const functionMap = {
             
             return {summary: out, result: out, __ALREADY_SENT: true}
         }catch(e){
-            logger.error(`error in agent query`, scope.chatUUID)
+            logger.error(`error in agent query`,  {chatId: scope.chatUUID})
             logger.error(e)
             return {result: "Query failed"}
         }
@@ -609,7 +609,7 @@ const functionMap = {
             return {result: "Query failed"}
 
         }catch(e){
-            logger.error(`error in agent query`, scope.chatUUID)
+            logger.error(`error in agent query`,  {chatId: scope.chatUUID})
             logger.error(e)
             return {result: "Query failed"}
         }
@@ -712,7 +712,7 @@ const functionMap = {
 
                         if (delta) pass.write(delta);
                     }catch(e){
-                        logger.error(`Got error`, scope.chatUUID)
+                        logger.error(`Got error`,  {chatId: scope.chatUUID})
                         logger.error(e)
                     }
                     //notify(delta, false)
@@ -763,7 +763,7 @@ const functionMap = {
                     sourceIds
                 }}
         }catch(e){
-            logger.error(`error in agent query`, scope.chatUUID)
+            logger.error(`error in agent query`,  {chatId: scope.chatUUID})
             logger.error(e)
             return {result: "Query failed"}
         }
@@ -793,7 +793,7 @@ const functionMap = {
 
             const missingEntries = inScopeEntries.filter(d=>!mappedInputs[d[0]])
             
-            logger.debug(missingEntries.map(d=>`${d[1].name} (${d[0]})`).join("\n"), scope.chatUUID)
+            logger.debug(missingEntries.map(d=>`${d[1].name} (${d[0]})`).join("\n"),  {chatId: scope.chatUUID})
             
             if( missingEntries.length > 0){
               return {validation: "failed",
@@ -804,7 +804,7 @@ const functionMap = {
             }
 
               if( scope.primitive.type === "flow"){
-                logger.info(`--> Creating flow instance`, scope.chatUUID)
+                logger.info(`--> Creating flow instance`,  {chatId: scope.chatUUID})
                 const newPrim = await createWorkflowInstance( scope.primitive, {data: {
                   ...mappedInputs,
                   ...mappedConfig
@@ -815,7 +815,7 @@ const functionMap = {
                   summary: `Your new workflow W-${newPrim.plainId} is running. Click here [[new:${newPrim.id}]] to view`
                 }
               }else{
-                logger.info(`--> Updateing primitive ${scope.primitive.id}`, scope.chatUUID)
+                logger.info(`--> Updateing primitive ${scope.primitive.id}`, {chatId: scope.chatUUID})
                 
                 
                 const updated = {
@@ -851,7 +851,7 @@ const functionMap = {
             engine:  "o3-mini"
         }) 
 
-        logger.debug(` -- Got ${result.categories?.length} suggested categories`, scope.chatUUID)
+        logger.debug(` -- Got ${result.categories?.length} suggested categories`,  {chatId: scope.chatUUID})
         if( result.categories?.length > 0){
             return {
               suggestedCategoriesFor: params.sourceIds,
@@ -881,8 +881,11 @@ const functionMap = {
     design_view: async (params, scope, notify)=>{
         // instantiate a fresh OpenAI client (or reuse your existing one)
         const openai = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
+
+        const flowEditor = scope.mode === "flow_editor"
+        const validFunctions = flowEditor ? ["object_params","prepare_categorization_preprocessing"] : ["sample_data","object_params","parameter_values_for_data", "suggest_categories", "existing_categorizations"]
       
-        const fns =  functions.filter(d=>["sample_data","object_params","parameter_values_for_data", "suggest_categories", "existing_categorizations"].includes(d.name) )
+        const fns =  functions.filter(d=>validFunctions.includes(d.name) )
         if( !params.source_ids?.[0]){
             return "No id provided"
         }
@@ -901,83 +904,22 @@ const functionMap = {
           }
           */
 
-        const messages = [
-            {
-              role: "system",
-              content: `
-      You are a data visualization agent.  The user wants to visualize their data in one or more views as specified in their prompt according to these instructions in the chat context.
-      If the visualization calls for categorization, proceed in this order until you find something suitable:
-        1) Use any relevant categorization from the chat context
-        2) Call "existing_categorization" to check for existing categorizations that are suitable
-        3) Call suggest_categories only if nothing from the previous 2 steps is suitable
-      Inspect the data using parameter_values_for_data or sample_data, and object_params to understand the schema, then use this knowledge in setting axis and filters as appropriate
-
-      Think very carefully about the most optimal way to create a view the result the user is asking for - here are the details about what is possible
-        ${VIEW_OPTONS}
-
-      Return a JSON object in the following format:
-      {views: [
-        {
-          source: id of source data,
-          title: name of view,
-          layout: the name of the layout to use,
-          filters: an array of filters to apply (if required),
-          palette: the name of the palette to use,
-          x_axis:
-          {
+        const axisDef = flowEditor
+            ? {
             "type": "object",
             "description": "Axis specification: choose exactly one of the following shapes.",
             "oneOf": [
               {
                 "type": "object",
-                "required": ["category_id"],
+                "required": ["category_prompt", "parameter"],
                 "properties": {
-                  "category_id": {
+                  "category_prompt": {
                     "type": "string",
-                    "description": "Id returned from existing_categorization"
-                  }
-                },
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "required": ["new_category"],
-                "properties": {
-                  "new_category": {
-                    "type": "object",
-                    "description": "Define a new categorization",
-                    "properties": {
-                      "title": {
-                        "type": "string",
-                        "description": "Name of the categorization"
-                      },
-                      "parameter": {
-                        "type": "string",
-                        "description": "Parameter to categorize"
-                      },
-                      "items": {
-                        "type": "array",
-                        "minItems": 1,
-                        "description": "List of categories",
-                        "items": {
-                          "type": "object",
-                          "required": ["title","description"],
-                          "properties": {
-                            "title": {
-                              "type": "string",
-                              "description": "Name of this category"
-                            },
-                            "description": {
-                              "type": "string",
-                              "description": "Description of this category"
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      }
-                    },
-                    "required": ["title","parameter","items"],
-                    "additionalProperties": false
+                    "description": "The LLM prompt that will generate a suitable categorization of this data when executed later"
+                  },
+                  "parameter": {
+                    "type": "string",
+                    "description": "Parameter to categorize"
                   }
                 },
                 "additionalProperties": false
@@ -994,15 +936,25 @@ const functionMap = {
                   "parameter": {
                     "type": "string",
                     "description": "Parameter to which the operation is applied"
+                  }
+                },
+                "additionalProperties": false
+              },
+               {
+                "type": "object",
+                "required": ["parameter"],
+                "properties": {
+                  "parameter": {
+                    "type": "string",
+                    "description": "Parameter to use (raw of with custom bracket) - without applying any categorization or operation"
                   }
                 },
                 "additionalProperties": false
               }
             ],
             "additionalProperties": false
-          },
-          y_axis:
-          {
+          }
+            : {
             "type": "object",
             "description": "Axis specification: choose exactly one of the following shapes.",
             "oneOf": [
@@ -1066,12 +1018,22 @@ const functionMap = {
                 "properties": {
                   "operator": {
                     "type": "string",
-                    "enum": ["sum","max","min","mean"],
+                    "enum": ["none", "sum","max","min","mean"],
                     "description": "Aggregate operator to apply"
                   },
                   "parameter": {
                     "type": "string",
                     "description": "Parameter to which the operation is applied"
+                  }
+                },
+                "additionalProperties": false
+              },{
+                "type": "object",
+                "required": ["parameter"],
+                "properties": {
+                  "parameter": {
+                    "type": "string",
+                    "description": "Parameter to use (raw of with custom bracket) - without applying any categorization or operation"
                   }
                 },
                 "additionalProperties": false
@@ -1080,8 +1042,25 @@ const functionMap = {
             "additionalProperties": false
           }
 
-        ], ...remmaining views
-      }`.replaceAll(/\s+/g," ").trim()
+
+        const messages = [
+            {
+              role: "system",
+              content: `
+      You are a data visualization agent.  The user wants to visualize their data in one or more views as specified in their prompt according to these instructions in the chat context.
+      Some parameters may have "custom_bracket" with defined "buckets" which should be used rather than a new categorization of that parameter
+      ${flowEditor 
+      ? `If the visualization calls for categorization, call prepare_categorization_preprocessing to get a prompt defintion which will create a suitable categorization and execution time
+        Inspect the schema of the data using object_params to understand the schema, then use this knowledge in setting axis and filters as appropriate
+        `
+      : `If the visualization calls for categorization, proceed in this order until you find something suitable:
+        1) Use any relevant categorization from the chat context
+        2) Call "existing_categorization" to check for existing categorizations that are suitable
+        3) Call suggest_categories only if nothing from the previous 2 steps is suitable
+      Inspect the data using parameter_values_for_data or sample_data, and object_params to understand the schema, then use this knowledge in setting axis and filters as appropriate`}
+
+      Think very carefully about the most optimal way to create a view the result the user is asking for - here are the details about what is possible
+        ${VIEW_OPTONS}` 
             },
             {
               role: "user",
@@ -1104,7 +1083,79 @@ const functionMap = {
               content: JSON.stringify(params)
             }
           ].filter(Boolean)
-          logger.verbose(scope.chatUUID, messages)
+
+
+    const output_schema = {
+      name: "views",
+      schema: {
+        type: "object",
+        properties: {
+            views: {
+              "type":"array",
+              "items": {
+                type: "object",
+                  properties: {
+                        source: {
+                          "type": "string",
+                          "description": "the source id to fetch data from"
+                        },
+                        title: {
+                          "type": "string",
+                          "description": "Title for this visualization"
+                        },
+                        layout: {
+                          "type": "string",
+                          "enum": ["items", "heatmap", "bubble", "pie", "bar"],
+                          "description": "Name of layout to use"
+                        },
+                        filters: {
+                          "type": "array",
+                          "items":axisDef,
+                          "description": "List of filters to apply"
+                        },
+                        palette: {
+                          "type": "object",
+                          "description": "Details of the palette to use",
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "required": ["palette_name"],
+                              "properties": {
+                                "palette_name": {
+                                  "type": "string",
+                                  "enum": ["blue","ice","purple","heat", "scale"],
+                                  "description": "Name of predefined palette to use"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": ["colors"],
+                              "properties": {
+                                "colors": {
+                                  "type": "array",
+                                  "items": {                   
+                                    "type": "string"
+                                  },
+                                  "description": "List of colors in css hex format to use for the palette"
+                                },
+                              },
+                              "additionalProperties": false
+                            }
+                          ],
+                          "additionalProperties": false
+                        },
+                        x_axis: axisDef,
+                        y_axis: axisDef
+                    }
+                  }
+              }
+            }
+          }
+    }
+          
+          logger.debug(scope.chatUUID, messages)
 
           let planJson = null;
           while (true) {
@@ -1113,7 +1164,10 @@ const functionMap = {
               messages,
               functions: fns,
               function_call: "auto",
-              response_format: { type: "json_object" }
+              response_format: { 
+                  type: "json_schema",
+                  json_schema: output_schema
+                }
             });
         
             const msg = res.choices[0].message;
@@ -1121,18 +1175,18 @@ const functionMap = {
             if (msg.function_call) {
               const { name, arguments: jsonArgs } = msg.function_call;
               const args = JSON.parse(jsonArgs);
-              logger.debug(`design_view will call ${name}`, scope.chatUUID)
+              logger.debug(`design_view will call ${name}`, {chatId: scope.chatUUID})
         
               const fn = functionMap[name]
               if(!fn){
                 throw `couldnt find ${name}`
               }
               const fnResult = await fn(args, scope, notify);
-              logger.debug("design_view Got", fnResult, scope.chatUUID)
+              logger.debug("design_view Got", {fnResult,  chatId: scope.chatUUID})
         
               messages.push({
                 role: "assistant",
-                function_call: msg.function_call
+                function_call: { name: name, arguments: jsonArgs }
               });
         
               messages.push({
@@ -1149,7 +1203,7 @@ const functionMap = {
             break;
           }
       
-        logger.info("design_view done", planJson, scope.chatUUID)
+        logger.info("design_view done", {planJson, chatId: scope.chatUUID})
         try{
             const result = JSON.parse(planJson)
             const sourceIds = result.views.map(d=>d.source)
@@ -1157,6 +1211,7 @@ const functionMap = {
             notify(`[[chat_scope:${sourceIds[0]}]]`, false, true)
             
             const views = JSON.stringify({views: result.views})
+            console.log(views[0])
             
             return {
                 dataForClient: views,
@@ -1205,14 +1260,58 @@ const functionMap = {
 
             const categoryDataAsString = JSON.stringify(categoryDefs)
             
-            return {
-                ...params,
-                data: `Here is some sample data:\n ${JSON.stringify(data)}`,
-                schema: `Here is the schema of the data:\n${categoryDataAsString}`,
-                scope:`[[chat_scope:${params.id}]]`,
-                view_options:VIEW_OPTONS.replaceAll(/\s+/g," "),
-                forClient: ["schema", "scope"],
-                prompt:"Suggest some suitable visualizations using the options available and which are achievable for the data sample, schema and the view options provided. Ensure the options align to the goal from the user. Use the human friendly name of fields rather than the field name in your summary."
+            const messages = [
+               {
+                role: "system",
+                content: `You are a data visualization agent.  The user wants to visualize their data in one or more views - here is a dscription of what they want ${params.visual_goal}`
+               },{
+                role: "user",
+                content: `Here is the schema of the data:\n${categoryDataAsString}`,
+               },{
+                role: "user",
+                content: `Here is are details of what views can be created:\n${VIEW_OPTONS.replaceAll(/\s+/g," ")}`
+               },{
+                role: "user",
+                content: `Here is some sample data:\n${JSON.stringify(data)}`
+               },{
+                role: "user",
+                content: `Suggest some suitable visualizations using the options available and which are achievable for the data sample, schema and the view options provided.
+                        Ensure the options align to the goal from the user. Use the human friendly name of fields rather than the field name in your summary.
+                        Provide your answer in a json object as follows:
+                        {
+                          suggestions:[{
+                            id: number to identify the suggestions - start at 1 and increment,
+                            "type": type of visualization (pie, bubble, items, timeline, heatmap etc),
+                            "description": A title for the visualization,
+                            "data": {
+                                "rows": what to display in the rows - a paramater name, catgeorization type, operation (such as count of posts),
+                                "columns": what to display in the columns - a paramater name, catgeorization type, operation (such as count of posts),
+                            },
+                            "purpose": a description of how this visualization supports the goal of the user
+                          },
+                          ....remaining suggestions
+                        ],
+                      }`.replaceAll(/\s+/g," ")
+               }
+   
+            ]
+            const openai = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
+            const res = await openai.chat.completions.create({
+              model: "gpt-4o",
+              messages,
+              response_format: { type: "json_object" }
+            });
+        
+            const msg = res.choices[0].message;
+            try{
+              const suggestions = JSON.parse(msg?.content)?.suggestions
+              return {
+                forClient: ["suggestions"],
+                suggestions
+              }
+            }catch(e){
+              logger.error(`Error in suggest_visualizations`, e)
+              return {error: "problem"}
             }
         }
         return {
@@ -1223,7 +1322,7 @@ const functionMap = {
     sample_data:async( params, scope)=>{
         const primitive = (await resolveId(params.id, scope))[0]
         if( primitive ){
-            logger.info(`Doing lookup`, scope.chatUUID)
+            logger.info(`Doing lookup`, {chatId: scope.chatUUID})
             let items = await getDataForImport( primitive )
             if( items.length > 0){
                 const total = items.length
@@ -1257,7 +1356,7 @@ const functionMap = {
                         extracted.push( ...contexts.results )
                     }
                 }
-                logger.info(`Extracted = ${extracted.length}, forContext = ${forContext.length}`, scope.chatUUID)
+                logger.info(`Extracted = ${extracted.length}, forContext = ${forContext.length}`, {chatId: scope.chatUUID})
                 if( params.withCategory ){
                     return {
                         data: extracted,
@@ -1570,13 +1669,13 @@ const functionMap = {
             );
         }
         const forAgent = (await executeConcurrently(list, buildAgentResponse))?.results ?? {result: "No relevant searches"}
-        logger('get_data_source', forAgent, scope.chatUUID)
+        logger.info('get_data_source', {forAgent, chatUUID: scope.chatUUID})
         return forAgent
 
     },
     connect_objects:async( params, scope)=>{
       const [left, right] = await resolveId([params.left_id, params.right_id], scope)
-      logger.info(`Connect ${params.left_id} (${left?.id} / ${left?.plainId}) >> ${params.right_id} (${right?.id} / ${right?.plainId})`, scope.chatUUID)
+      logger.info(`Connect ${params.left_id} (${left?.id} / ${left?.plainId}) >> ${params.right_id} (${right?.id} / ${right?.plainId})`, {chatId: scope.chatUUID})
       if( left && right){
         if( right.type === "search"){
           if( right_pin === "subreddits" || right_pin === "hashtags"){
@@ -1909,7 +2008,7 @@ const functionMap = {
       },
     {
         "name": "object_params",
-        "description": "Retrieve the list of output fields (name and type) exposed by the specified object’s view of its underlying data. For any view, query, filter, or search object, return the schema of the fields that object produces when executed.",
+        "description": "Retrieve the list of output fields (name and type) exposed by the specified object’s view of its underlying data. Always returns the same result for a give id so only call once.",
         "parameters": {
           "type": "object",
           "required": ["id"],
@@ -2836,6 +2935,7 @@ export async function handleChat(primitive, options, req, res) {
         const scope = {
           chatUUID,
             parent,
+            mode: options.mode,
             workspaceId: primitive.workspaceId, 
             primitive,
             latestCategories,
@@ -2857,7 +2957,7 @@ export async function handleChat(primitive, options, req, res) {
             })
           }
         }
-        logger.verbose(history, scope.chatUUID)
+        logger.debug(`Starting ${scope.chatUUID}`, history)
     
         while (true) {
             // 1️⃣ Stream until end or until a function_call
@@ -2914,7 +3014,7 @@ export async function handleChat(primitive, options, req, res) {
                                 }
                             }
                         })
-                        logger.verbose(`${scope.chatUUID} ${funcName} back`, fnResult)
+                        logger.debug(`${scope.chatUUID} ${funcName} back`, fnResult)
                         
                         
                         if( fnResult.__WITH_SUMMARY){

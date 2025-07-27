@@ -1,11 +1,101 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import MainStore from "./MainStore"
 import CollectionUtils from "./CollectionHelper"
-import { finalizeImages, renderMatrix } from "./RenderHelpers"
+import { finalizeImages, renderDatatable, renderMatrix } from "./RenderHelpers"
 import { Layer, Stage } from "react-konva"
 import clsx from "clsx"
 import { isObjectId } from "./SharedTransforms"
+import PrimitiveConfig from "./PrimitiveConfig"
 
+function convertAxis(def, metadata){
+    let axis = {type: "none", filter: []}
+    if( def ){
+        const field = def.field ?? def.parameter ?? def.category
+        if( def.type === "category" || isObjectId(field) ){
+            axis = {
+                type: "category", 
+                primitiveId: field
+            }
+        }else{
+            if( def.operator === "sum"){
+
+            }else{
+                axis = {
+                    type: "parameter", 
+                    parameter: field,
+                }
+                if( def.values ?? def.value){
+                    axis.invert = true
+                    axis.filter = def.values ?? def.value
+                }
+                if( metadata.parameters[field]?.axisType === "custom_bracket"){
+                    axis.passType = "custom_bracket"
+                    axis.axisData = metadata.parameters[field].axisData
+                }
+            }
+        }
+    }
+    return axis
+}
+function convertVisualizationToPrimitiveConfig({source, title, layout, filters, x_axis, y_axis, palette, metadata} ){
+    let columnAxis = convertAxis( x_axis, metadata)
+    let rowAxis = convertAxis( y_axis, metadata)
+    let viewFilters = filters ? [...filters] : []
+    let displayType = "default"
+    
+    switch( layout ){
+        case "pie":
+        case "bar":
+        case "timeline": 
+            displayType = "subchart"
+            break
+    }
+    const renderConfiguration = metadata.renderConfig.explore.configs.find(d=>d.builtIn === "subchart")
+
+    const renderConfig = {
+        style: layout,
+        order: "high_to_low"
+    }
+    
+    const axis = [
+        columnAxis,
+        rowAxis
+    ].filter(d=>d.type !== "none")
+    const slices = axis.shift()
+    
+
+    if( layout === "pie" || layout === "bar"){
+        if( slices ){
+            viewFilters.unshift(slices)
+            columnAxis = axis[0] ??  {type: "none", filter: []}
+            rowAxis = axis[1] ??  {type: "none", filter: []}
+        }
+    }
+
+    const referenceParameters = {
+                                    "target": "items",
+                                    "referenceId": metadata.id,
+                                    "descend": true,
+                                    "explore": {
+                                        "view": renderConfiguration.id,
+                                        "filterTrack": 1,
+                                    }
+                                }
+    if( viewFilters.length > 0){
+        const filters = viewFilters.map((d,i)=>{
+            return {
+                filterTrack: i,
+                ...d
+            }
+        })
+        referenceParameters.explore.filters = filters
+        referenceParameters.explore.filterTrack = filters.length
+    }
+
+    console.log( renderConfig )
+    console.log( referenceParameters )
+
+}
 
 export function VisualizationPreview({source, title, layout, filters, x_axis, y_axis, palette, ...props}){
     const konvaObject = useMemo(()=>{
@@ -14,35 +104,15 @@ export function VisualizationPreview({source, title, layout, filters, x_axis, y_
         if( sourcePrimitive ){
 
             const items = sourcePrimitive.itemsForProcessing
+            const metadata = items[0]?.metadata
+            
+            convertVisualizationToPrimitiveConfig({source, title, layout, filters, x_axis, y_axis, palette, metadata} )
 
             const imageCallback = (d)=>{
                             d.refreshCache()
                             d.draw()
             }
             
-            function convertAxis(def){
-                let axis = {type: "none", filter: []}
-                if( def ){
-                    const field = def.field ?? def.parameter ?? def.category
-                    if( def.type === "category" || isObjectId(field) ){
-                        axis = {
-                            type: "category", 
-                            primitiveId: field
-                        }
-                    }else{
-                        axis = {
-                            type: "parameter", 
-                            parameter: field
-                        }
-                        if( def.values ?? def.value){
-                            axis.invert = true
-                            axis.filter = def.values ?? def.value
-                        }
-                    }
-                }
-                return axis
-                
-            }
             function convertFilter(axis, extents){
                 const forAxis = filters?.find(d=>d.parameter === axis.parameter)
                 if( forAxis ){
@@ -63,9 +133,28 @@ export function VisualizationPreview({source, title, layout, filters, x_axis, y_
                 return {keep: extents, exclude: []}
             }
             
-            let columnAxis = convertAxis( x_axis)
-            let rowAxis = convertAxis( y_axis)
+            let columnAxis = convertAxis( x_axis, metadata)
+            let rowAxis = convertAxis( y_axis, metadata)
+            let viewFilters = []
             
+            const axis = [
+                columnAxis,
+                rowAxis
+            ].filter(d=>d.type !== "none")
+            const slices = axis.shift()
+            console.log(slices)
+
+            if( layout === "pie" || layout === "bar"){
+                if( slices ){
+                    viewFilters.push(slices)
+                    columnAxis = axis[0] ??  {type: "none", filter: []}
+                    rowAxis = axis[1] ??  {type: "none", filter: []}
+                }
+            }
+
+            const dataTable = CollectionUtils.createDataTable( items, {columns: columnAxis, rows: rowAxis, viewFilters, config: undefined, hideNull: true, alreadyFiltered: false})
+            console.log(dataTable)
+
             let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columnAxis, rowAxis, [], [], undefined )
 
             const {keep:filteredColumnExtents, exclude: columnFilter} = convertFilter( columnAxis, extents.column )
@@ -81,16 +170,38 @@ export function VisualizationPreview({source, title, layout, filters, x_axis, y_
                 {hideNull: false}
             )
             console.log(finalColumn)
-            const selectPalette = palette ? {
+
+            const palette_name = palette?.palette_name
+
+            const selectPalette = palette_name ? {
                 "green": "green",
                 "red": "heat",
                 "heat": "heat",
                 "scale": "default",
                 "ice": "ice_blue"
-            }[palette.toLowerCase()]  : undefined
+            }[palette_name.toLowerCase()]  : undefined
             
             let out
-            if( layout === "heatmap"){
+            if( layout === "bar"){
+                 out = renderDatatable(
+                    {
+                        id: "temp",
+                        data: dataTable, 
+                        stageOptions: {imageCallback},
+                        renderOptions:{
+                            counts: true,
+                            colors: selectPalette ?? "default",
+                            style: layout
+                        },
+                        viewConfig: {
+                            showAsCounts: true,
+                            matrixType: "distribution",
+                        }
+                    }
+                )
+
+
+            }else if( layout === "heatmap"){
                 out = renderMatrix({id: "temp"}, filtered, {
                     imageCallback,
                     axis: {column: columnAxis, row: rowAxis},
