@@ -1393,8 +1393,9 @@ export async function runFlowInstance( flowInstance, options = {}){
                         $set: {[`processing.flow.subFlow.${step.step.id}.checked`]: flowStarted}
                     }
                 )
+                let scaffoldResult
                 if( lockStepForFlowInstantiation) {
-                    const scaffoldResult = await scaffoldWorkflow(  step.step, {subFlowForInstanceId: flowInstance.id} )
+                    scaffoldResult = await scaffoldWorkflow(  step.step, {subFlowForInstanceId: flowInstance.id} )
                     /*if( scaffoldResult?.instances){
                         for(const instance of scaffoldResult.instances ){
                             console.log(`SCAFFOLDING INSTANCE ${instance}`)
@@ -1402,7 +1403,7 @@ export async function runFlowInstance( flowInstance, options = {}){
                         }
                     }*/
                 }
-                if( stepsToRun.length === 1){
+                if( stepsToRun.length === 1 && scaffoldResult){
                     logger.info(`Scaffold was only step - invoking flowinstances now....`)
                     for( const fi of scaffoldResult ){
                         await FlowQueue().runStep(fi, {flowStarted})

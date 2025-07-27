@@ -1047,6 +1047,7 @@ async function executeAI(messages, options = {}){
                 buffer += (delta.content || '');
                 options.stream(delta.content)
             }
+            options.stream(undefined, true)
             response = {
                 choices: [
                     { 

@@ -880,3 +880,103 @@ export function modiftyEntries(obj, entry, callback) {
     }
     return obj
  }
+export function convertVisualizationToPrimitiveConfig({source, title, layout, filters, x_axis, y_axis, palette, metadata} ){
+    let columnAxis = convertVisualizationAxis( x_axis, metadata)
+    let rowAxis = convertVisualizationAxis( y_axis, metadata)
+    let viewFilters = filters ? [...filters] : []
+    let displayType = "default"
+    
+    switch( layout ){
+        case "pie":
+        case "bar":
+        case "timeline": 
+            displayType = "subchart"
+            break
+    }
+    const renderConfiguration = metadata.renderConfig.explore.configs.find(d=>d.builtIn === "subchart")
+    const palette_name = palette?.palette_name
+
+    const selectPalette = palette_name ? {
+        "green": "green",
+        "red": "heat",
+        "heat": "heat",
+        "scale": "default",
+        "ice": "ice_blue"
+          }[palette_name.toLowerCase()]  : undefined
+
+    const renderConfig = {
+        style: layout,
+        colors: selectPalette ?? "default",
+        order: "high_to_low"
+    }
+    
+    const axis = [
+        columnAxis,
+        rowAxis
+    ].filter(d=>d.type !== "none")
+    const slices = axis.shift()
+    
+
+    if( layout === "pie" || layout === "bar"){
+        if( slices ){
+            viewFilters.unshift(slices)
+            columnAxis = axis[0] ??  {type: "none", filter: []}
+            rowAxis = axis[1] ??  {type: "none", filter: []}
+        }
+    }
+
+    const referenceParameters = {
+                                    "target": "items",
+                                    "referenceId": metadata.id,
+                                    "descend": true,
+                                    "explore": {
+                                        "view": renderConfiguration.id,
+                                        "axis":{
+                                          "column": columnAxis,
+                                          "row": rowAxis,
+                                        },
+                                        "filterTrack": 1,
+                                    }
+                                }
+    if( viewFilters.length > 0){
+        const filters = viewFilters.map((d,i)=>{
+            return {
+                filterTrack: i,
+                ...d
+            }
+        })
+        referenceParameters.explore.filters = filters
+        referenceParameters.explore.filterTrack = filters.length
+    }
+
+    console.log( renderConfig )
+    console.log( referenceParameters )
+    return {renderConfig, referenceParameters}
+
+}
+function convertVisualizationAxis(def){
+    let axis = {type: "none", filter: []}
+    if( def ){
+        const field = def.field ?? def.parameter ?? def.category
+        if( def.type === "category" || isObjectId(field) ){
+            axis = {
+                type: "category", 
+                primitiveId: field
+            }
+        }else{
+            if( def.operator === "sum"){
+
+            }else{
+                axis = {
+                    type: "parameter", 
+                    parameter: field,
+                }
+                if( def.values ?? def.value){
+                    axis.invert = true
+                    axis.filter = def.values ?? def.value
+                }
+            }
+        }
+    }
+    return axis
+}

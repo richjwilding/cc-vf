@@ -20,7 +20,7 @@ const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
     }
 })*/
 
-registerAction("uookup_entity", {type: "action"}, async (primitive, action, options, req)=>{
+registerAction("lookup_entity", {type: "action"}, async (primitive, action, options, req)=>{
     const config = await getConfig( primitive )
     const inputs = await getPrimitiveInputs( primitive )
     if( inputs?.items ){

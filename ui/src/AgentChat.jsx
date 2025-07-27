@@ -14,10 +14,17 @@ import { Icon } from '@iconify/react/dist/iconify.js';
 //export default function AgentChat({primitive, ...props}) {
 const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, ...props}, ref){
       const [messages, setMessages] = useState([
-        {
+        /*{
     "hidden": false,
     "role": "assistant",
     "content": "{\"views\":[{\"source\":\"68825b3088d71b23808e4f6e\",\"title\":\"Number of User Posts by Influencer Type\",\"layout\":\"bar\",\"x_axis\":{\"parameter\":\"followers\"},\"y_axis\":{\"operator\":\"sum\",\"parameter\":\"posts\"},\"filters\":[]}]}",
+    "resultFor": "design_view",
+    "preview": true
+},*/
+{
+    "hidden": false,
+    "role": "assistant",
+    "content": "{\"views\":[{\"source\":\"68825b3088d71b23808e4f6e\",\"title\":\"Distribution of Influencers by Follower Count Category\",\"layout\":\"pie\",\"x_axis\":{\"parameter\":\"followers\"}}]}",
     "resultFor": "design_view",
     "preview": true
 }

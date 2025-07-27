@@ -15,12 +15,12 @@ import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
 import axios from 'axios';
 import { unpack, pack } from 'msgpackr';
-import { handleChat } from '../actions/agent';
 import { findCompanyURLByNameLogoDev } from '../task_processor';
 import { compareTwoStrings } from '../actions/SharedTransforms';
 import { replicateWorkflow } from '../workflow';
 import Organization from '../model/Organization';
 import SubscriptionPlan from '../model/SubscriptionPlan';
+import { handleChat } from '../agent/agent.js';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
