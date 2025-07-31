@@ -1239,13 +1239,23 @@ export async function processQueue(job){
                         }
                     }
                 }
+
+                let response
                 
-                const response = await processPromptOnText( data, {
-                    opener: "Here is some data i will give you instructions about",
-                    prompt: prompt,
-                    output: "Provide the result as a json object with an array called 'results' which has a string entry for each complete part of your answer",
-                    engine: config.engine ?? "gpt4o"
-                })
+                if( config.local ){
+                    response = {
+                        success: true,
+                        output: [prompt]
+                    }
+                    console.log(`Prompt evaluated locally`, prompt)
+                }else{
+                    response = await processPromptOnText( data, {
+                        opener: "Here is some data i will give you instructions about",
+                        prompt: prompt,
+                        output: "Provide the result as a json object with an array called 'results' which has a string entry for each complete part of your answer",
+                        engine: config.engine ?? "gpt4o"
+                    })
+                }
                 if( response?.success && response.output){
                     dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", response.output)
                     dispatchControlUpdate( primitive.id, "referenceParameters.result", response.output.join("\n"))

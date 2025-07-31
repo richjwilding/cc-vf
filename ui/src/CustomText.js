@@ -5,6 +5,7 @@ import { Util } from "konva/lib/Util";
 import { getBooleanValidator, getNumberOrAutoValidator, getNumberValidator, getStringValidator } from "konva/lib/Validators";
 import { Text } from "konva/lib/shapes/Text";
 import { markdownToSlate } from "./SharedTransforms";
+import { calcInheritedBounds } from "./CustomImage";
 
 var DISABLE_CANVAS = true
 var AUTO = 'auto',
@@ -234,6 +235,11 @@ _setTextData() {
     this.boldFont = this._getContextFont({weight: "bold"})
     this.headlineFont = this._getContextFont({weight: "bold", size: this.fontSize() * 1.5 })
   }
+
+  window.fonttrack ||= {}
+  window.fonttrack[this.standardFont] = (window.fonttrack[this.standardFont] ?? 0)+1
+  window.fonttrack[this.boldFont] = (window.fonttrack[this.boldFont] ?? 0)+1
+  window.fonttrack[this.headlineFont] = (window.fonttrack[this.headlineFont] ?? 0)+1
 
   if( !this.attrs.withMarkdown ){
     super._setTextData()
@@ -665,6 +671,7 @@ checkCanvasCleared() {
     if (!this.text()) {
       return;
     }
+
     this.textWasRendered = true
 
     var padding = this.padding(),
@@ -679,6 +686,13 @@ checkCanvasCleared() {
       this.pcache._canvas_context.fillStyle = this.attrs.bgFill 
       this.pcache._canvas_context.fillRect(0,0,  this.uWidth, this.uHeight)
       context = this.pcache._canvas_context
+    }
+    const {scale, clipBox} = calcInheritedBounds( this )
+    if (clipBox) {
+      context.save();
+      context.beginPath();
+      context.rect(clipBox.x, clipBox.y, clipBox.width, clipBox.height);
+      context.clip();
     }
     context.textBaseline = MIDDLE
     context.fillStyle = this.attrs.fill
@@ -696,6 +710,9 @@ checkCanvasCleared() {
 
       for (n = 0; n < textArrLen; n++) {
         var obj = textArr[n], text = obj.text
+        if( this.attrs.height && obj.y > this.attrs.height){
+          break
+        }
         if( bold !== obj.bold || large !== obj.large){
           bold = obj.bold
           large = obj.large
@@ -753,6 +770,9 @@ checkCanvasCleared() {
           translateY += lineHeightPx;
         }
       }
+    }
+    if (clipBox){
+      context.restore();
     }
   }
 
@@ -871,7 +891,7 @@ checkCanvasCleared() {
     if( ph && !tooSmall){
         this.requestRefresh()
     }
-    if( this.checkCanvasCleared()){
+    if( false && this.checkCanvasCleared()){
       console.warn(`CANVAS HAS BEEN CLEARED`)
       console.log(this)
       this.requestRefresh()
@@ -881,6 +901,14 @@ checkCanvasCleared() {
         let showLines = fh * scale > 1.5
         let ctx = context
         if( showLines && this.attrs.showPlaceHolder !== false){
+            const {scale, clipBox} = calcInheritedBounds( this )
+            if (clipBox) {
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(clipBox.x, clipBox.y, clipBox.width, clipBox.height);
+              ctx.clip();
+            }
+            
             ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
             let alignCenter = this.attrs.align === "center"
@@ -901,6 +929,9 @@ checkCanvasCleared() {
                 ctx.fillRect(offset, y, d.width - 1 , fh - 1)
                 y += step
               }
+            }
+            if (clipBox){
+              context.restore();
             }
         }else{
           let steps = Math.min(Math.max(Math.ceil(h / 50), 2), 30)

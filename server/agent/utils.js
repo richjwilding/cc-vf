@@ -7,6 +7,33 @@ import { get, set } from "lodash";
 import { flattenStructuredResponse } from "../PrimitiveConfig";
 
 export const isObjectId = id => /^[0-9a-fA-F]{24}$/.test(id);
+export function remapHistoryFraming(funcName, history, framing){
+    history.forEach(d=>{
+        if( d.resultFor === funcName ){
+            d.role = "user"
+            d.content = `${framing}: ${JSON.stringify(d.context ?? d.content)}}`
+            delete d["context"]
+            
+        }
+        return d
+    })
+
+    return history
+}
+export function mostRecentResult(funcName, history, maxAge = 20){
+    const idx = history.findLastIndex(d=>d.resultFor === funcName)
+    const highestIdx = Math.max(0, history.length - maxAge)
+    if( idx < highestIdx){
+      return 
+    }
+    
+    const latest = history[idx]
+    return latest
+
+}
+export function getConfigId( item ){
+    return Object.entries(item._parentPrimitives ?? item.parentPrimitives ?? {}).find(d=>d[1].includes("primitives.config"))?.[0]
+}
 export function streamingResponseHandler( notify, fragmentList ){
     const pass = {pass: undefined};
 
@@ -134,7 +161,9 @@ export function streamingResponseHandler( notify, fragmentList ){
         modiftyEntries( nodeResult, "content", entry=>{
             let content = entry.content
             entry._content = content
-            let ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>isNaN(d)) : entry.ids
+            let ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>isNaN(d)) 
+                                                    : Array.isArray(entry.ids) ? entry.ids.map(d=>parseInt(d)).filter(d=>isNaN(d))
+                                                    : entry.ids
             if( ids ){
                 let sourceIds = ids.map(d=>{
                     if( fragmentList[d] ){

@@ -504,6 +504,13 @@ const actions = {
                 return uniquePrimitives(idsToLookup.flatMap(d=>obj.primitive(d)?.filterTargets))
             }
             return []
+        }else{
+            if( receiver.type === "summary" ){
+                const segmentParents = receiver.parentPrimitives.filter(d=>d.type === "segment")
+                if( segmentParents ){
+                    return segmentParents.flatMap(d=>d.filterTargets)
+                }
+            }
         }
         return [receiver]
     },
@@ -579,7 +586,12 @@ const actions = {
                         if( !receiver.referenceParameters?.path && source.type === "segment"){
                             list = source.nestedItems
                         }else{
-                            list = uniquePrimitives(Object.keys(node).filter(d=>d !== "inputs" && d !== "outputs").flatMap(d=>node[d].allItems))
+                            if( source.type === "action" && source.getConfig.local){
+                                list = [source]
+                            }else{
+
+                                list = uniquePrimitives(Object.keys(node).filter(d=>d !== "inputs" && d !== "outputs").flatMap(d=>node[d].allItems))
+                            }
                             //list = node.uniqueAllItems
                         }
                     }
@@ -694,8 +706,13 @@ const actions = {
                         }
                     }
                 }
+                let params = options.params ?? receiver.getConfig
                 if( receiver.type === "actionrunner" || receiver.type === "action"){
-                    list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
+                    if( params.local ){
+                        list = [receiver]
+                    }else{
+                        list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
+                    }
                 }else if( receiver.type === "query" || receiver.type  === "segment" || receiver.type === "search"){
                     if( receiver.type === "query" && !options.ignoreFinalViewFilter){
                         const viewFilters = CollectionUtils.convertCollectionFiltersToImportFilters( receiver )
@@ -705,7 +722,6 @@ const actions = {
                         const nestedSearch = [receiver, ...receiver.primitives.origin.allSearch].filter(d=>d)
                         list = nestedSearch.flatMap(d=>d.primitives.allUniqueResult)
                     }
-                    let params = options.params ?? receiver.getConfig
                     if( params.extract ){
                         const check = [params.extract].flat()
                         list = list.filter(d=>check.includes(d.referenceId))
@@ -3481,7 +3497,7 @@ function MainStore (prims){
             const status = await fetch('/api/status').then(response => response.json())
             if( !status.logged_in ){
                 if( window.location.pathname !== "/signup" && !window.location.pathname.startsWith("/reset") && window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
-                    window.location.href = "/login"
+                    window.location.href = `/login?post=${encodeURI(window.location.pathname)}`
                 }
                 obj.data.categories = []
                 obj.data.primitives = {}

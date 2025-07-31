@@ -6,6 +6,7 @@ import { Layer, Stage } from "react-konva"
 import clsx from "clsx"
 import { convertVisualizationToPrimitiveConfig, isObjectId } from "./SharedTransforms"
 import PrimitiveConfig from "./PrimitiveConfig"
+import Konva from "konva"
 
 function convertAxis(axis, metadata){
     if( axis ){
@@ -23,8 +24,14 @@ function convertAxis(axis, metadata){
 export function VisualizationPreview({source, title, layout, filters, x_axis, y_axis, palette, ...props}){
     const konvaObject = useMemo(()=>{
         layout = layout.toLowerCase()
-        const sourcePrimitive = MainStore().primitive( source )
+        let sourcePrimitive = MainStore().primitive( source )
         if( sourcePrimitive ){
+            if( sourcePrimitive.flowElement ){
+                sourcePrimitive = sourcePrimitive.primitives.config.allItems.find(d=>d.itemsForProcessing.length > 0)
+                if( !sourcePrimitive ){
+                    return new Konva.Text({text:"No data to show"})
+                }
+            }
 
             const items = sourcePrimitive.itemsForProcessing
             const metadata = items[0]?.metadata

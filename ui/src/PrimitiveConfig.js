@@ -177,6 +177,7 @@ const PrimitiveConfig = {
         LIVE_FILTER: 103,
         CONCEPT: 92,
         QUERY_RESULT: 82,
+        VIEW: 38,
         GENERIC_SUMMARY: 109,
         EVALUATOR: 90,
         EVAL_CATEGORIZER: 144,
@@ -415,6 +416,30 @@ const PrimitiveConfig = {
                         options: [
                             {id:false, title: "No"},
                             {id:true, title: "Yes"}
+                        ]
+                    }
+
+                }},
+                social: {title:"Show content",parameters: {showAsCounts:false},
+                config:{
+                    "text_length":{
+                        type: "option_list",
+                        title: "Text length",
+                        default: 60,
+                        options: [
+                            {id:20, title: "Short"},
+                            {id:60, title: "Medium"},
+                            {id:150, title: "Long"}
+                        ]
+                    },"extract_hashtags":{
+                        type: "option_list",
+                        title: "Extract hastags",
+                        default: true,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:5, title: "Up to 5"},
+                            {id:10, title: "Up to 10"},
+                            {id:true, title: "All"}
                         ]
                     }
 
@@ -889,6 +914,7 @@ const PrimitiveConfig = {
         },
     decodeParameter:(data, path)=>{
         if (!data || !path) return undefined;
+        if (typeof(path) !== "string") return undefined;
         const parts = path.split(".");
         for (let i = 0; i < parts.length; i++) {
             if (!data) return undefined; 
@@ -1238,7 +1264,7 @@ const PrimitiveConfig = {
             if( primitive.type === "query" || primitive.type === "summary" || primitive.type === "categorizer"|| primitive.type === "action"){
                 let src = config.prompt ?? config.query 
                 if( primitive.type === "categorizer" ){
-                    src = [config.conditions ?? "", config.evaluation ?? "", config.theme ?? ""].filter(d=>d).join(" ")
+                    src = [config.conditions ?? "", config.evaluation ?? "", config.cat_theme ?? ""].filter(d=>d).join(" ")
                 }
                 if( src ){
                     const matches = src.match(/\{([^}]+)\}/g);
@@ -1413,6 +1439,8 @@ const PrimitiveConfig = {
                                     if( sf === "BY_TYPE"){
                                         if( d.type === "summary"){
                                             sf = "summary"
+                                        }else if(d.type === "action"){
+                                            sf = "result"
                                         }else if(d.type === "result"){
                                             sf = "description"
                                         }else{
@@ -2201,7 +2229,7 @@ export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings 
                 let asArray = nextR.content ?? []
 
                 if( typeof(nextR.content) === "string"){
-                    asArray = nextR.content.split(/\n/)
+                    asArray = nextR.content.trim().split(/\n/)
                 }
                 
                 out += asArray.map(d=>{
@@ -2214,7 +2242,11 @@ export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings 
                     return d
                 }).join("\n") + "\n"
             }else{
-                out += `${nextR.content}\n`
+                let val = nextR.content
+                if(val.trim().startsWith("- ")){
+                    val = val.slice(1).trim()
+                }
+                out += `${val}\n`
             }
         }
         if( nextR?.subsections){

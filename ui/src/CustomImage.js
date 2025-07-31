@@ -10,6 +10,62 @@ import { getNumberValidator, getBooleanValidator, getStringValidator, getNumberO
 var WGL_QUEUE_LENGTH = 512
 var WGL_QUEUE_TIMEOUT = 50
 
+export function calcInheritedBounds( node ){
+    let scale = node.scale()?.x ?? 1
+    let accBox = null;
+    let offsetX = 0;
+    let offsetY = 0;
+    let current = node.parent
+    const nodeTransform = node.getAbsoluteTransform();
+    while (current) {
+      const localScale = current.scale?.().x ?? 1;
+      const pos = current.position?.() ?? { x: 0, y: 0 };
+
+      scale *= localScale;
+      offsetX += pos.x * scale;
+      offsetY += pos.y * scale;
+      if (current.attrs.clipWidth || current.attrs.clipHeight) {
+        const ancestorTransform = current.getAbsoluteTransform();
+        const ancestorToLocal = nodeTransform.copy().invert().multiply(ancestorTransform);
+        
+        const topLeft = ancestorToLocal.point({
+          x: current.attrs.clipX ?? 0,
+          y: current.attrs.clipY ?? 0
+        });
+        const bottomRight = ancestorToLocal.point({
+          x: (current.attrs.clipX ?? 0) + (current.attrs.clipWidth ?? current.attrs.width),
+          y: (current.attrs.clipY ?? 0) + (current.attrs.clipHeight ?? current.attrs.height)
+        });
+
+        const clipBox = {
+          x: topLeft.x,
+          y: topLeft.y,
+          width: bottomRight.x - topLeft.x,
+          height: bottomRight.y - topLeft.y
+        };
+
+        if (!accBox) {
+          accBox = { ...clipBox };
+        } else {
+          const x1 = Math.max(accBox.x, clipBox.x);
+          const y1 = Math.max(accBox.y, clipBox.y);
+          const x2 = Math.min(accBox.x + accBox.width, clipBox.x + clipBox.width);
+          const y2 = Math.min(accBox.y + accBox.height, clipBox.y + clipBox.height);
+
+          accBox = {
+            x: x1,
+            y: y1,
+            width: Math.max(0, x2 - x1),
+            height: Math.max(0, y2 - y1)
+          };
+        }
+      }
+
+      current = current.parent;
+    }
+    return {scale, clipBox: accBox}
+}
+
 function setupShadersAndBuffers(gl) {
   // Vertex shader source code
   const vertexShaderSrc = `
@@ -316,6 +372,57 @@ getAverageColor(ctx, width, height) {
       const img = new Image();
   
       img.onload = () => {
+         const [padTop, padRight, padBottom, padLeft] = this.attrs.padding ?? [0, 0, 0, 0];
+
+// inner box to fit into
+const W = this.attrs.width  - padLeft - padRight;
+const H = this.attrs.height - padTop  - padBottom;
+
+// base layout scale for cover vs contain
+let baseScale;
+if (this.attrs.fit === 'cover') {
+  baseScale = Math.max(W / img.width, H / img.height);
+} else {
+  baseScale = Math.min(W / img.width, H / img.height);
+}
+
+// bump resolution with maxScale
+const rasterScale = this.maxScale; // used for canvas raster size
+
+// compute drawn size & centering (layout uses baseScale)
+const drawWidth  = img.width  * baseScale;
+const drawHeight = img.height * baseScale;
+const dx = (W - drawWidth)  / 2 + padLeft;
+const dy = (H - drawHeight) / 2 + padTop;
+
+// activeScale remains what you use for display (e.g., with scaleRatio)
+this.activeScale = baseScale * this.scaleRatio;
+
+// build a canvas at the scaled node size, but upsized for maxScale detail
+this.maxImage = document.createElement('canvas');
+this.maxImage.width  = this.attrs.width  * rasterScale;
+this.maxImage.height = this.attrs.height * rasterScale;
+const ctx = this.maxImage.getContext('2d');
+
+// fill background if not SVG
+if (!this.attrs.url.startsWith('svg:')) {
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, this.maxImage.width, this.maxImage.height);
+}
+
+ctx.drawImage(
+  img,
+  0, 0, img.width, img.height,
+  dx * rasterScale,
+  dy * rasterScale,
+  drawWidth  * rasterScale, // drawWidth = img.width * baseScale => becomes img.width * rasterScale
+  drawHeight * rasterScale  // likewise
+);
+          // 9) refresh
+          this._clearSelfAndDescendantCache('absoluteTransform');
+          this.requestRefresh();
+          resolve();
+        /*
           let padding = this.attrs.padding ?? [0,0,0,0]
           let aWidth = this.attrs.width - padding[1] - padding[3]
           let aHeight = (this.attrs.height - padding[0] - padding[2]) 
@@ -386,6 +493,7 @@ getAverageColor(ctx, width, height) {
           this.requestRefresh()
         
         resolve(); // Indicate that the image has been successfully loaded and drawn
+        */
 
       };
   
@@ -425,11 +533,32 @@ getAverageColor(ctx, width, height) {
       img.src = url
     });
   }
-  toDataURL(){
+  toDataURL(options){
     if( this.maxImage ){
+      if( options  ){
+        let {x, y, width, height} = {x: 0, y: 0, width: this.maxImage.width, height: this.maxImage.height, ... options}
+
+        width = width * this.activeScale
+        height = height * this.activeScale
+
+        const offscreen = document.createElement('canvas');
+        offscreen.width = width;
+        offscreen.height = height;
+        const ctx = offscreen.getContext('2d');
+
+        ctx.drawImage(
+          this.maxImage,
+          x, y, width, height, 
+          0, 0, width, height            
+        );
+
+        const dataUrl = offscreen.toDataURL('image/png', 1);
+        return dataUrl
+        
+      }
       return this.maxImage.toDataURL("image/png", 1)
     }
-    return super.toDataURL()
+    return super.toDataURL(options)
   }
   _buildPrivateCache(){
 
@@ -566,12 +695,8 @@ getAverageColor(ctx, width, height) {
       return
     }
 
-    let scale = this.scale()?.x ?? 1
-    let parent = this.parent
-    while (parent) {
-      scale *= parent.scale()?.x
-      parent = parent.parent
-    }
+    const {scale, clipBox} = calcInheritedBounds( this )
+
     
     if( this.maxImage !== undefined){
         const ratio = (scale / (this.lastScale ?? 1)) 
@@ -584,6 +709,13 @@ getAverageColor(ctx, width, height) {
           this.requestRefresh()
       }
     }
+    if (clipBox) {
+      context.save();
+      context.beginPath();
+      context.rect(clipBox.x, clipBox.y, clipBox.width, clipBox.height);
+      context.clip();
+    }
+
     if(  ((width * scale) < 6 || (height * scale )< 6)){      
       context.fillStyle = this.avgColor ?? '#e2e2e2'
       context.fillRect(0, 0,  width, height)
@@ -591,6 +723,9 @@ getAverageColor(ctx, width, height) {
       if( this.pcache._canvas.width > 0 && this.pcache._canvas.height > 0){
         context.drawImage(this.pcache._canvas, 0, 0 , width, height)
       }
+    }
+    if (clipBox){
+      context.restore();
     }
   }
 

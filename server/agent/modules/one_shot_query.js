@@ -115,13 +115,14 @@ export async function implementation(params, scope, notify){
 }
 export const definition = {
         "name": "one_shot_query",
-        "description": "Performs an advanced retrieval-augmented generation query over specified sources and object types. Only to be used for answering queries the user has - must NOT be used for visualization design",
+        "description": "Performs an advanced retrieval-augmented generation query over specified sources and object types. Only to be used for answering queries the user has - must NOT be used for visualization design and must NOT be used to categorize data.",
         "parameters": {
           "type": "object",
           "properties": {
             "query": {
               "type": "string",
-              "description": "The user's search query, modified to include relevant context from the chat history to be sufficiently specific and detailed to solicit a qulaity response."
+              //"description": "The user's search query, modified to include relevant context from the chat history to be sufficiently specific and detailed to solicit a qulaity response."
+              "description": "The user's search query, modified if necessary to include relevant context from the chat history required to disambiguate the request."
             },
             "sourceIds": {
               "type": "array",

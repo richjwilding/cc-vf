@@ -1754,8 +1754,22 @@ class CollectionUtils{
                 }
                 return pC
             }
-            const connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.getConfig.explore.filters[axisName].sourcePrimId            
+            let connectedPrim = isNaN(axisName) ? primitive.primitives.axis[axisName].allIds[0] : primitive.getConfig.explore.filters[axisName].sourcePrimId            
             if( connectedPrim ){
+                if( !isNaN(axisName) && primitive.inFlow ){
+                    const prim = MainStore().primitive( connectedPrim )
+                    if( prim?.flowElement && (prim.type === "category" || prim.type === "categorizer")){
+                        if( primitive.origin.type === "flowinstance"){
+                            const fiId = primitive.originId
+                            const instance = prim.primitives.config.allItems.find(d=>d.originId === fiId)
+                            if( instance.type === "categorizer"){
+                                connectedPrim = instance.primitives.origin.allIds[0]
+                            }else{
+                                connectedPrim = instance?.id
+                            }
+                        }
+                    }
+                }
                 return {filter: [], ...axis, primitiveId: connectedPrim}
             }
         }

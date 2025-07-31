@@ -153,7 +153,7 @@ export async function implementation(params, scope, notify){
             terms: config.terms,
             companies:config.companies,
             site: config.site,
-            platforms: config.sources.map(s=>d.metadata.parameters.sources.options.find(d2=>d2.id === s)?.title ?? "Unknown"),
+            platforms: config.sources.map(s=>d.metadata?.parameters.sources.options.find(d2=>d2.id === s)?.title ?? "Unknown"),
             target_number_of_results: config.count,
             search_time: config.timeFrame,
             textual_filter: config.topic,

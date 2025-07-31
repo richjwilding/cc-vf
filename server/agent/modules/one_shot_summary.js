@@ -87,7 +87,7 @@ export async function implementation(params, scope, notify){
 }
 export const definition = {
         "name": "one_shot_summary",
-        "description": "Performs a user specified summarization task using all specified source data as the input. Will run in multiple passes and can take several minutes for large datasets. Only to be called when the user specifically indicates they want a summary / summarization. If the source data contains >200 items (call get_data_sources to check) then you MUST prompt the user before calling to confirm they are happy to wait as it may take several minutes ",
+        "description": "Performs a user specified summarization task using all specified source data as the input. Will run in multiple passes and can take several minutes for large datasets. Only to be called when the user specifically indicates they want a summary / summarization. If the source data contains >200 items (call get_data_sources to check) then you MUST prompt the user before calling to confirm they are happy to wait as it may take several minutes. Must NOT be used to categorize data.",
         "parameters": {
           "type": "object",
           "properties": {

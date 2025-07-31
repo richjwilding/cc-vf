@@ -80,10 +80,19 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const [fontsReady, setFontsReady] = useState(false)
 
     if( !fontsReady ){
-        //document.fonts.ready.then(() => {
-        document.fonts.load("1em Poppins").then(() => {
-            setFontsReady(true)
-          });
+        const weights = ["", 300, 400, 500 , 600, 700, 900]
+        Promise.all(
+             weights.flatMap(d=>
+                [
+                    `${d} 1em Poppins`,
+                    `${d} 1em Poppins italic`,
+                    `${d} 1em Poppins normal`,
+                    `${d} 1em Poppins bold`,
+
+                ]).map(d=>document.fonts.load(d))
+        ).then(() => {
+            setFontsReady(true);
+        });
     }
 
     useEffect(() => {
@@ -224,6 +233,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             exportToPptx,
             addFrame,
             updateFramePosition,
+            clearHighlights: clearHightlights,
             removeFrame,
             restoreChildren,
             restoreChildrenForTracking,
@@ -2757,7 +2767,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             return
                         }
             
-                        let memo = state.memo
+                        let memo = state.memo ?? [0,0, 0, 0,1,false]
                         const ox = state.origin[0]
                         const oy = state.origin[1]
 
@@ -2868,7 +2878,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             }
                         }
                         let boardScales
-                        if( props.board){
+                        if( props.board && myState.current.frames){
                             boardScales = myState.current.frames.map(frame=>{
                                 const subViews = frame.node.find('.view').map(d=>d.attrs.scaleX / 2 ).filter(d=>d)                        
                                 const innerScale = subViews.reduce((a,d)=>a < d ? a : d, 1)
@@ -3256,11 +3266,54 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
             return anythingFound
         }
-        function orderInteractiveNodes(found){
+        function orderInteractiveNodes(found = []) {
+            // 1) Enrich each node with the metadata we need
+            const enriched = found.map(node => {
+                const absZ      = node.getAbsoluteZIndex();
+                const frame     = node.findAncestor('.frame');
+                const frameZ    = frame ? frame.getAbsoluteZIndex() : 0;
+                const name      = node.name() || '';
+                const isClick   = /\bclickable\b/.test(name);
+                let   infTrackZ = 0;
+
+                if (isClick) {
+                    const infTrack = node.findAncestor(n => {
+                        const nm = n.name() || '';
+                        return nm.includes('inf_track');
+                    });
+                    infTrackZ = infTrack ? infTrack.getAbsoluteZIndex() : 0;
+                }
+
+                return { node, absZ, frameZ, isClick, infTrackZ };
+            });
+
+            // 2) Sort with our custom rules
+            enriched.sort((a, b) => {
+                // A) Different frames? higher‐z frame wins.
+                if (a.frameZ !== b.frameZ) {
+                    return b.frameZ - a.frameZ;
+                }
+
+                // B) Same frame & both clickables? bucket by inf_track, then by z.
+                if (a.isClick && b.isClick) {
+                    if (a.infTrackZ !== b.infTrackZ) {
+                        return b.infTrackZ - a.infTrackZ;
+                    }
+                    return b.absZ - a.absZ;
+                }
+
+                // C) Otherwise (non‐clickables or mixed), just by global z‐order.
+                return b.absZ - a.absZ;
+            });
+
+            // 3) Strip off our metadata and return just the nodes in draw order
+            return enriched.map(e => e.node);
+        }
+        /*function orderInteractiveNodes(found){
             if( !found ){return []}
             const nodesWithZIndex = found.map(node => {
                 let zIndex = node.zIndex()
-                if(!node.attrs.className || !node.attrs.className.attrs.name.match(/\bframe\b/)){
+                if(!node.attrs.name || !node.attrs.name.match(/\bframe\b/)){
                     let frame = node.findAncestor('.frame')
                     if( frame ){
                         zIndex += frame.zIndex()
@@ -3272,7 +3325,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
               }})
             return nodesWithZIndex.sort((a, b) => b.zIndex - a.zIndex).map(d=>d.node)
 
-        }
+        }*/
         async function processClick(e){
             if( myState.current.ignoreClick ){
                 myState.current.ignoreClick = false

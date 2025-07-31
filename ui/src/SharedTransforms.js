@@ -8,6 +8,19 @@ export function getRegisteredDomain(url) {
     return undefined 
   }
 }
+export function extractHashtags(str) {
+  const hashtags = [];
+  // Match: any spaces/commas/semicolons before the #tag, then the #tag, then any after
+  const cleaned = str.replace(/[\s,;]*#(\w+)[\s,;]*/g, (match, tag) => {
+    hashtags.push('#' + tag);
+    return ' ';        // replace the whole match with a single space
+  })
+  // collapse multiple spaces into one, then trim ends
+  .replace(/\s{2,}/g, ' ')
+  .trim();
+
+  return { text: cleaned, hashtags };
+}
 
 export function pickAtRandom(input, count) {
   const out = [];
@@ -893,7 +906,7 @@ export function convertVisualizationToPrimitiveConfig({source, title, layout, fi
             displayType = "subchart"
             break
     }
-    const renderConfiguration = metadata.renderConfig.explore.configs.find(d=>d.builtIn === "subchart")
+    const renderConfigurationIdx = metadata.renderConfig.explore.configs.findIndex(d=>d.builtIn === "subchart")
     const palette_name = palette?.palette_name
 
     const selectPalette = palette_name ? {
@@ -930,7 +943,7 @@ export function convertVisualizationToPrimitiveConfig({source, title, layout, fi
                                     "referenceId": metadata.id,
                                     "descend": true,
                                     "explore": {
-                                        "view": renderConfiguration.id,
+                                        "view": renderConfigurationIdx,
                                         "axis":{
                                           "column": columnAxis,
                                           "row": rowAxis,
@@ -954,22 +967,42 @@ export function convertVisualizationToPrimitiveConfig({source, title, layout, fi
     return {renderConfig, referenceParameters}
 
 }
+
+function mapParameter( def ){
+    const field = def.field ?? def.parameter
+    if( field === "title"){
+      return field
+    }
+    return `params.${field}`
+}
+
 function convertVisualizationAxis(def){
+  
     let axis = {type: "none", filter: []}
     if( def ){
         const field = def.field ?? def.parameter ?? def.category
-        if( def.type === "category" || isObjectId(field) ){
+        if( def.category_prompt ){
+          axis = {
+            type: "category",
+            toPrepare:{
+              prompt: def.category_prompt,
+              number: def.number ?? 8,
+              parameter: mapParameter(field)
+            }
+          }
+
+        }else if( def.type === "category" || isObjectId(field) ){
             axis = {
                 type: "category", 
                 primitiveId: field
             }
         }else{
-            if( def.operator === "sum"){
+            if( def.operator === "sum" || def.operator === "count"){
 
             }else{
                 axis = {
                     type: "parameter", 
-                    parameter: field,
+                    parameter: mapParameter(field),
                 }
                 if( def.values ?? def.value){
                     axis.invert = true

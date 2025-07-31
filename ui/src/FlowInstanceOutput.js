@@ -1,5 +1,5 @@
 import MainStore, { uniquePrimitives } from "./MainStore";
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
 import InfiniteCanvas from "./InfiniteCanvas";
 import BoardViewer, { IGNORE_NODES_FOR_EXPORT } from "./BoardViewer";
 import { createPptx, exportKonvaToPptx } from "./PptHelper";
@@ -82,22 +82,25 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
         }
         return a}, {})
     
+    const flow = primitive.findParentPrimitives({type:"flow"})[0]
+
+
+    const renderedSet = useMemo(()=>{
+
+        return Object.keys(outputs ?? {}).map(pin=>(outputs[pin]?.items ?? []).map(d=>{
+            if( !d ){return}
+            myState[d.id] = {id: d.id, renderSubPages: true}
+            const renderConfig = BoardViewer.prepareBoard(d, myState)
+            const inputPin = pin.split("_")[1]
+            myState[d.id].title = flow.referenceParameters?.outputPins?.[inputPin]?.name ??  `Output for ${pin}`
+            return BoardViewer.renderBoardView(d, primitive, myState)
+        })).flat().filter(Boolean)
+    }, [primitive?.id])
+
     if( !primitive ){
         return <></>
     }
     
-    const flow = primitive.findParentPrimitives({type:"flow"})[0]
-
-
-    const renderedSet = Object.keys(outputs ?? {}).map(pin=>(outputs[pin]?.items ?? []).map(d=>{
-        if( !d ){return}
-        myState[d.id] = {id: d.id, renderSubPages: true}
-        const renderConfig = BoardViewer.prepareBoard(d, myState)
-        const inputPin = pin.split("_")[1]
-        myState[d.id].title = flow.referenceParameters?.outputPins?.[inputPin]?.name ??  `Output for ${pin}`
-        return BoardViewer.renderBoardView(d, primitive, myState)
-    })).flat().filter(Boolean)
-
     //return  <div className="flex h-full w-full relative border rounded-lg border-gray-200 overflow-hidden mb-2 bg-white">
     return  <div className="@container flex h-full w-full relative overflow-hidden bg-white">
                 <InfiniteCanvas

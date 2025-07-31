@@ -8,7 +8,7 @@ export function KonvaPrimitive({primitive, ...props}){
     useLayoutEffect(()=>{
         if( stageRef.current){
             const items = RenderPrimitiveAsKonva(primitive, {
-                    width: props.width,
+                    width: props.width ?? 200,
                 imageCallback: (d)=>{
                     d.refreshCache()
                     d.draw()
@@ -16,7 +16,7 @@ export function KonvaPrimitive({primitive, ...props}){
             })
             if( items ){
 
-                let scale = 0.8
+                let scale = 0.65
                 stageRef.current.scale({x: scale, y: scale})
                 stageRef.current.children[0].add(items)
                 stageRef.current.width( items.width() * scale)

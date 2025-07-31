@@ -15,6 +15,7 @@ export async function implementation(params, scope, notify){
             const sources = config.sources.map(s=>category?.parameters.sources.options.find(d2=>d2.id === s))
             targetReferenceIds.push(...sources.flatMap(d=>d?.resultCategoryId).filter(d=>d))
         }
+        const referenceIds = []
         if( targetReferenceIds.length > 0){
             let output = []
             const resultCategories = await Category.find( {id: {$in: targetReferenceIds}} )
@@ -23,6 +24,12 @@ export async function implementation(params, scope, notify){
                 if( description ){
                     output.push( description )
                 }
+                if( scope.withId ){
+                    referenceIds.push( d.id )
+                }
+            }
+            if( scope.withId ){
+                return {fields: output, referenceIds}
             }
             return output
 

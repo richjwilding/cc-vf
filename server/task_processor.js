@@ -14,13 +14,19 @@ import axios from 'axios';
 
 const parser = PrimitiveParser()
 
-const logger = getLogger('task_processor', "info"); // Debug level for moduleA
+const logger = getLogger('task_processor', "debug"); // Debug level for moduleA
 
-export async function getItemsForQuery(primitive){
+export async function getItemsForQuery(primitive, config){
     let items
     if( primitive.type === "view"){
         items = (await getDataForProcessing( primitive, {} ))[0]
     }else{
+        if( primitive.type === "action"){
+            config ||= await getConfig(primitive)
+            if( config.local ){
+                return [primitive]
+            }
+        }
         items = Object.keys(primitive.primitives ?? {}).includes("imports") ? await getDataForImport( primitive ) : await primitiveChildren(primitive)
     }
     return items.filter(d=>!["segment", "query", "view", "category"].includes(d.type))
@@ -57,7 +63,7 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
     }
     console.log(`Got ${axis.length} axis`)
     
-    let items = await getItemsForQuery(primitive)
+    let items = await getItemsForQuery(primitive, config)
     
     if( axis.length === 0){
         return [{
@@ -91,18 +97,7 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
         }
         mappedFilter.type = thisAxis.type === "category" ? "parent" : thisAxis.type
 
-        /*
-        if( thisAxis.type === "segment_filter"){
-            resolvedFilterType = "parent"
-            relationship = "auto"
-            pivot = 1
-            mappedFilter.type = resolvedFilterType
-            mappedFilter.pivot = pivot
-            mappedFilter.relationship = relationship
-            mappedFilter.sourcePrimId = undefined
-        }*/
         delete mappedFilter["filter"]
-
         
         let lookups = await multiPrimitiveAtOrginLevel( items, pivot, relationship)
         let values = []
@@ -248,6 +243,16 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
 
     if( config?.axis ){
         customAxis = Object.values(config.axis  ?? {}).filter(d=>d)
+    }else if( config.explore?.axis && !config.legacy){
+        if( primitive.type !== "query"){
+            let axis = [
+                config.explore.axis.column,
+                config.explore.axis.row
+            ].filter(Boolean)
+            if( axis.length > 0){
+                customAxis = axis
+            }
+        }
     }
     if( config?.segments ){
         let targetSegments = config?.segments
@@ -304,19 +309,90 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
 
     }else{
         let targetSegmentConfig
+        const nullItem = []
         if( (config?.by_axis === false) && (!options.by_axis)){
-            targetSegmentConfig = [
-                {
-                    id: parent.id
-                }
-                
-            ]
+            if( options.legacySegments){
+                targetSegmentConfig = [
+                    {
+                        id: parent.id
+                    }
+                ]
+
+            }else{
+                targetSegmentConfig = (primitive.primitives?.imports ?? []).map(d=>({id: d}))
+            }
         }else{
-            targetSegmentConfig = await getSegemntDefinitions(parent, customAxis)
+            if( options.legacySegments){
+                targetSegmentConfig = await getSegemntDefinitions(parent, customAxis)
+            }else{
+                targetSegmentConfig = []
+                const imports = primitive.primitives?.imports ?? []
+                logger.info(`Collecting segments from each input ${imports.length}`)
+                if( imports.length > 0 ){
+                    const importPrimitives = await fetchPrimitives( imports )
+                    for( const imp of importPrimitives ){
+                        const thisSet = await getSegemntDefinitions(imp, customAxis) 
+                        for( const thisItem of thisSet ){
+                            const isNull = !thisItem.filters || thisItem.filters.length === 0
+                            let append = true
+                            if( isNull ){
+                                nullItem.push( thisItem )
+                            }else{
+                                targetSegmentConfig.push( thisItem)
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         logger.debug(`Checking segments at ${parent.id} / ${parent.plainId}`)
-        logger.debug( `Got ${targetSegmentConfig.length} segments to create / check - currently have ${currentSegments.length}`)
+        logger.debug( `Got ${targetSegmentConfig.length + (nullItem.length == 0 ? 0 : 1)} segments to create / check - currently have ${currentSegments.length} `)
+
+        if( nullItem.length > 0){
+
+            const nullConfigs = nullItem.map(d=>{
+                const {items, ...pc} = d
+                return pc
+            })
+
+            logger.debug(`Checking for null filter`)
+            let existing = currentSegments.find(d=>d.isForNull)
+            if( existing ){
+                checked[ existing.id ] = true
+                const toAdd = nullConfigs.filter(d=>!existing.referenceParameters.importConfig.find(d2=>d2.id === d.id))
+                if( toAdd.length > 0){
+                    console.log(`Need to add ${toAdd.length} items to null filter`)
+                    const newSet = [
+                        ...existing.referenceParameters.importConfig,
+                        ...toAdd
+                    ]
+                    await dispatchControlUpdate(existing.id, "referenceParameters.importConfig", newSet)
+                    for(const d of toAdd){
+                        await addRelationship(existing.id, d.id, "imports")
+                    }
+                    logger.debug(`Update segment ${existing.id} ${existing.plainId} for ${nullConfigs.length} new sources with null filters`)
+                }
+            }else{
+                 existing = await createPrimitive({
+                    workspaceId: primitive.workspaceId,
+                    parent: parent.id,
+                    data:{
+                        isForNull: true,
+                        type: "segment",
+                        title: "New segement",
+                        referenceParameters:{
+                            importConfig: nullConfigs
+                        }
+                    }
+                })
+                for(const d of nullConfigs){
+                    await addRelationship(existing.id, d.id, "imports")
+                }
+                logger.debug(`Created new segment ${existing.id} ${existing.plainId} for ${nullConfigs.length} sources with null filters`)
+            }
+            out.push(existing)
+        }
         
         for(const importConfig of targetSegmentConfig){
             let existing = currentSegments.filter(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
@@ -350,8 +426,12 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                 if( !existing ){
                     throw "Couldnt create segment"
                 }
-                await addRelationship(existing.id, parent.id, "imports")
-                logger.debug(`Created new segment ${existing.id} ${existing.plainId} for ${JSON.stringify(importConfig)}`)
+                if( options.legacySegments){
+                    await addRelationship(existing.id, parent.id, "imports")
+                }else{
+                    await addRelationship(existing.id, importConfig.id, "imports")
+                }
+                logger.debug(`Created new segment ${existing.id} ${existing.plainId} for ${JSON.stringify(pc)}`)
             }
             out.push(existing)
         }

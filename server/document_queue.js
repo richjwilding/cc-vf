@@ -1,7 +1,7 @@
 import { SIO } from './socket';
 import { getDocumentAsPlainText, importDocument, locateQuote, removeDocument } from "./google_helper";
 import Primitive from "./model/Primitive";
-import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getConfig, getDataForImport, getDataForProcessing, getFilterName, getNestedValue, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
+import { addRelationship, buildContext, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, findResultSetForType, getConfig, getDataForImport, getDataForProcessing, getFilterName, getNestedValue, getPrimitiveInputs, getPrimitiveOutputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, updateFieldWithCallbacks } from "./SharedFunctions";
 import Category from "./model/Category";
 import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summarizeMultiple, summarizeMultipleAsList } from "./openai_helper";
 import ContentEmbedding from "./model/ContentEmbedding";
@@ -503,13 +503,37 @@ async function doDataQuery( options ) {
                 }
                 const extractTargetCategory = doingExtracts ? (await Category.findOne({id: resultCategoryId}))?.toJSON() : undefined
                 
-
-                const serachScope = [{workspaceId: primitive.workspaceId}]
                 
-                const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0] ?? (Object.keys(parentForScope?.primitives ?? {}).includes("imports") ? parentForScope.id : (Object.keys(primitive?.primitives ?? {}).includes("imports") ? primitive.primitives.imports[0] : undefined))
+                let items, scopeNode, itemsFromInputPin
+                const serachScope = [{workspaceId: primitive.workspaceId}]
+
+                const importId = Object.keys(primitive?.primitives ?? {}).includes("imports") ? primitive.primitives.imports[0] : undefined
+                if( importId ){
+                    const importPrimitive = await fetchPrimitive( importId )
+                    const outputs = Object.entries( importPrimitive.primitives?.outputs ?? {})
+                    const forPrimitive = outputs.filter(d=>d[1].includes(primitive.id))
+                    console.log(forPrimitive)
+                    const forImport = forPrimitive.find(d=>d[0].endsWith("_impin"))
+                    if( forImport ){
+                        let pinData
+                        const sourcePin = forImport[0].split("_")[0]
+                        if( importPrimitive.type === "flowinstance" && primitive.parentPrimitives[importPrimitive.id].includes("primitives.origin")){
+                            logger.debug(`Import for ${primitive.id} comes from an input pin (${sourcePin}) of parent flowinstance ${importPrimitive.id} - redirecting`)
+                            pinData = await getPrimitiveInputs( importPrimitive )
+                        }else{
+                            logger.debug(`Import for ${primitive.id} comes from an output pin (${sourcePin}) of ${importPrimitive.id} - redirecting`)
+                            pinData = await getPrimitiveOutputs( importPrimitive )
+                        }
+                        if( pinData[sourcePin]?.config === "primitive"){
+                            itemsFromInputPin = pinData[sourcePin].data
+                        }
+                    }
+                }
+                
+                const scope = options.scope ?? primitive.primitives?.params?.scope?.[0] ?? parentForScope?.primitives?.params?.scope?.[0] ?? (Object.keys(parentForScope?.primitives ?? {}).includes("imports") ? parentForScope.id : importId)
+                
                 const referenceCategoryFilter = options.referenceCategoryFilter ?? config?.referenceCategoryFilter ?? parentForScope?.referenceParameters?.referenceCategoryFilter
 
-                let items, scopeNode
                 if( scope  ){
                     let validTypes = ["result", "summary"]
                     const node = await fetchPrimitive( scope )
@@ -520,16 +544,18 @@ async function doDataQuery( options ) {
                         items = [iter, ...(await primitiveDescendents( iter, validTypes))]
                     }else{
 
-                        if( node.type === "view" || node.type === "working" || node.type === "query" || node.type === "segment" ){
-                            let interim
-                            if( Object.keys(node?.primitives ?? {}).filter(d=>d !== "imports").length > 0){
-                                interim = await getDataForImport(node)
-                            }else if(Object.keys(primitive?.primitives ?? {}).includes("imports")){
-                                interim = await getDataForImport(node, undefined, true)
-                            }else{
-                                interim =  await getDataForImport(primitive, undefined, true) 
+                        if( node.type === "view" || node.type === "working" || node.type === "query" || node.type === "segment" ){                            
+                            let interim = itemsFromInputPin
+
+                            if( !interim ){
+                                if( Object.keys(node?.primitives ?? {}).filter(d=>d !== "imports").length > 0){
+                                    interim = await getDataForImport(node)
+                                }else if(Object.keys(primitive?.primitives ?? {}).includes("imports")){
+                                    interim = await getDataForImport(node, undefined, true)
+                                }else{
+                                    interim =  await getDataForImport(primitive, undefined, true) 
+                                }
                             }
-                            
                             
                             
                             if( config.group || thisCategory.type === "iterator" ){

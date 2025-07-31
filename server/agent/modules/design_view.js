@@ -14,7 +14,7 @@ export async function implementation(params, scope, notify){
     if( !params.source_ids?.[0]){
         return "No id provided"
     }
-    const fields = await scope.functionMap["object_params"]({id: params.source_ids[0]}, scope, notify)
+    const {fields, referenceIds} = await scope.functionMap["object_params"]({id: params.source_ids[0]}, {...scope, withId: true}, notify)
 
     /*
         Each filter (if in use) should have the following format
@@ -36,15 +36,19 @@ export async function implementation(params, scope, notify){
         "oneOf": [
             {
             "type": "object",
-            "required": ["category_prompt", "parameter"],
+            "required": ["category_prompt", "parameter","number"],
             "properties": {
                 "category_prompt": {
-                "type": "string",
-                "description": "The LLM prompt that will generate a suitable categorization of this data when executed later"
+                    "type": "string",
+                    "description": "The LLM prompt that will generate a suitable categorization of this data when executed later (taken from the result of prepare_categorization_preprocessing)"
                 },
                 "parameter": {
-                "type": "string",
-                "description": "Parameter to categorize"
+                    "type": "string",
+                    "description": "Parameter to categorize (taken from the result of prepare_categorization_preprocessing)"
+                },
+                "number": {
+                    "type": "number",
+                    "description": "target number of categories to produce (taken from the result of prepare_categorization_preprocessing)"
                 }
             },
             "additionalProperties": false
@@ -175,7 +179,7 @@ export async function implementation(params, scope, notify){
     You are a data visualization agent.  The user wants to visualize their data in one or more views as specified in their prompt according to these instructions in the chat context.
     Some parameters may have "custom_bracket" with defined "buckets" which should be used rather than a new categorization of that parameter
     ${flowEditor 
-    ? `If the visualization calls for categorization, call prepare_categorization_preprocessing to get a prompt defintion which will create a suitable categorization and execution time
+    ? `If the visualization calls for categorization, you must call prepare_categorization_preprocessing to get a prompt defintion which will create a suitable categorization at execution time - do not make the prompt up yourself
     Inspect the schema of the data using object_params to understand the schema, then use this knowledge in setting axis and filters as appropriate
     `
     : `If the visualization calls for categorization, proceed in this order until you find something suitable:
@@ -304,20 +308,20 @@ const output_schema = {
     
             const fn = scope.functionMap[name]
             if(!fn){
-            throw `couldnt find ${name}`
+                throw `couldnt find ${name}`
             }
             const fnResult = await fn(args, scope, notify);
             logger.debug("design_view Got", {fnResult,  chatId: scope.chatUUID})
     
             messages.push({
-            role: "assistant",
-            function_call: { name: name, arguments: jsonArgs }
+                role: "assistant",
+                function_call: { name: name, arguments: jsonArgs }
             });
     
             messages.push({
-            role: "function",
-            name,
-            content: JSON.stringify(fnResult)
+                role: "function",
+                name,
+                content: JSON.stringify(fnResult)
             });
     
             continue;
@@ -330,13 +334,15 @@ const output_schema = {
     
     logger.info("design_view done", {planJson, chatId: scope.chatUUID})
     try{
-        const result = JSON.parse(planJson)
+        const result = JSON.parse(planJson. trim())
         const sourceIds = result.views.map(d=>d.source)
         
         notify(`[[chat_scope:${sourceIds[0]}]]`, false, true)
         
+        result.views.forEach(d=>{
+            d.referenceId = referenceIds[0]
+        })
         const views = JSON.stringify({views: result.views})
-        console.log(views[0])
         
         return {
             dataForClient: views,

@@ -79,6 +79,7 @@ function MarkdownBadge({ badgeType, actionCallback }) {
         return <></>
       }else if(badgeType.startsWith("ref:")){
         let ids = badgeType.slice(4).split(",")
+
         const mainstore = MainStore()
         let overflow = ids.length > 5 ? ids.length - 5 : undefined
         if( overflow ){

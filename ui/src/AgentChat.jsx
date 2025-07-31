@@ -13,21 +13,38 @@ import { Icon } from '@iconify/react/dist/iconify.js';
 
 //export default function AgentChat({primitive, ...props}) {
 const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, ...props}, ref){
-      const [messages, setMessages] = useState([
+      const [messages, setMessages] = useState([        
         /*{
-    "hidden": false,
-    "role": "assistant",
-    "content": "{\"views\":[{\"source\":\"68825b3088d71b23808e4f6e\",\"title\":\"Number of User Posts by Influencer Type\",\"layout\":\"bar\",\"x_axis\":{\"parameter\":\"followers\"},\"y_axis\":{\"operator\":\"sum\",\"parameter\":\"posts\"},\"filters\":[]}]}",
-    "resultFor": "design_view",
-    "preview": true
-},*/
-{
-    "hidden": false,
-    "role": "assistant",
-    "content": "{\"views\":[{\"source\":\"68825b3088d71b23808e4f6e\",\"title\":\"Distribution of Influencers by Follower Count Category\",\"layout\":\"pie\",\"x_axis\":{\"parameter\":\"followers\"}}]}",
-    "resultFor": "design_view",
-    "preview": true
-}
+            "hidden": false,
+            "role": "assistant",
+            "content": "{\"views\":[{\"source\":\"68825b3088d71b23808e4f6e\",\"title\":\"Distribution of Influencers by Follower Count Category\",\"layout\":\"pie\",\"x_axis\":{\"parameter\":\"followers\"}}]}",
+            "resultFor": "design_view",
+            "preview": true
+        }*/
+        /*{
+            "role": "assistant",
+            "content": `"### Efficacy
+- Consumer reviews report noticeable improvements in joint and ligament pain relief.
+- Some users experienced marked reductions in pain after using the supplements.
+- There are mixed experiences with some users reporting worsening symptoms due to dosing issues.
+- Positive endorsements include both consumer and healthcare professional observations.
+### Ingredient Transparency
+- Thorne states that all supplements are free of gluten, artificial fillers, dyes, and additives.
+- Ingredients are sourced from trusted suppliers, with in-house laboratory testing for quality control.
+- Only select products are independently tested, such as those carrying NSF Certified for Sport.
+### Concerns and Praise
+## Concerns
+- Some reviews highlight that not all products are third-party tested.
+- Several users raise concerns about the serving size, noting that 4 capsules can be too many at one time.
+- There are reports of quality issues, including incidents of receiving empty capsules.
+- A few consumers mentioned worsening joint symptoms over time.
+## Praise
+- Numerous customer reviews praise the supplements for effective joint and ligament support.
+- Positive feedback includes noticeable improvements in pain and overall joint function.
+- Endorsements from users and healthcare professionals reinforce claims of efficacy.
+- Several consumers stated that the supplements performed better than other brands. [[ref:688229695df2b9a82e1e36a4,688229705df2b9a82e1e36b9,688229765df2b9a82e1e36ce,6882293e5df2b9a82e1e3647]]`
+         
+        }*/
       ]);
       const inputBox = useRef({})
       const editorRef = useRef()
@@ -44,8 +61,9 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         const mainstore = MainStore()
         updateStatus( {active: !inputBox.current?.empty(), messages})
         if( externalContext ){
-          if( externalContext?.id !== context?.id){
-            setContext([externalContext].flat())
+          const ext = [externalContext].flat().filter(Boolean)
+          if( ext.map(d=>d?.id).join("-") !== [context].flat().filter(d=>Boolean).map(d=>d?.id).join("-")){
+            setContext(ext)
           }
         }else{
           const contextMessages = messages.filter(d=>d.role === "assistant" && d.hidden).map(d=>d.content?.match(/\[\[chat_scope:([^\]]*)\]\]/)?.[1]?.split(",")).filter(d=>d)

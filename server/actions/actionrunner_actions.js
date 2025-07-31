@@ -360,17 +360,23 @@ registerAction( "custom_query", undefined, async (primitive, action, options = {
     let configParent = await getConfigParent( primitive )
     const config = await getConfig(primitive)
 
-    if( options.flow || configParent?.flowElement ){
-        const prevStepId = primitive.primitives?.imports?.[0]
-        if( !prevStepId ){
-            throw `Nothing to import from in custom_query flow ${primitive.id}`
+    const legacySegments = config.legacy
+    if( legacySegments ){
+        if( options.flow || configParent?.flowElement ){
+            const prevStepId = primitive.primitives?.imports?.[0]
+            if( !prevStepId ){
+                throw `Nothing to import from in custom_query flow ${primitive.id}`
+            }
+            parentForScope = await fetchPrimitive( prevStepId )
+            logger.info(`Parent set to flow input for ${primitive.id} / ${primitive.plainId}`)
+            options.force = true
+            
+        }else{
+            parentForScope = (await findParentPrimitivesOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
         }
-        parentForScope = await fetchPrimitive( prevStepId )
-        logger.info(`Parent set to flow input for ${primitive.id} / ${primitive.plainId}`)
-        options.force = true
-
+        options.legacySegments = true
     }else{
-        parentForScope = (await findParentPrimitivesOfType(primitive, ["working", "view", "segment", "query"]))?.[0] ?? primitive
+        parentForScope = primitive
     }
 
     if( !parentForScope ){

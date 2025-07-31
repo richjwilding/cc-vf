@@ -308,7 +308,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
         for( const source of sources){
             logger.debug(`-- For ${source.title}`, {flow: flow.id, source: source.id});
             
-            const {segments, cleared} = await checkAndGenerateSegments( source, flow, {...options, clear: true, by_axis: true})
+            const {segments, cleared} = await checkAndGenerateSegments( source, source, {...options, clear: true, by_axis: true})
             logger.debug(`-- got ${segments.length} segments`, {flow: flow.id, source: source.id});
             if( cleared.length > 0){
                 console.log(`${cleared.length} segments removed - checking and removing hanging flow instances`)
@@ -931,14 +931,16 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
     const inputList = flowPrimitiveParser.inputs
     const inputPP = pp.fromPath("inputs")
     const flowOrigin = primitiveOrigin( flow )
+    let parentFlowInstanceObject
+    const targetInputs = []
     for(const rel of Object.keys(inputList)){
         for(const source of inputList[rel].allIds ){
-            const paths = inputPP.paths(source).map(d=>d.slice(1))
+            const paths = inputPP.paths(source).map(d=>"inputs" + d)
+            const parentFlowInstance = Object.entries(flowInstance.parentPrimitives ?? {}).filter(d=>d[1].includes("primitives.subfi"))?.[0]?.[0]
             if( source === flowOrigin){
-                const parentFlowInstance = Object.entries(flowInstance.parentPrimitives ?? {}).filter(d=>d[1].includes("primitives.subfi"))?.[0]?.[0]
                 logger.debug(`Flow imports from parent flow ${source} - connecting to flowinstance ${parentFlowInstance}`)
                 if( parentFlowInstance ){
-                    console.log(paths)
+                    /*console.log(paths)
                     for(const path of paths){
                         let existing = pp[path].allIds
                         let add = !existing.includes( parentFlowInstance )
@@ -950,11 +952,20 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
                         for(const d of toRemove){
                             await removeRelationship(flowInstance.id, d, `inputs.${path}`)
                         }
-                    }
+                    }*/
+                    targetInputs.push( {id: parentFlowInstance, paths} )
+                }
+            }else{
+                parentFlowInstanceObject ||= await fetchPrimitive( parentFlowInstance )
+                const instanceOfSource = (await primitiveChildren( parentFlowInstanceObject )).find(d=>d.parentPrimitives[source]?.includes("primitives.config"))
+                if( instanceOfSource ){
+                    console.log(`-- FOUND INSTANCE SOURCE ${instanceOfSource.id} `)
+                    targetInputs.push( {id: instanceOfSource.id, paths} )
                 }
             }
         }
     }
+    await alignPrimitiveRelationships( flowInstance, targetInputs, "inputs", options.create)
 
     console.time("time_INPUT")
     console.timeEnd("time_INPUT")
@@ -1403,9 +1414,9 @@ export async function runFlowInstance( flowInstance, options = {}){
                         }
                     }*/
                 }
-                if( stepsToRun.length === 1 && scaffoldResult){
+                if( stepsToRun.length === 1 && scaffoldResult?.instances){
                     logger.info(`Scaffold was only step - invoking flowinstances now....`)
-                    for( const fi of scaffoldResult ){
+                    for( const fi of scaffoldResult?.instances ){
                         await FlowQueue().runStep(fi, {flowStarted})
                     }
                 }

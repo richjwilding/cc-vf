@@ -26,6 +26,58 @@ const log = getLogger('BoardViewer', { level: 'debug' })
 export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
 const RENDERSUB = false//true
 
+function preparePins(primitiveToPrepare, basePrimitive, stateId, myState){
+    let pinIdx = 1
+
+    function processPins(source){
+        return Object.keys(source ?? {}).map((d,i)=>({
+                name: d,
+                label: source[d].name,
+                rIdx: i
+            }))
+        .reduce((a,c)=>{
+            c.idx = pinIdx
+            a[c.name] = c
+            pinIdx++
+            return a
+        }, {})
+    }
+
+    myState[stateId].inputPins = myState[stateId].inputPins ?? processPins(primitiveToPrepare.inputPins)
+    if( !myState[stateId].outputPins ){
+        myState[stateId].outputPins = processPins(primitiveToPrepare.outputPins )
+
+        //if( basePrimitive.type === "flow" || basePrimitive.type === "page" ){
+        if( basePrimitive.type === "flow" ){
+            const tempOut = {}
+            for(const pin of Object.values(myState[stateId].inputPins)){
+                tempOut[pin.name] = {
+                    ...pin,
+                    internal: true,
+                    showLabel: false,
+                    rIdx: myState[stateId].inputPins[pin.name].rIdx,
+                    idx: pinIdx++
+                }
+            }
+            
+            for(const pin of Object.values(myState[stateId].outputPins)){
+                myState[stateId].inputPins[pin.name] = {
+                    ...pin,
+                    internal: true,
+                    showLabel: false,
+                    rIdx: myState[stateId].outputPins[pin.name].rIdx,
+                    idx: pinIdx++
+                }
+            }
+            myState[stateId].outputPins = {
+            ...myState[stateId].outputPins,
+            ...tempOut
+            }
+        }
+    }   
+    
+}
+
 function dropZoneToAxis(id){
     return id.split('-')
 }
@@ -679,6 +731,7 @@ function SharedRenderView(d, primitive, myState) {
         return combos
     }
 
+
     function SharedPrepareBoard(d, myState, element, forceViewConfig){
         let stateId = element ? element.id : d.id
         if( myState[stateId]?.skipNextBuild ){
@@ -697,10 +750,11 @@ function SharedRenderView(d, primitive, myState) {
                 if(d.type === "flow"){
                     myState[stateId].flowInstance = myState.mainFlowInstance
                 }else{
-                    const instanceForFlowInstance = d.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes( myState.mainFlowInstance?.id))
-                    myState[stateId].underlying = instanceForFlowInstance
-                    console.log(`-- Selected ${instanceForFlowInstance?.plainId} for ${d?.plainId}`)
-                    
+                    if( !myState[stateId].underlying ){
+                        const instanceForFlowInstance = d.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes( myState.mainFlowInstance?.id))
+                        myState[stateId].underlying = instanceForFlowInstance
+                        console.log(`-- Selected ${instanceForFlowInstance?.plainId} for ${d?.plainId}`)
+                    }
                 }
             }
         }
@@ -957,54 +1011,10 @@ function SharedRenderView(d, primitive, myState) {
         myState[stateId].isBoard = true
         const oldConfig = myState[stateId]?.config
 
-        let pinIdx = 1
-
-        function processPins(source){
-            return Object.keys(source ?? {}).map((d,i)=>({
-                    name: d,
-                    label: source[d].name,
-                    rIdx: i
-                }))
-            .reduce((a,c)=>{
-                c.idx = pinIdx
-                a[c.name] = c
-                pinIdx++
-                return a
-            }, {})
-        }
-
-        myState[stateId].inputPins = myState[stateId].inputPins ?? processPins(primitiveToPrepare.inputPins)
-        if( !myState[stateId].outputPins ){
-            myState[stateId].outputPins = processPins(primitiveToPrepare.outputPins )
-
-            //if( basePrimitive.type === "flow" || basePrimitive.type === "page" ){
-            if( basePrimitive.type === "flow" ){
-                const tempOut = {}
-               for(const pin of Object.values(myState[stateId].inputPins)){
-                    tempOut[pin.name] = {
-                        ...pin,
-                        internal: true,
-                        showLabel: false,
-                        rIdx: myState[stateId].inputPins[pin.name].rIdx,
-                        idx: pinIdx++
-                    }
-               }
-               
-               for(const pin of Object.values(myState[stateId].outputPins)){
-                    myState[stateId].inputPins[pin.name] = {
-                        ...pin,
-                        internal: true,
-                        showLabel: false,
-                        rIdx: myState[stateId].outputPins[pin.name].rIdx,
-                        idx: pinIdx++
-                    }
-               }
-               myState[stateId].outputPins = {
-                ...myState[stateId].outputPins,
-                ...tempOut
-               }
-            }
-        }   
+        myState[stateId].outputPins = undefined
+        myState[stateId].inputPins = undefined
+        preparePins( primitiveToPrepare, basePrimitive, stateId, myState)
+       
 
         let widgetConfig = {}
         const showItems = basePrimitive.findParentPrimitives({type: basePrimitive.inFlow ? "flow" : "board"})[0]?.frames?.[stateId]?.showItems
@@ -1322,7 +1332,8 @@ function SharedRenderView(d, primitive, myState) {
                     items.forEach(d=>expandSources(d))
                     const company_candidates = MainStore().uniquePrimitives( sources.flatMap(d=>d.referenceId === 29 ? d : d.findParentPrimitives({referenceId: [29], first: true}))).flat(Infinity) 
                     myState[stateId].renderData = {
-                        company_candidates
+                        company_candidates,
+                        ...(basePrimitive.renderConfig ?? {})
                     }
                 }
             }
@@ -1583,6 +1594,7 @@ export default function BoardViewer({primitive,...props}){
                                 let resized = false
                                 let changedRenderConfig = false
                                 let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
+                                console.log(event, info)
                                 
 
                                 if( event === "set_field" && info && typeof(info)==="string"){
@@ -1615,6 +1627,18 @@ export default function BoardViewer({primitive,...props}){
                                         needRefresh = true
                                     }else if(info.startsWith('processing.') || info.startsWith('embed_')){
                                         needRefresh = false
+                                    }else if(info.startsWith("referenceParameters.inputPins.")  || info.startsWith("referenceParameters.outputPins.")){
+                                        
+                                        const state = myState[frameId]
+                                        const basePrimitive = state.primitive
+                                        const primitiveToPrepare = state.underlying ?? basePrimitive
+                                        if( basePrimitive && primitiveToPrepare ){
+                                            preparePins( primitiveToPrepare, basePrimitive, frameId, myState)
+                                            
+                                            needRefresh = false
+                                            needRebuild = true
+                                            resized = true
+                                        }
                                     }
                                 }
                                 log.trace(` Post field check`,{needRebuild, needRefresh})
@@ -2041,11 +2065,17 @@ export default function BoardViewer({primitive,...props}){
         const board = myState[fId]
 
         if( resizeInfo ){
+            if( resizeInfo.legendDeltaX){
+                width -= resizeInfo.legendDeltaX
+            }
+            if( resizeInfo.legendDeltaY){
+                height -= resizeInfo.legendDeltaY
+            }
             if( resizeInfo.columns ){
-                width = (width - ((resizeInfo.columns - 1) * (resizeInfo.padding[0] ?? 0))) / resizeInfo.columns
+                width = (width - ((resizeInfo.columns - 1) * (resizeInfo.spacing[0] ?? 0))) / resizeInfo.columns
             }
             if( resizeInfo.rows ){
-                height = (height - ((resizeInfo.rows - 1) * (resizeInfo.padding[0] ?? 0))) / resizeInfo.rows
+                height = (height - ((resizeInfo.rows - 1) * (resizeInfo.spacing[0] ?? 0))) / resizeInfo.rows
             }
         }
 
@@ -2238,7 +2268,13 @@ export default function BoardViewer({primitive,...props}){
             hideMenu()
         }
         if( agentRef.current ){
-            agentRef.current.setContext( myState.activeBoard?.underlying ?? myState.activeBoard?.primitive )
+            const prim = myState.activeBoard?.underlying ?? myState.activeBoard?.primitive
+            if( prim?.type === "page"){
+                agentRef.current.setContext( uniquePrimitives(myState.activeBoard.primitive.primitives.allElement.flatMap(d=>myState[d.id].axisSource).filter(Boolean)) )
+            }else{
+                agentRef.current.setContext( prim )
+            }
+
         }
     }
 
@@ -2805,6 +2841,7 @@ export default function BoardViewer({primitive,...props}){
     }
     async function exportFrame(asTable = false, byCell, options = {}){
         if(myState.activeBoard){
+            canvas.current.clearHighlights()
             if( asTable ){
                 const root = canvas.current.frameData( myState.activeBoardId )
                 const temp = root.node.children
@@ -3026,7 +3063,7 @@ export default function BoardViewer({primitive,...props}){
 
     const agentScope = {
         constrainTo: primitive.id,
-        activeFlowInstanceId: primitive.type === "flow" ? myState.mainFlowInstance.id : undefined
+        activeFlowInstanceId: primitive.type === "flow" ? myState.mainFlowInstance?.id : undefined
     }
 
     return <div className="flex w-full h-full bg-gray-100 space-x-4 overflow-hidden p-1">
@@ -3162,10 +3199,10 @@ export default function BoardViewer({primitive,...props}){
                                                     
                                                     const [sc,sr] = dropZoneToAxis(start)
                                                     const [dc,dr] = dropZoneToAxis(drop)
-                                                    if( sr != dr && !myState[frameId].axis.row.allowMove){
+                                                    if( sr != dr && !myState[frameId].axis?.row?.allowMove){
                                                         return false
                                                     }
-                                                    if( sc != dc && !myState[frameId].axis.column.allowMove){
+                                                    if( sc != dc && !myState[frameId].axis?.column?.allowMove){
                                                         return false
                                                     }
                                                     return true
@@ -3244,6 +3281,18 @@ export default function BoardViewer({primitive,...props}){
                                                 }
                                                 target.setField(`frames.${frameId}.showItems`, !(data?.open ?? false))
                                             },
+                                            page:(id, frameId, data, konvaNode)=>{
+                                                setActiveBoard(frameId)
+                                                if( canvas.current ){
+                                                    canvas.current.selectFrame( frameId )
+                                                }
+                                            },
+                                            action_primitive:(id, frameId, data, konvaNode)=>{
+                                                setActiveBoard(frameId)
+                                                if( canvas.current ){
+                                                    canvas.current.selectFrame( frameId )
+                                                }
+                                            },
                                             column_header:(id, frameId, data, konvaNode)=>{
                                                 setActiveBoard(frameId)
                                                 if( canvas.current ){
@@ -3278,7 +3327,7 @@ export default function BoardViewer({primitive,...props}){
                                                         sourceState = myState[axisSource.id]
                                                     }
 
-                                                    let cIdx, rIdx, filters
+                                                    let cIdx, rIdx, filters = []
 
                                                     if(myState[frameId].data){
                                                         const data = myState[frameId].data
@@ -3294,7 +3343,8 @@ export default function BoardViewer({primitive,...props}){
                                                                 PrimitiveConfig.encodeExploreFilter( data.defs.allocations?.[0], Object.values(cellData.allocations)[0]?.[idx]?.idx )
                                                             )
                                                         }
-                                                    }else if(myState[frameId].axis){
+                                                    //}else if(myState[frameId].axis){
+                                                    }else if(sourceState.axis){
                                                         [cIdx,rIdx] = cell.split("-")
                                                         filters = [
                                                             PrimitiveConfig.encodeExploreFilter( sourceState.axis.column, sourceState.columns[cIdx] ),

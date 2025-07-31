@@ -2203,7 +2203,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
                 list = cache.imports[imp.id]
                 console.log(`>>> reuse import cache ${imp.id}`)
             }else{
-                list = list.concat( await getDataForImport( imp, {...cache, depth: cache.depth+1}, undefined, false ))
+                list = list.concat( await getDataForImport( imp, {...cache, depth: cache.depth+1, needsFullDocument: requiresFullDocument}, undefined, false ))
                 cache.imports[imp.id] = list
             }
         }else{
@@ -2216,10 +2216,19 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             if( !source.referenceParameters?.path && imp.type === "segment"){
                 list = await nestedItems( imp )
             }else{
-                //ids = node.allIds
-                ids = Object.keys(node).filter(d=>d !== "inputs" && d !== "outputs").flatMap(d=>node[d].allIds)
-                list = await fetchPrimitives(ids, undefined, DONT_LOAD)
-                logger.verbose(`loaded leaves ${ids.length}`)
+                let done = false
+                if( imp.type === "action"){
+                    const impConfig = await getConfig(imp)
+                    if( impConfig.local ){
+                        list = [imp]
+                        done = true
+                    }
+                }
+                if( !done ){
+                    ids = Object.keys(node).filter(d=>d !== "inputs" && d !== "outputs").flatMap(d=>node[d].allIds)
+                    list = await fetchPrimitives(ids, undefined, DONT_LOAD)
+                    logger.verbose(`loaded leaves ${ids.length}`)
+                }
             }
         }
         if( params.descend ){
@@ -2312,7 +2321,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
     
     let out = uniquePrimitives(fullList)
     logger.debug(`IMPORT FROM ${source.plainId} = ${out.length}`)
-    if( first && !hasFullDocument){
+    if( (first || cache?.needsFullDocument) && !hasFullDocument){
         console.log(`Need to get full documents ${out.length}`)
         if( out.length > 0){
             out = await Primitive.find({
@@ -5828,7 +5837,7 @@ export async function runQueryOnPrimitive(receiver, steps, cache){
     let scope = [receiver]
     if( receiver.type === "categorizer"){
         if( !receiver.primitives.origin ){
-            console.log(`Couldnt find category for categorizer`)
+            console.log(`Couldnt find category for categorizer ${receiver.id}`)
             return []
         }
         scope = [{id: receiver.primitives.origin[0]}]
