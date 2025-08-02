@@ -46,6 +46,8 @@ import MarkdownEditor from './MarkdownEditor';
 import { roundCurrency } from './SharedTransforms';
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from './@components/description-list';
 import { useSmoothGradient } from './@components/SmoothGradient';
+import { Button, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger } from '@heroui/react';
+import { Icon } from '@iconify/react/dist/iconify.js';
 
 export const ExpandArrow = function(props) {
   return (
@@ -905,7 +907,7 @@ let mainstore = MainStore()
         },
         {
           title: 'Open page',
-          action: ()=>navigate(`item/${primitive.id}`),
+          action: ()=>navigate(`/item/${primitive.id}`),
           icon: ArrowTopRightOnSquareIcon,
           skip: props.showVisitPage === undefined ? false : !props.showVisitPage
         },
@@ -949,15 +951,42 @@ let mainstore = MainStore()
           }
             const baseColor = props.color || "gray"
             
-            
             return(<>
+      {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
+      {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
+      <div className={[`h-${props.size || 8} w-${props.size || 8}`, 'shrink-0', props.className].join(" ")}>
+        <Dropdown>
+          <DropdownTrigger>
+            {props.title ? <Button size="sm" variant="bordered">{props.title ?? "Open Menu"}</Button> : <Button size="sm" isIconOnly className={buttonClass} variant="bordered">{buttonIcon}</Button>}
+          </DropdownTrigger>
+          <DropdownMenu aria-label="Dropdown menu with icons" variant="faded">
+            {items.map((item,idx) => (
+              <DropdownItem
+                key={idx}
+                onPress={item.action ? (e)=>{
+                  item.action()
+                } : undefined}
+                startContent={<>
+                        {item.icon && (item.icon.render || item.icon instanceof Function) && <item.icon aria-hidden="true" className='w-6 h-6'/>}
+                        {item.icon && typeof(item.icon)==="string" && <HeroIcon icon={item.icon} aria-hidden="true" className='w-6 h-6'/>}
+                </>}
+              >
+                  {item.title}
+              </DropdownItem>
+            ))}
+          </DropdownMenu>
+        </Dropdown>
+      </div>
+    </>)
+            
+            /*return(<>
       {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
       {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
       <div className={[`h-${props.size || 8} w-${props.size || 8}`, 'shrink-0', props.className].join(" ")}>
         <Menu>
           {({open})=>(<>
           {!open && <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}>{buttonIcon}</Menu.Button>}
-          {open && <Float portal placement='bottom-end'>
+          {open && <Float portal placement={props.placement ?? 'bottom-end'}>
               <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}>{buttonIcon}</Menu.Button>
               <Menu.Items className={`absolute z-10 p-1 mt-2  origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none right-0 w-min`}>
                 <div className="py-1">
@@ -988,7 +1017,7 @@ let mainstore = MainStore()
           )}
       </Menu>
     </div>
-    </>)
+    </>)*/
 
   }
   

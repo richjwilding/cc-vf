@@ -15,7 +15,7 @@ export function PrimitiveReferenceInfo({items, ...props}){
     showItems = showItems.slice(0,20)
     console.log(showItems)
 
-    return <div className='flex flex-col w-full py-1.5'>
+    return <div className='flex flex-col w-full py-1.5 max-w-[calc(100vw_-_30rem)]'>
       <Tabs fullWidth variant="solid" selectedKey={activeTab} onSelectionChange={((id)=>setActiveTab(id))}>
         <Tab key="items" title="Items"/>)
         <Tab key="table" title="Table"/>)

@@ -452,7 +452,8 @@ const bdExtractors = {
         queryParams: "&type=discover_new&discover_by=keyword",
         data:  (data)=>{
             return {
-                referenceId: 63,
+                title: `Post by ${data.profile_username}`,
+                referenceId: 152,
                 referenceParameters:{
                     url: data.url,
                     id: data.post_id,

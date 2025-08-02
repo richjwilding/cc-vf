@@ -34,7 +34,7 @@ export default function ProjectScreen(props){
         }
     }, [MainStore().homescreenReady])
     
-    const flows = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="flow"))
+    const flows = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="flow" && !p.inFlow))
     const boards = filterForWorksapce(MainStore().primitives().filter((p)=>p.type==="board" || p.type==="working"))
     const activities = filterForWorksapce(MainStore().primitives().filter((p)=>p.isTask))
     const ventures = filterForWorksapce(MainStore().primitives().filter((p)=>p.type === 'venture' || p.type==="concept"))

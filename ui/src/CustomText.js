@@ -529,7 +529,7 @@ _setTextData() {
         startIndent = startX
         placeTextWidth = maxWidth
         currentHeightPx = startRow + maxForRow + rowSpacing
-        if( this.textArr[this.textArr.length - 1]){
+        if( this.textArr[this.textArr.length - 1]?.tableInfo){
           this.textArr[this.textArr.length - 1].tableInfo.tableHeight = currentHeightPx
         }
         fontScaleForTable = 1
@@ -557,7 +557,7 @@ _setTextData() {
         let fragmentIdx = 0
         for(const frag of children ){
           if( frag.type === "unordered-list" || section.type === "ordered-list"){
-            console.error("THIS IS BEING CALLED")
+            //console.error("THIS IS BEING CALLED")
             const px = "" + lineHeightPx
             if( !indentWidths[px] ){
               getDummyContext().font = (large ? this.headlineFont : this.standardFont)
@@ -566,9 +566,7 @@ _setTextData() {
             let preIndent = startIndent
             startIndent += indentWidths[px]
             
-            //currentHeightPx += (lineHeightPx * (isListItem ? 1.1 : 1.4));
             currentHeightPx += (lineHeightPx * 0.2);
-            //didAdvance = true
             if( frag.children ){
               for(const sub of frag.children ){
                 processSection( sub, false, false )
@@ -897,17 +895,17 @@ checkCanvasCleared() {
       this.requestRefresh()
     }
     if( ph || tooSmall){
+        let ctx = context
+        const {scale, clipBox} = calcInheritedBounds( this )
+        if (clipBox) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(clipBox.x, clipBox.y, clipBox.width, clipBox.height);
+          ctx.clip();
+        }
 
         let showLines = fh * scale > 1.5
-        let ctx = context
         if( showLines && this.attrs.showPlaceHolder !== false){
-            const {scale, clipBox} = calcInheritedBounds( this )
-            if (clipBox) {
-              ctx.save();
-              ctx.beginPath();
-              ctx.rect(clipBox.x, clipBox.y, clipBox.width, clipBox.height);
-              ctx.clip();
-            }
             
             ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
@@ -930,9 +928,6 @@ checkCanvasCleared() {
                 y += step
               }
             }
-            if (clipBox){
-              context.restore();
-            }
         }else{
           let steps = Math.min(Math.max(Math.ceil(h / 50), 2), 30)
           let step = Math.max(h / steps, 10)
@@ -942,9 +937,10 @@ checkCanvasCleared() {
           for(let i = (step * 0.3); i < h ; i += step){
             ctx.fillRect(1, i,  widths[wi], step * 0.45)
             wi = (wi + 1) % 5
-            
           }
-          //ctx.fillRect(0,0,  w - 1, h - 1)
+        }
+        if (clipBox){
+          context.restore();
         }
     }else{
       if( DISABLE_CANVAS ){
@@ -965,11 +961,6 @@ checkCanvasCleared() {
             }              
           }
         }
-        /*
-      context.strokeStyle ="#ff0000"
-        context.lineWidth = 0.5
-      context.strokeRect(0,0, this.attrs.width, this.height())*/
-
         this.renderText( context )
       }else{
 

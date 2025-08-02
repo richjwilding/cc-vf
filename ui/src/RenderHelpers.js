@@ -356,10 +356,10 @@ registerRenderer( {type: "default", configs: "set_dials"}, (primitive, options =
         g.add(r)
 
         const colorscheme = primitive.renderConfig?.colors ?? "green"
-        const colors = {
+        let colors = {
             green: [undefined, "#bbf7d0", "#86efac", "#4ade80"],
             blue: [undefined, "#bfdbfe", "#93c5fd", "#3b82f6"],
-        }[colorscheme]
+        }[colorscheme] ?? [undefined, "#bbf7d0", "#86efac", "#4ade80"]
 
 
         if( items.length > 0 ){
@@ -2883,7 +2883,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "checktable"}, function
     return typeMaps[ "default" ]["set_checktable"](options.partial, {...options, list:[primitive]})
 })
 registerRenderer( {type: "categoryId", id: 82, configs: "default"}, function renderFunc(primitive, options = {}){
-    return categoryMaps[109]["default"](primitive, {...options, field:"description"})
+    return categoryMaps[109]["default"](primitive, {...options, field:"description", fallback: "summary"})
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "set_summary_section"}, function renderFunc(primitive, options = {}){
     const config = {alignParts: "section", itemWidth: 600, minColumns: 1, spacing: options.items?.length > 1 ? [40,40] : [0,0], alignHeight: true, itemPadding: [10,10,10,10], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
@@ -3314,7 +3314,7 @@ registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function re
         })
         g.add(r)
 
-        let text = primitive.referenceParameters[config.field]
+        let text = primitive.referenceParameters[config.field] ?? primitive.referenceParameters[config.fallback]
         /*if( primitive.origin.plainId === 435057){
             text = text.replace(/^.+MVTR.+\n/,"")
         }*/
@@ -3842,6 +3842,9 @@ registerRenderer( {type: "categoryId", id: 123, configs: "default"}, function re
 registerRenderer( {type: "categoryId", id: 122, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.overview, width: options.width ?? 320, imageUrl: primitive.referenceParameters?.imageUrl})
 })
+registerRenderer( {type: "categoryId", id: 152, configs: "default"}, function renderFunc(primitive, options = {}){
+    return baseImageWithText(primitive, {...options, textField: primitive.referenceParameters?.overview, width: options.width ?? 320, imageUrl: primitive.referenceParameters?.imageUrl})
+})
 registerRenderer( {type: "categoryId", id: 125, configs: "default"}, function renderFunc(primitive, options = {}){
     return baseImageWithText(primitive, {...options, textField: `**${primitive.title}**\n${primitive.referenceParameters?.description ?? ""}`, width: options.width ?? 320, brandName: "reddit"})
 })
@@ -3945,7 +3948,7 @@ function baseImageWithText(primitive, options){
                 textToShow += "..."
             }
         }else{
-            textToShow = textToShow.slice(0,150)
+            textToShow = textToShow?.slice(0,150)
         }
         let y = config.padding[0] + imageHeight
         let totalheight = y + idHeight + config.padding[2] 
@@ -8300,6 +8303,9 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
 
 
     for(const cell of data.cells){
+        if( cell.cIdx > maxColIdx || cell.rId > maxRowIdx){
+            continue
+        }
         const x = ox + columnX[cell.cIdx]
         const y =  oy + rowY[cell.rIdx]
         const width = columnWidths[cell.cIdx]

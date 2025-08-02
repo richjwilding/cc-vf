@@ -3,7 +3,7 @@ import { clsx } from 'clsx'
 export function Logo({ className, active }) {
     if( active){
         return (
-<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50" shape-rendering="geometricPrecision" className={className}>
+<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 50 50" shapeRendering="geometricPrecision" className={className}>
   <circle cx="15.0" cy="5.0" r="1.0" fill="currentColor">
     <animate attributeName="r" dur="2.4s" repeatCount="indefinite" keyTimes="0.000;0.021;0.229;0.438;0.688;0.896;1.000" values="1.0;1.0;3.0;1.0;3.0;1.0;1.0"/>
   </circle>
@@ -71,7 +71,7 @@ export function Logo({ className, active }) {
         )
     }
     return (
-<svg xmlns="http://www.w3.org/2000/svg" width="186.67" height="186.67" viewBox="20 20 146.67 146.67" shape-rendering="geometricPrecision" className={className}>
+<svg xmlns="http://www.w3.org/2000/svg" width="186.67" height="186.67" viewBox="20 20 146.67 146.67" shapeRendering="geometricPrecision" className={className}>
               <circle cx="66" cy="40" r="3.00" fill="currentColor">
                     <animate attributeName="r" dur="2.00s" repeatCount="indefinite" keyTimes="0.000;0.250;0.625;1.000;1.000" values="3.00;3.00;5.00;3.00;3.00"/>
                 </circle>

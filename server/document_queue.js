@@ -8,11 +8,13 @@ import ContentEmbedding from "./model/ContentEmbedding";
 import PrimitiveParser from "./PrimitivesParser";
 import { fetchFragmentsForTerm } from "./DocumentSearch";
 import { BaseQueue } from './base_queue';
-import { assessContextForPrompt } from './prompt_helper';
+import { assessContextForPrompt, reviseUserRequest } from './prompt_helper';
 import { getLogger } from './logger.js';
 import { compareTwoStrings } from './actions/SharedTransforms.js';
 import { registerAction } from './action_helper.js';
 import { getAhrefsTrafficReportFromRapidAPI } from './rapid_helper.js';
+import { flattenStructuredResponse } from './PrimitiveConfig.js';
+import { extractFlatNodes } from './task_processor.js';
 
 const logger = getLogger('document_queue', "debug"); // Debug level for moduleA
 
@@ -624,7 +626,6 @@ async function doDataQuery( options ) {
 
                 if( !keepItems ){
                     let oldEvidence =  await primitiveChildren(primitive, "result")
-                    console.log( `----> got ${oldEvidence.length} to remove`)
                     for( const old of oldEvidence){
                         await removePrimitiveById( old.id )
                     }
@@ -739,6 +740,7 @@ async function doDataQuery( options ) {
                     }
                     const prompts = results.output?.[0]?.prompts
                     console.log(prompts)
+                    let asStructure = false
                     if( prompts || results.allItems){
                         let fragmentList
 
@@ -764,6 +766,24 @@ async function doDataQuery( options ) {
                                 `, a 'ids' field containing the id numbers of every text fragment(s) (as given to you) used to produce this specific part of the answer.`,
                                 (extraFields ?? "").length > 0 ? extraFields : undefined
                             ].filter(d=>d).join("") + "."
+                        }
+                        if( !doingExtracts ){
+                            const revised = await reviseUserRequest( query, config)
+                            if( revised.structure ){
+                                asStructure = true
+                                const answerStructure = (revised.structure.length === 1 && revised.structure[0].subsections) ? revised.structure[0].subsections : revised.structure
+                                const fullStructure = {
+                                    parts:[{
+                                            answered: "a boolean indicating if this part contains an answer or if no answer was found",
+                                            answer: answerStructure
+                                        }
+                                    ]
+                                }
+                                query = revised.task
+                                outPrompt = "Provide your output in a JSON object with this structure:\n" + JSON.stringify(fullStructure) +`\n\nDo not include the "answer" field at all when "answered" is false. If "answered" is true, the "answer" array must contain all required sections with their respective ids and quote arrays.`
+
+                            }
+                            console.log(revised)
                         }
 
                         if( prompts ){
@@ -921,24 +941,9 @@ async function doDataQuery( options ) {
                                 console.log(`Filtered to ${fragmentList.length} for relevance`)
                             }
                         }
-                        //const identicalFragments = Object.values(Object.values(fragmentList).reduce((a,c)=>{a[c.score]||=[];a[c.score].push(c);return a},{})).filter(d=>d.length >1)
                         const fragmentText = fragmentList.map(d=>d.text)
 
 
-                        /*const results = await processPromptOnText( fragmentText,{
-                            opener:  doingExtracts ? "Here is a list of numbered items to process" : `Here is a list of numbered text fragments you can use to answer a question `,
-                            prompt: `Using only the information explcitly provided in the text fragments answer the following question or task: ${query}.\nEnsure you use all relevant information to give a comprehensive answer.`,
-                            output: outPrompt,
-                            no_num: false,
-                            maxTokens: 40000,
-                            temperature: 1,
-                            markPass: true,
-                            batch:  doingExtracts ? 20 : undefined, 
-                            idField: "ids",
-                            debug: true,
-                           debug_content: true,
-                            field: "answer"
-                        })*/
                         let batchSize = config.batchSize ?? undefined
                         if( batchSize === 0){
                             batchSize = doingExtracts ? 20 : undefined
@@ -958,7 +963,7 @@ async function doDataQuery( options ) {
                             idField: "ids",
                             debug: false,
                            debug_content: false,
-                            field: "answer"
+                            field: asStructure ? "parts" : "answer"
                         })
                         console.log(`For ${options.inheritValue} for ${results.output?.length} for ${fragmentList.length}`)
                         if( results.success && Array.isArray(results.output)){
@@ -966,28 +971,52 @@ async function doDataQuery( options ) {
                             let final = results.output
 
                             for( const d of final){
+                                let newData, ids 
                                 console.log(`--- Consolidating`)
                                 console.log(d)
-                                const {title, ...extracts} = metadataItems.reduce((a,c)=>{a[metadata[c]?.field ?? c] = d[metadata[c]?.field ?? c]; return a},{})
-                                if( options.inheritField ){
-                                    extracts[options.inheritField] = options.inheritValue
-                                }
-                                const ids = typeof(d.ids) === "string" ? d.ids.split(",").map(d=>parseInt(d.trim())) : d.ids?.map(d=>d)
-                                const newData = {
-                                    workspaceId: primitive.workspaceId,
-                                    parent: primitive.id,
-                                    paths: ['origin',`results.${resultSet}`],
-                                    data:{
-                                        type: extractTargetCategory?.primitiveType ?? "result",
-                                        referenceId: resultCategoryId,
-                                        title: title ?? d.overview,
-                                        referenceParameters: {
-                                            description: d.answer,
-                                            ...extracts,
-                                            quote:d.quote
-                                        },
-                                        source: ids?.map(d=>{return {primitive: d.id, part: d.part}})
+                                if( asStructure ){
+                                    const summary = flattenStructuredResponse( d.answer)
+                                    ids = extractFlatNodes(d.answer).flatMap(d=>d.ids)
+                                    console.log(summary, ids)
+                                    newData = {
+                                        workspaceId: primitive.workspaceId,
+                                        parent: primitive.id,
+                                        paths: ['origin',`results.${resultSet}`],
+                                        data:{
+                                            type: extractTargetCategory?.primitiveType ?? "result",
+                                            referenceId: resultCategoryId,
+                                            title: summary.split(" ").slice(0,15).join(" "),
+                                            referenceParameters: {
+                                                structured_summary: d.answer,
+                                                description: summary,
+                                                ...d.answer.reduce((a,c)=>{a[`EXT_${c.heading}`] = c.content; return a}, {})
+                                            },
+                                            source: ids?.map(d=>{return {primitive: d.id, part: d.part}})
+                                        }
                                     }
+                                }else{
+                                    const {title, ...extracts} = metadataItems.reduce((a,c)=>{a[metadata[c]?.field ?? c] = d[metadata[c]?.field ?? c]; return a},{})
+                                    if( options.inheritField ){
+                                        extracts[options.inheritField] = options.inheritValue
+                                    }
+                                    ids = typeof(d.ids) === "string" ? d.ids.split(",").map(d=>parseInt(d.trim())) : d.ids?.map(d=>d)
+                                    newData = {
+                                        workspaceId: primitive.workspaceId,
+                                        parent: primitive.id,
+                                        paths: ['origin',`results.${resultSet}`],
+                                        data:{
+                                            type: extractTargetCategory?.primitiveType ?? "result",
+                                            referenceId: resultCategoryId,
+                                            title: title ?? d.overview,
+                                            referenceParameters: {
+                                                description: d.answer,
+                                                ...extracts,
+                                                quote:d.quote
+                                            },
+                                            source: ids?.map(d=>{return {primitive: d.id, part: d.part}})
+                                        }
+                                    }
+
                                 }
                                 const newPrim = await createPrimitive( newData )
                                 if( newPrim ){

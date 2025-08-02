@@ -6,7 +6,7 @@ import { RenderPrimitiveAsKonva, finalizeImages, renderIndicators, renderToggle 
 import { exportKonvaToPptx } from './PptHelper';
 import MainStore from './MainStore';
 import { AvoidLib } from 'libavoid-js';
-import CustomImage from './CustomImage';
+import CustomImage, { calcInheritedBounds } from './CustomImage';
 import CustomText from './CustomText';
 import RoundedArrow from './RoundedArrow';
 import { OrthogonalConnector } from './router';
@@ -16,6 +16,37 @@ Konva.autoDrawEnabled = false
 const updateLinksDuringMove = true
 const linkArrowSize = 8
 
+function applyCustomClipMask(context, rect) {
+    const {scale, clipBox} = calcInheritedBounds( rect )
+
+    if( clipBox){
+        context.beginPath();
+        context.rect(clipBox.x, clipBox.y, clipBox.width, clipBox.height)
+        context.clip();
+    }
+}
+
+// patch Konva.Rect's internal scene function once
+if (!Konva.Rect.prototype.__clip_patched) {
+  const originalSceneFunc = Konva.Rect.prototype._sceneFunc;
+  Konva.Rect.prototype._sceneFunc = function (context) {
+    context.save();
+    applyCustomClipMask(context, this);
+    originalSceneFunc.call(this, context);
+    context.restore();
+  };
+  Konva.Rect.prototype.__clip_patched = true;
+}
+
+const isSafari = (() => {
+  const ua = navigator.userAgent;
+  return (
+    ua.includes('Safari') &&
+    !ua.includes('Chrome') &&
+    !ua.includes('Chromium') &&
+    !ua.includes('Android')
+  );
+})();
 
 
 //export default function InfiniteCanvas(props){
@@ -535,8 +566,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         })
 
         if( !frame?.resizeForChildren){
-            const fw = frame.node.width()
-            const fh = frame.node.height()
+            const fw = frame.node.width() - 1
+            const fh = frame.node.height() - 1
             for(const child of positions){
                 const s = frame.node.scaleX() / child.frame.node.scaleX() 
                 
@@ -544,14 +575,15 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 let vh = child.b > fh ? Math.max((fh - child.y) * s,0) : undefined
                 let x = 0
                 let y = 0
-                if( child.x < 0){
-                    x = -(child.x  * s)
+                if( child.x < 1){
+                    x = (1 - child.x) * s
                     vw = (vw ?? child.nodeWidth) - x
                 }
-                if( child.y < 0){
-                    y = -(child.y * s)
+                if( child.y < 1){
+                    y = (1 -child.y) * s
                     vh = (vh ?? child.nodeHeight) - y
                 }
+                
                 if( vw === undefined && vh ===undefined ){
                     child.frame.node.clipWidth(undefined)
                     child.frame.node.clipHeight(undefined)
@@ -1542,6 +1574,16 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
     function updateNestedFramePosition( node ){
         const children = myState.current.renderList.filter(d=>d.parentRender === node.attrs.id)
+        const startNode = node
+        let clipBox
+        if( startNode.name().includes("frame")){
+            clipBox = {
+                x: startNode.attrs.x,
+                y: startNode.attrs.y,
+                width: startNode.attrs.width,
+                height: startNode.attrs.height
+            }
+        }
         if( children.length > 0){
             let {x:px, y:py, s:ps} = getFramePosition(node.attrs.id)
             for(const d of children){
@@ -1557,6 +1599,18 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 node.scale({x:s, y:s})
                 frame.x = x
                 frame.y = y
+
+                /*if( clipBox ){
+                    const thisClip = {
+                        x: Math.max(0, clipBox.x - node.attrs.x),
+                        y: Math.max(0, clipBox.y - node.attrs.y),
+                        width: Math.min( node.attrs.width * node.attrs.scaleX, (clipBox.x + clipBox.width - node.attrs.x) * node.attrs.scaleX ),
+                        height: Math.min( node.attrs.height * node.attrs.scaleX, (clipBox.y + clipBox.height - node.attrs.y) * node.attrs.scaleX )
+                    }
+                    if( thisClip.x || thisClip.y || (thisClip.width != (node.attrs.width * node.attrs.scaleX)) || (thisClip.height != (node.node.height * node.attrs.scaleX))){
+                        node.clip(thisClip)
+                    }
+                }*/
                 
                 updateFrameInRouter({
                     id: d.id,
@@ -2760,7 +2814,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             return memo
         },
         onPinch: (state)=>{
-                       // state.event.preventDefault()
+                        //state.event.preventDefault()
                         if( !state.first && myState.current.wasPanning ){
                             myState.current.wasPanning = false
                             alignViewport(myState.current.viewport?.x ?? 0,myState.current.viewport?.y ?? 0, myState.current.viewport?.scale ?? 1, true)
@@ -2822,7 +2876,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         onWheel: (state) => {
                     if( !state.ctrlKey ){
                         myState.current.wasPanning = true
-                      //  state.event.preventDefault()
                       panHandler(state)
                       if( props.events?.wheel?.passive === false){
                           state.event.preventDefault()
@@ -2834,7 +2887,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 target: frameRef,
                 eventOptions: { 
                     passive: true,
-      //              preventDefault: true,
                 },
                 drag:{
                     delay: 350,
@@ -2852,6 +2904,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                 },
                 pinch: {
+                    eventOptions: { 
+                        passive: isSafari ? false : true,
+    //                    
+                    },
                     from: ()=>{
                         let [translateX, translateY, initialScale] = restoreTransform()
                         return [initialScale,initialScale]
@@ -2938,8 +2994,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             let hasFound = false
             const checked = new Set()
             for(const frame of myState.current.frames){
-                const inExapndedFrame = (frame.x - 5 ) <= px && (frame.y - 5) <= py &&  (frame.x + 5 + (frame.node.attrs.width * frame.scale)) >= px && (frame.y + 5 + (frame.node.attrs.height * frame.scale)) >= py
-                const inFrame = inExapndedFrame && (frame.x <= px && frame.y <= py &&  (frame.x + (frame.node.attrs.width * frame.scale)) >= px && (frame.y + (frame.node.attrs.height * frame.scale)) >= py)
+                const clipped = {
+                    l: frame.x + (frame.node.attrs.clipX ?? 0),
+                    t: frame.y + (frame.node.attrs.clipY ?? 0),
+                }
+                clipped.r = clipped.l + ((frame.node.attrs.clipWidth === undefined ? frame.node.attrs.width : frame.node.attrs.clipWidth) * frame.scale)
+                clipped.b = clipped.t + ((frame.node.attrs.clipHeight === undefined ? frame.node.attrs.height : frame.node.attrs.clipHeight) * frame.scale)
+
+                //const inExapndedFrame = (frame.x - 5 ) <= px && (frame.y - 5) <= py &&  (frame.x + 5 + (frame.node.attrs.width * frame.scale)) >= px && (frame.y + 5 + (frame.node.attrs.height * frame.scale)) >= py
+                //const inFrame = inExapndedFrame && (frame.x <= px && frame.y <= py &&  (frame.x + (frame.node.attrs.width * frame.scale)) >= px && (frame.y + (frame.node.attrs.height * frame.scale)) >= py)
+                const inExapndedFrame = (clipped.l - 5) <= px && (clipped.t - 5) <= py &&  (clipped.r + 5) >= px && (clipped.b + 5) >= py
+                const inFrame = inExapndedFrame && clipped.l <= px && clipped.t <= py &&  clipped.r >= px && clipped.b >= py
                 if( inExapndedFrame ){
                     for(const d of frame.lastNodes){
                         if( !inFrame && !d.attrs.expandedClick){
@@ -3868,6 +3933,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 onMouseMove={processMouseMove}
                 style={{
                     transformOrigin: "0 0",
+                    touchAction: "none",
+                    WebkitUserSelect:"none",
+                    userSelect: "none",
                 }}>
                     <Layer
                         ref={layerRef}
@@ -3890,7 +3958,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         return <div 
             ref={frameRef}
             style={{
-                touchAction: "none"
+                touchAction: "none",
+                WebkitUserSelect:"none",
+                userSelect: "none",
             }}
             onClick={(e)=>{e.stopPropagation()}}
             className='overflow-hidden w-full h-full' 

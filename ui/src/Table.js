@@ -267,7 +267,7 @@ export function Table(props) {
                return dynamic 
             }
         }
-        if( props.primitive.type === "search" && props.primitive.metadata.actingOn){
+        if( props.primitive?.type === "search" && props.primitive.metadata.actingOn){
             const contentParentCategoryId = props.primitive.metadata.actingOn
             dynamic.push(
                 {

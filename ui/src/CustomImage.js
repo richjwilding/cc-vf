@@ -10,57 +10,55 @@ import { getNumberValidator, getBooleanValidator, getStringValidator, getNumberO
 var WGL_QUEUE_LENGTH = 512
 var WGL_QUEUE_TIMEOUT = 50
 
+function aggregateClipbox( current, nodeTransform, accBox){
+  if (current.attrs.clipWidth || current.attrs.clipHeight) {
+    const ancestorTransform = current.getAbsoluteTransform();
+    const ancestorToLocal = nodeTransform.copy().invert().multiply(ancestorTransform);
+    
+    const topLeft = ancestorToLocal.point({
+      x: current.attrs.clipX ?? 0,
+      y: current.attrs.clipY ?? 0
+    });
+    const bottomRight = ancestorToLocal.point({
+      x: (current.attrs.clipX ?? 0) + (current.attrs.clipWidth ?? current.attrs.width),
+      y: (current.attrs.clipY ?? 0) + (current.attrs.clipHeight ?? current.attrs.height)
+    });
+
+    const clipBox = {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y
+    };
+
+    if (!accBox) {
+      accBox = { ...clipBox };
+    } else {
+      const x1 = Math.max(accBox.x, clipBox.x);
+      const y1 = Math.max(accBox.y, clipBox.y);
+      const x2 = Math.min(accBox.x + accBox.width, clipBox.x + clipBox.width);
+      const y2 = Math.min(accBox.y + accBox.height, clipBox.y + clipBox.height);
+
+      accBox = {
+        x: x1,
+        y: y1,
+        width: Math.max(0, x2 - x1),
+        height: Math.max(0, y2 - y1)
+      };
+    }
+  }
+  return accBox
+}
+
 export function calcInheritedBounds( node ){
     let scale = node.scale()?.x ?? 1
     let accBox = null;
-    let offsetX = 0;
-    let offsetY = 0;
     let current = node.parent
     const nodeTransform = node.getAbsoluteTransform();
     while (current) {
-      const localScale = current.scale?.().x ?? 1;
-      const pos = current.position?.() ?? { x: 0, y: 0 };
-
+      const localScale = current.attrs.scaleX ?? 1;
+      accBox = aggregateClipbox( current, nodeTransform, accBox)
       scale *= localScale;
-      offsetX += pos.x * scale;
-      offsetY += pos.y * scale;
-      if (current.attrs.clipWidth || current.attrs.clipHeight) {
-        const ancestorTransform = current.getAbsoluteTransform();
-        const ancestorToLocal = nodeTransform.copy().invert().multiply(ancestorTransform);
-        
-        const topLeft = ancestorToLocal.point({
-          x: current.attrs.clipX ?? 0,
-          y: current.attrs.clipY ?? 0
-        });
-        const bottomRight = ancestorToLocal.point({
-          x: (current.attrs.clipX ?? 0) + (current.attrs.clipWidth ?? current.attrs.width),
-          y: (current.attrs.clipY ?? 0) + (current.attrs.clipHeight ?? current.attrs.height)
-        });
-
-        const clipBox = {
-          x: topLeft.x,
-          y: topLeft.y,
-          width: bottomRight.x - topLeft.x,
-          height: bottomRight.y - topLeft.y
-        };
-
-        if (!accBox) {
-          accBox = { ...clipBox };
-        } else {
-          const x1 = Math.max(accBox.x, clipBox.x);
-          const y1 = Math.max(accBox.y, clipBox.y);
-          const x2 = Math.min(accBox.x + accBox.width, clipBox.x + clipBox.width);
-          const y2 = Math.min(accBox.y + accBox.height, clipBox.y + clipBox.height);
-
-          accBox = {
-            x: x1,
-            y: y1,
-            width: Math.max(0, x2 - x1),
-            height: Math.max(0, y2 - y1)
-          };
-        }
-      }
-
       current = current.parent;
     }
     return {scale, clipBox: accBox}

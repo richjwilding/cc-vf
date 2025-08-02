@@ -1146,8 +1146,8 @@ class CollectionUtils{
                     //const series = config.timeseries.series
                     const series = [{name: "Total", type: "count", cumulative: true}]
                     const timeOriginField = config.timeseries.timeOrigin ?? "posted"
-                    const objectField = config.timeseries.timeField ?? "comment_data"
-                    const timeField = config.timeseries.timeField ?? "created_at"
+                    const objectField = config.timeseries.timeField //?? "comment_data"
+                    const timeField = config.timeseries.timeField ?? timeOriginField//?? "created_at"
                     const resolution = config.timeseries.resolution ?? "day"
                     let startDate = 0, endDate
                     if( config.timeseries.delta){
@@ -1166,7 +1166,7 @@ class CollectionUtils{
                     cell.timeseries ||= []
                     for(const item of cell.items){
                         const startTime = PrimitiveConfig.decodeParameter(item.referenceParameters, timeOriginField) ?? []
-                        const sourceObjects = PrimitiveConfig.decodeParameter(item.referenceParameters, objectField) ?? []
+                        const sourceObjects = objectField ? PrimitiveConfig.decodeParameter(item.referenceParameters, objectField) ?? [] : [item.referenceParameters]
                         const incValue = config.timeseries.delta ? (cell.count === 0 ? 0 : 1 / cell.count) : 1
 
 

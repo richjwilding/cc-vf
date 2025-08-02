@@ -8,7 +8,7 @@ export function getRegisteredDomain(url) {
     return undefined 
   }
 }
-export function extractHashtags(str) {
+export function extractHashtags(str = "") {
   const hashtags = [];
   // Match: any spaces/commas/semicolons before the #tag, then the #tag, then any after
   const cleaned = str.replace(/[\s,;]*#(\w+)[\s,;]*/g, (match, tag) => {

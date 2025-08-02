@@ -140,7 +140,7 @@ function CategoryHeader({itemCategory, items, newItemParent, actionAnchor, ...pr
                     </div>}
                 {activeTab?.discovery && nestedActions.length > 0 && 
                     <><PrimitiveCard.CardMenu 
-                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
+                            title="Actions"
                             custom={nestedActions.map(d=>{
                                 const doAction = async (options)=>{
                                     await MainStore().doPrimitiveAction( 

@@ -227,11 +227,11 @@ function OptionList({options, name, title, type, ...props}){
                         onChange={props.onChange} 
                         placeholder={props.placeholder} 
                         zIndex={props.zIndex} 
-                        small={props.small} 
+                        //small={props.small} 
                         className={props.className ?? ""}
                     >
                         {options.map(d=>(
-                            <ListboxOption value={d.id} small={props.small ? true : false}>
+                            <ListboxOption key={d.id} value={d.id} small={props.small ? true : false}>
                                 {d.icon && <HeroIcon icon={d.icon} className='w-4 h-4'/>}
                                 <ListboxLabel key={d.id}>{d.title}</ListboxLabel>
                                 {props.showCount && <span className="inline-flex items-center rounded-full bg-gray-200 px-1.5 ml-3 text-[0.625rem] font-medium text-gray-600">{d.count ?? 0}</span>}
