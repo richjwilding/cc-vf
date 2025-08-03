@@ -422,6 +422,12 @@ const PrimitiveConfig = {
                 }},
                 social: {title:"Show content",parameters: {showAsCounts:false},
                 config:{
+                    "columns":{
+                        type: "column_count",
+                        title: "Text length",
+                        default: 1,
+                        max: 20
+                    },
                     "text_length":{
                         type: "option_list",
                         title: "Text length",
@@ -510,7 +516,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "titles":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Show title",
                         default: false,
                         options: [
@@ -519,7 +525,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "bubble":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Show as bubbles",
                         default: false,
                         options: [
@@ -528,7 +534,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "show_row_headers":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Row heaaders",
                         default: true,
                         options: [
@@ -537,7 +543,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "show_column_headers":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Column heaaders",
                         default: true,
                         options: [
@@ -546,7 +552,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "show_row_totals":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Row totals",
                         default: false,
                         options: [
@@ -555,7 +561,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "show_column_totals":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Column totals",
                         default: false,
                         options: [
@@ -741,7 +747,7 @@ const PrimitiveConfig = {
                         options: heatMapPalette.map(d=>({id: d.name, title:d.title}))
                     },
                     "show_title":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Show Title",
                         default: true,
                         options: [
@@ -772,7 +778,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "reverse_palette":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Reverse Palette",
                         default: false,
                         options: [
@@ -827,7 +833,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "show_row_headers":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Row heaaders",
                         default: true,
                         options: [
@@ -836,7 +842,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "show_column_headers":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Column heaaders",
                         default: true,
                         options: [
@@ -845,7 +851,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "show_row_totals":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Row totals",
                         default: false,
                         options: [
@@ -854,7 +860,7 @@ const PrimitiveConfig = {
                         ]
                     },
                     "show_column_totals":{
-                        type: "option_list",
+                        type: "boolean",
                         title: "Column totals",
                         default: false,
                         options: [

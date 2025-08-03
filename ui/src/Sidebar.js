@@ -22,6 +22,7 @@ import UIHelper from './UIHelper'
 import { Table } from './Table'
 import { FlowContent } from './sidebar/FlowContent'
 import AgentChat from './AgentChat'
+import clsx from 'clsx'
 
 
 function classNames(...classes) {
@@ -373,7 +374,9 @@ export function Sidebar({primitive, ...props}) {
 
     let sidebarContent
     if( props.forFlow ){
-        sidebarContent = <FlowContent primitives={isMulti ? primitive : [primitive]} {...props} />
+        sidebarContent = <div className='flex p-2 w-full'>
+            <FlowContent primitives={isMulti ? primitive : [primitive]} {...props} />
+            </div>
     }else{
         sidebarContent = <>
         {infoPane && infoPaneContent}
@@ -588,13 +591,15 @@ export function Sidebar({primitive, ...props}) {
             enter="transition-[min-width,width] ease-in-out duration-[200ms]"
             leave="transition-[min-width,width] ease-in-out duration-[200ms] "
             enterFrom="min-w-0 w-0"
-            enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 4xl:min-w-[40rem] 4xl:w-[40rem] 5xl:min-w-[48rem] 5xl:w-[48rem]"
-            leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 4xl:min-w-[40rem] 4xl:w-[40rem] 5xl:min-w-[48rem] 5xl:w-[48rem]"
+            enterTo="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 4xl:min-w-[40rem] 4xl:w-[40rem] 6xl:min-w-[48rem] 6xl:w-[48rem] "
+            leaveFrom="min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 4xl:min-w-[40rem] 4xl:w-[40rem] 6xl:min-w-[48rem] 6xl:w-[48rem] "
             leaveTo="min-w-0 w-0"
-//            className={`${props.overlay ? "absolute right-0 z-50 h-screen": ""} overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl`}>
-            className={`absolute right-0 z-50 h-screen overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl 4xl:relative 4xl:shadow-none`}>
+            className={clsx(
+                `absolute right-0 z-50 h-screen overflow-y-auto border-l border-gray-200 bg-white max-h-screen shadow-2xl `,
+                props.fixed ? `4xl:relative 4xl:shadow-none` : ""
+            )}>
         <div className='min-w-max @container'>
-        <div className='max-w-[24rem] sm:max-w-[28rem] 4xl:min-w-[40rem] 5xl:min-w-[48rem]'>
+        <div className='max-w-[24rem] sm:max-w-[28rem] 4xl:min-w-[40rem] 6xl:min-w-[48rem]'>
             <div className="border-b-gray-100 px-4 py-4 shadow-md  sticky z-50 top-0 bg-white">
                 <div className="flex items-start justify-between space-x-3">
                     {metadata && <div className='flex place-items-center'>

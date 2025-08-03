@@ -139,13 +139,15 @@ function App() {
     }
   }
     
-  const { id } = useParams();
+  //const { id } = useParams();
+  const id = window.location.pathname.match(/^\/item\/([a-fA-F0-9]{24})(?=\/|$)/)?.[1]
   const pagePrimitive = mainstore.primitive(id)
 
   function setWorkspace(workspace){
     mainstore.setActiveWorkspace(workspace)
     forceUpdate()
   }
+  const allowFixedSidebar = !(pagePrimitive?.type == "flow" || pagePrimitive?.type == "flowinstance")
 
   return (<HeroUIProvider>
     {!loaded
@@ -192,7 +194,7 @@ function App() {
                   <Route path="/project/:id" element={<ProjectScreen/>}/>
                 </Route>
             </Routes>
-          <Sidebar open={open} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
+          <Sidebar open={open} fixed={allowFixedSidebar} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           {showDeletePrompt && <ConfirmationPopup title={showDeletePrompt.title ?? "Confirm deletion"} message={showDeletePrompt.prompt} confirm={showDeletePrompt.handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
           {showPicker && <PrimitivePicker {...showPicker} setOpen={setShowPicker} />}
           {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}

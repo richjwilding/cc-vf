@@ -1486,7 +1486,8 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
           ref={slateRef}
             className={clsx([
               props.float ? "focus:outline-none" : "border",
-              'max-h-[inherit] overflow-y-scroll p-1 w-full'
+              'max-h-[inherit] overflow-y-scroll p-1 w-full',
+              props.className
             ])}
           renderElement={renderElement}
           renderLeaf={renderLeaf} 
@@ -1503,7 +1504,8 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
           readOnly={props.readOnly}
             className={clsx([
               props.float ? "focus:outline-none" : "border",
-              'max-h-[inherit] overflow-y-scroll p-1 w-full'
+              'max-h-[inherit] overflow-y-scroll p-1 w-full',
+              props.className
             ])}
           renderElement={renderElement}
           renderLeaf={renderLeaf} 

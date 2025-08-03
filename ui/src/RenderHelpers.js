@@ -6137,15 +6137,15 @@ function renderSubCategoryChart( title, data, options = {}){
             }else if( selectedPalette.category_colors ){
                 colors = selectedPalette.category_colors 
             }else{
-                if( options.reversePalette === false){
-                    colors = [...selectedPalette.colors]
-                    if( colors.length > data.length){
-                        colors = colors.slice( -data.length)
-                    }
-                }else{
-                    colors = [...selectedPalette.colors].reverse()
-                }
+                colors = [...selectedPalette.colors]
             }
+        }
+        if( options.reversePalette === false){
+            if( colors.length > data.length){
+                colors = colors.slice( -data.length)
+            }
+        }else{
+            colors = [...colors].reverse()
         }
     }
     let showLegend = !options.hideLegend

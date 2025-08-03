@@ -9,6 +9,7 @@ import SmallButton from "./SmallButton";
 import MarkdownEditor from "./MarkdownEditor";
 import { flattenStructuredResponse } from "./PrimitiveConfig";
 import { modiftyEntries } from "./SharedTransforms";
+import clsx from "clsx";
 
 
 
@@ -144,7 +145,7 @@ export default function SummaryCard({primitive, ...props}){
         }
     }
 
-    return  <div className="w-full bg-white flex flex-col p-2">
+    return  <div className={clsx(["w-full bg-white flex flex-col p-2", props.className])}>
                 {props.title !== false && <div className="flex justify-between place-items-center">
                     <PrimitiveCard variant={false} primitive={primitive} compact showEdit disableHover editing className='w-full !bg-transparent'/>
                 </div>}

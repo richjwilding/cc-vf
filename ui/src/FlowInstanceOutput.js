@@ -100,6 +100,14 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
     if( !primitive ){
         return <></>
     }
+
+    function selectItems(...args){
+        if( props.select){
+            props.select(...args)
+        }else{
+            mainstore.sidebarSelect(...args)
+        }
+    }
     
     //return  <div className="flex h-full w-full relative border rounded-lg border-gray-200 overflow-hidden mb-2 bg-white">
     return  <div className="@container flex h-full w-full relative overflow-hidden bg-white">
@@ -135,7 +143,7 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                                         const data = stateData?.data
                                         if(data){
                                             const list = uniquePrimitives( data.cells.filter(d=>d.cIdx == colIdx).flatMap(d=>d.items) )
-                                            mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list})
+                                            selectItems(stateData.primitive, {forFlow: true, asList: true, list})
                                         }
                                     }
 
@@ -150,7 +158,7 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                                         const data = stateData?.data
                                         if(data){
                                             const list = uniquePrimitives( data.cells.filter(d=>d.rIdx == rowIdx).flatMap(d=>d.items) )
-                                            mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list})
+                                            selectItems(stateData.primitive, {forFlow: true, asList: true, list})
                                         }
                                     }
 
@@ -160,7 +168,7 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                                 //setActiveBoard(id)
                                 const prim = mainstore.primitive(id)
                                 if( prim ){
-                                    mainstore.sidebarSelect(prim, {forFlow: true, asList: prim.type === "view"})
+                                    selectItems(prim, {forFlow: true, asList: prim.type === "view"})
                                 }
                             },
                             primitive:(id, pageId, data, kG)=>{
@@ -178,9 +186,9 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                                 if( stateData?.primitive && stateData.config === "plain_object"){
                                     const ids = stateData.object?.ids ? stateData.object.ids.filter(d=>d) : undefined
                                     if( ids?.length > 0){
-                                        mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list: ids.map(d=>mainstore.primitive(d))})
+                                        selectItems(stateData.primitive, {forFlow: true, asList: true, list: ids.map(d=>mainstore.primitive(d))})
                                     }else if( stateData.object?.type === "text" || stateData.object?.type === "structured_text" ){
-                                        mainstore.sidebarSelect(stateData.primitive, {forFlow: true, plainData: stateData.object?.text.join("\n")})
+                                        selectItems(stateData.primitive, {forFlow: true, plainData: stateData.object?.text.join("\n")})
                                     }
                                 }else{
                                     let data = stateData.list ?? stateData.primitiveList
@@ -200,13 +208,13 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                                         if( findSelection ){
                                             data = data.filter(d=>id.includes(d.primitive?.id ?? d.id))
                                             if( data.length === id.length){
-                                                mainstore.sidebarSelect(id, {forFlow: true, asList: true, list: [mainstore.primitive(id)]})
+                                                selectItems(id, {forFlow: true, asList: true, list: [mainstore.primitive(id)]})
                                                 return
                                             }
                                         }
-                                        mainstore.sidebarSelect(stateData.primitive, {forFlow: true, asList: true, list: data, axisData})
+                                        selectItems(stateData.primitive, {forFlow: true, asList: true, list: data, axisData})
                                     }else{
-                                        mainstore.sidebarSelect(id, {forFlow: true})
+                                        selectItems(id, {forFlow: true})
                                     }
                                 }
                             },
@@ -258,8 +266,12 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
                                                 PrimitiveConfig.encodeExploreFilter( sourceState.axis.row, sourceState.rows[rIdx] ),
                                             ].filter(d=>d)                                    
                                         }
-                                        console.log(filters)
-                                        mainstore.sidebarSelect(sourcePrimitive, {forFlow: true, asList: true, filters})
+                                        if( !sourcePrimitive && sourceState.primitiveList){
+                                            selectItems(sourceState.primitive, {list: sourceState.primitiveList, forFlow: true, asList: true, filters})
+
+                                        }else{
+                                            selectItems(sourcePrimitive, {forFlow: true, asList: true, filters})
+                                        }
                                     }
                                 }
                             },

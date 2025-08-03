@@ -23,9 +23,11 @@ import { CheckboxField, Checkbox as LegacyCheckbox } from "./@components/checkbo
 import { AdjustmentsVerticalIcon, BackwardIcon, CloudArrowDownIcon, PlayCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
-import { Button, Input, Select, SelectItem } from "@heroui/react"
+import { Button, Input, NumberInput, Select, SelectItem, Switch } from "@heroui/react"
 import {Checkbox} from "@heroui/react";
 import InputWithSync from "./InputWithSync"
+import { Icon } from "@iconify/react/dist/iconify.js"
+import { DebouncedNumberInput } from "./@components/DebouncedNumberInput"
 
 // Add the icons to the library
 
@@ -712,9 +714,9 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
         }
 
         function viewConfigPanel(){
-            return  <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
+            return  <div className="border rounded-md bg-gray-50 font-medium text-gray-500 px-3 p-2">
                         <UIHelper.Panel title="View configuration" icon={<FontAwesomeIcon icon={["fal","tags"]} />}>
-                            <div className="p-2 text-sm space-y-2">
+                            <div className="p-2 text-sm space-y-2 font-normal">
                                 <UIHelper.OptionList 
                                     title="View Mode" 
                                     options={viewConfigs} 
@@ -722,9 +724,33 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                     value={viewConfigs[activeView]?.id} 
                                     zIndex={50}
                                     />
-                                <div className='w-full text-lg overflow-y-scroll sapce-y-2 max-h-[50vh]'>
+                                <div className='w-full overflow-y-scroll space-y-3 max-h-[50vh] flex flex-col'>
                                     {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
-                                    {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d=><UIHelper {...viewConfig.config[d]} value={frame.renderConfig?.[d]} zIndex={50} onChange={async (v)=>{await frame.setField(`renderConfig.${d}`, v); updateFrame()}}/>)}
+                                    {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d=>{
+                                        const currentValue = frame.renderConfig?.hasOwnProperty(d) ? frame.renderConfig[d] :  viewConfig.config[d].default
+                                        const onValueChange = async (v)=>{await frame.setField(`renderConfig.${d}`, v); updateFrame()}
+                                        switch( viewConfig.config[d].type ){
+                                            case "option_list":
+                                                return <UIHelper key={d} {...viewConfig.config[d]} value={frame.renderConfig?.[d]} zIndex={50} onChange={onValueChange}/>
+                                            case "boolean":
+                                                return <Switch size="sm" key={d} isSelected={currentValue} onValueChange={onValueChange}>{viewConfig.config[d].title}</Switch>
+                                            case "column_count":
+                                                return <DebouncedNumberInput
+                                                    label="Columns"
+                                                    variant="bordered" 
+                                                    labelPlacement="outside"
+                                                    minValue={viewConfig.config[d].min ?? 1}
+                                                    maxValue={viewConfig.config[d].max ?? 10}
+                                                    initialValue={currentValue}
+                                                    onValueChange={onValueChange}
+                                                    startContent={
+                                                        <div className="pointer-events-none flex items-center">
+                                                            <Icon icon='material-symbols:view-column-outline' className="w-6 h-6"/>
+                                                        </div>
+                                                    }
+                                                />
+                                        }
+                                    })}
                                 </div>
                             </div>
                         </UIHelper.Panel>

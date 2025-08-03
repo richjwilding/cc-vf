@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PrimitiveCard } from '../PrimitiveCard';
 import MainStore, { uniquePrimitives } from '../MainStore';
 import { Table } from '../Table';
@@ -39,6 +39,14 @@ export function FlowContent({ primitives, axisData, ...props }) {
     
     let content = []
     let first
+    
+    useEffect(()=>{
+      if( activeTab === "execution" && props.showExecution === false){
+        setActiveTab("output")
+      }
+
+    },[props.showExecution])
+    
     for( const primitive of primitives){
       const srcPrimitive = primitive.configParent ?? primitive
       const outputSet = Object.entries(primitive.outputs ?? {})
@@ -57,7 +65,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
         empty = false
       }else if(props.plainData){
         empty = false
-        thisContent = <MarkdownEditor initialMarkdown = {props.plainData}/>
+        thisContent = <MarkdownEditor initialMarkdown = {props.plainData} className="p-0"/>
       }else{
         if( outputSet.length > 0){
           for(const [name, output] of outputSet){
@@ -90,7 +98,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
       }else if( tableData ){
         if(tableData.length === 1){
           thisContent = <>
-            <PrimitiveCard variant={true} primitive={tableData[0]} title={false}/>
+            <PrimitiveCard variant={true} primitive={tableData[0]} title={false}  className="!p-0"/>
           </>
 
         }else{
@@ -270,21 +278,22 @@ export function FlowContent({ primitives, axisData, ...props }) {
   }
         
   return (
-    <div className="pb-2 pl-4 pr-4 pt-4" key={primitives.map(d=>d.id).join("-")}>
+    <div className="py-2 w-full flex flex-col" key={primitives.map(d=>d.id).join("-")}>
       <Tabs fullWidth variant="solid" selectedKey={activeTab} onSelectionChange={((id)=>setActiveTab(id))}>
-        <Tab key="execution"
+        {props.showExecution !== false && <Tab key="execution"
           title={<div className="flex items-center space-x-2">
             {errorIcon}
             <span>Execution</span>
           </div>}>
-        </Tab>
+        </Tab>}
         <Tab key="output" title="Outputs"/>)
         <Tab key="interact" title="Interact"/>)
       </Tabs>
 
-      <div className='my-5 flex flex-col'>
+      <div className='my-2 flex flex-col'>
           {activeTab === "execution" && executionPanel()}
           {activeTab === "output" &&  <Accordion
+                className="p-0"
                 selectionMode="multiple"   // allow more than one panel open
                 selectionBehavior="toggle"  // clicking an open header closes it
                 showDivider={false}
@@ -292,7 +301,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
               >{content}</Accordion>}
       </div>
       
-      {true && <button
+      {activeTab === "execution" && <button
         type="button"
         className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
         onClick={() => {

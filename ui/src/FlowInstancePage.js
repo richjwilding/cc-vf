@@ -20,6 +20,7 @@ import WorkflowStructurePreview from "./WorkflowStructurePreview";
 import PrimitiveConfig from "./PrimitiveConfig";
 import { Icon } from "@iconify/react/dist/iconify.js";
 import GanttChart from "./GanttChart";
+import { FlowContent } from "./sidebar/FlowContent";
 
 
 export default function FlowInstancePage({primitive, ...props}){
@@ -33,14 +34,25 @@ export default function FlowInstancePage({primitive, ...props}){
     const [animateState, setAnimateState] = useState(true);
     const isEmbedded = query.get("embed")
     
+    const tabsMain = [
+        { title: 'Flow', id: "flow"},
+        { title: 'Inspector', id: "inspector" },
+    ].filter(d=>d)
     const tabs = [
         primitive?.processing?.run_flow_instance ? undefined :{ title: 'Assistant', id: "ai" },
         { title: 'Inputs', id: "input" },
         { title: 'Progress', id: "progress"},
         { title: 'Timeline', id: "timeline"},
- //       primitive?.processing?.run_flow_instance ? { title: 'Results', id: "results" } : undefined
     ].filter(d=>d)
     const [activeTab, setActiveTab ] = useState( tabs[0].id )
+    const [activeMainTab, setActiveMainTab ] = useState( tabsMain[0].id )
+    const [inspectorFocus, _setInspectorFocus ] = useState(  )
+
+    function setInspectorFocus(...args){
+        _setInspectorFocus(...args)
+        setActiveMainTab( "inspector")
+
+    }
 
     if (!primitive && id) {
         primitive = MainStore().primitive(id)
@@ -284,19 +296,39 @@ export default function FlowInstancePage({primitive, ...props}){
             "flex w-full relative flex-1 min-h-0 bg-gray-50",
             showOutput ? "p-6 space-x-6" : ""
         ])}>
+                {showOutput && !isForNewInstance && <div className="w-full h-full flex ">
+                    <div className="w-full h-full flex bg-[#fefefe] overflow-hidden shadow-lg rounded-2xl relative">
+                        <FlowInstanceOutput
+                            ref={flowInfoRef} 
+                            primitive={primitive} 
+                            inputPrimitives={inputs} 
+                            steps={steps} 
+                            select={(p_or_id, options)=>{
+                                const primitives = p_or_id ? [p_or_id].flat().map(d=>typeof(d) === "object" ? d : MainStore().primitive(d)) : []
+                                console.log(primitives)
+                                setInspectorFocus({primitives, ...options, showExecution: false})
+                            }}
+                            hideProgressAt="@4xl"
+                            />
+                        <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex space-x-1 place-items-center p-1'>
+                            <Button isIconOnly variant="light" onClick={()=>setShowOutput(false)}><XMarkIcon className="text-slate-500 w-5 h-5"/></Button>
+                            <Button isIconOnly variant="light" onClick={()=>flowInfoRef?.current?.downloadAll()}><DocumentArrowDownIcon className="text-slate-500 w-5 h-5"/></Button>
+                        </div>
+                    </div>
+                </div>}
                 <div className={clsx([
                     "min-w-[30em] font-['Poppins'] @container flex flex-col min-h-0 relative overflow-hidden",
-                    showOutput ? "w-[25vw] max-w-2xl p-6 shadow-lg rounded-2xl bg-white" : "w-full mx-auto max-w-6xl px-9 bg-white"
+                    //showOutput ? "w-[25vw] max-w-2xl p-6 shadow-lg rounded-2xl bg-white" : "w-full mx-auto max-w-6xl px-9 bg-white"
+                    showOutput ? "min-w-[24rem] sm:min-w-[28rem] w-[24rem] sm:w-[28rem] 3xl:min-w-[32rem] 5xl:min-w-[40rem] 5xl:w-[40rem] 6xl:min-w-[48rem] 6xl:w-[48rem] py-4 px-6 shadow-lg rounded-2xl bg-white" : "w-full mx-auto max-w-6xl px-9 bg-white"
                 ])}>
-                    <div className={clsx([
+                    {!showOutput && <div className={clsx([
                         "flex relative mb-4",                    
                         showOutput ? "min-h-32 -mx-6 -mt-6 mb-0 overflow-hidden rounded-t-2xl" : "min-h-32 [@media(min-height:1024px)]:min-h-64 -mx-9 -mt-6 shadow-md ",
                     ])}>
                         {showImage && <VFImage 
                                             src={`/api/image/${targetFlow.id}`} 
                                             className={clsx([
-                                                'w-full object-cover',
-                                                showOutput ? "max-h-32" : "max-h-32 [@media(min-height:1024px)]:max-h-64"
+                                                "w-full object-cover max-h-32 [@media(min-height:1024px)]:max-h-64"
                                             ])}
                                             />}
                         {!showImage && <div className={clsx([
@@ -312,9 +344,18 @@ export default function FlowInstancePage({primitive, ...props}){
                             <UIHelper.PrimitiveField primitive={targetFlow} field="title" major submitOnEnter={true} update={update} editable={false}/>
                             <PrimitiveCard.Title primitive={targetFlow} major={true}/>
                         </div>
-                    </div>
-                        {showWorking && <Progress color="secondary" isIndeterminate aria-label="Working..." size="sm" className="top-0 absolute left-0 h-2 " />}
-                        <div className="flex place-items-center py-3 justify-center relative ">
+                    </div>}
+                    {showWorking && <Progress color="secondary" isIndeterminate aria-label="Working..." size="sm" className="top-0 absolute left-0 h-2 " />}
+                    {showOutput && <div className="flex place-items-center py-2 justify-center relative ">
+                        <Tabs variant="underlined" fullWidth selectedKey={activeMainTab} onSelectionChange={((id)=>setActiveMainTab(id))}>
+                            {tabsMain.map(d=><Tab key={d.id} title={d.title}/>)}
+                        </Tabs>
+                    </div>}
+                    {showOutput && activeMainTab === "inspector" && <div className="flex-1 min-h-0 overflow-y-scroll">
+                        { inspectorFocus &&<FlowContent {...inspectorFocus} />}
+                    </div>}
+                    {(!showOutput || activeMainTab === "flow") && <div className="flex-1 min-h-0">
+                        <div className="flex place-items-center py-2 justify-center relative ">
                             <Tabs variant="solid" selectedKey={activeTab} onSelectionChange={((id)=>setActiveTab(id))}>
                                 {tabs.map(d=><Tab key={d.id} title={d.title}/>)}
                             </Tabs>
@@ -324,7 +365,6 @@ export default function FlowInstancePage({primitive, ...props}){
                                 
                             </div>
                         </div>
-                    <div className="flex-1 min-h-0">
                         {chatState && activeTab === "ai" && <div className={clsx([
                                                                 animateState ? "animate-border bg-[length:400%_400%] bg-gradient-to-r from-green-500 to-blue-500 via-purple-500 " : "",
                                                                 "border absolute flex-col left-[calc(100vh_-_30rem)] left-[105%] top-[7rem] rounded-[20px] shadow-lg text-xs w-[28rem] z-50 p-[1px]",
@@ -411,6 +451,8 @@ export default function FlowInstancePage({primitive, ...props}){
                                     onClick:()=>{
                                         if( d.ids?.length > 0 ){
                                             MainStore().sidebarSelect(d.ids, {forFlow: true, flowInstance: primitive})
+                                         //const primitives = d.ids.map(d=>MainStore().primitive(d))
+                                         //setInspectorFocus({primitives, flowInstance: primitive})
                                         }
                                     }
                                 }))}
@@ -423,17 +465,7 @@ export default function FlowInstancePage({primitive, ...props}){
                             <GanttChart items={timelineData} width={1000} />
                             </div>
                         }
-                    </div>
+                    </div>}
                 </div>
-                {showOutput && !isForNewInstance && <div className="w-full h-full flex ">
-                    <div className="w-full h-full flex bg-[#fefefe] overflow-hidden shadow-lg rounded-2xl relative">
-                        <FlowInstanceOutput ref={flowInfoRef} primitive={primitive} inputPrimitives={inputs} steps={steps} hideProgressAt="@4xl"/>
-                        <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute left-4 top-4 z-50 flex space-x-1 place-items-center p-1'>
-                            <Button isIconOnly variant="light" onClick={()=>setShowOutput(false)}><XMarkIcon className="text-slate-500 w-5 h-5"/></Button>
-                            <Button isIconOnly variant="light" onClick={()=>setShowOutput(false)}><ChevronDoubleLeftIcon className="text-slate-500 w-5 h-5"/></Button>
-                            <Button isIconOnly variant="light" onClick={()=>flowInfoRef?.current?.downloadAll()}><DocumentArrowDownIcon className="text-slate-500 w-5 h-5"/></Button>
-                        </div>
-                    </div>
-                </div>}
     </div>
 }
