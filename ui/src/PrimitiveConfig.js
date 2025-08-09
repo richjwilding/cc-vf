@@ -66,6 +66,24 @@ const heatMapPalette = [
             "#f2f2f2"
         ]
     },{
+        title: "Sentiment 5",
+        name: "sentiment_5",
+        colors:[
+            "#bd0026",
+            "#fc8c3c",
+            "#fed976",
+            "#00bc7d",
+            "#007a55"
+        ],text_colors:[
+            "#f2f2f2",
+            "#f2f2f2",
+            "#222",
+            "#222",
+            "#222",
+            "#f2f2f2",
+            "#f2f2f2"
+        ]
+    },{
         title: "Sentiment 7",
         name: "sentiment_7",
         colors:[
@@ -407,7 +425,7 @@ const PrimitiveConfig = {
     },
     heatMapPalette:heatMapPalette,
     renderConfigs:{
-            default: {title:"Show items",parameters: {showAsCounts:false},
+            default: {title:"Show items",id:0, parameters: {showAsCounts:false},
                 config:{
                     "summary":{
                         type: "option_list",
@@ -420,7 +438,7 @@ const PrimitiveConfig = {
                     }
 
                 }},
-                social: {title:"Show content",parameters: {showAsCounts:false},
+                social: {title:"Show content",id:13,parameters: {showAsCounts:false},
                 config:{
                     "columns":{
                         type: "column_count",

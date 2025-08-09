@@ -2114,6 +2114,7 @@ function baseGridRender( options, config){
                 imageCallback: options.imageCallback,
                 utils: options.utils,
                 data: options.data,
+                sectionConfig: config.sectionConfig ?? {},
                 ...options.extras
             })
         }else{
@@ -2887,9 +2888,10 @@ registerRenderer( {type: "categoryId", id: 82, configs: "default"}, function ren
 })
 registerRenderer( {type: "categoryId", id: 109, configs: "set_summary_section"}, function renderFunc(primitive, options = {}){
     const config = {alignParts: "section", itemWidth: 600, minColumns: 1, spacing: options.items?.length > 1 ? [40,40] : [0,0], alignHeight: true, itemPadding: [10,10,10,10], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
-    return baseGridRender(options, config)
+    const sectionConfig = primitive.getConfig.sections ?? {}
+    return baseGridRender(options, {...config, sectionConfig})
 })
-registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, function renderFunc(primitive, options = {}){
+registerRenderer( {type: "categoryId", id: 109, configs: "___summary_section"}, function renderFunc(primitive, options = {}){
 
     const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1600, maxHeight: 3000, padding: [10,10,10,10], ...options}
     let toggleWidth = 0
@@ -3276,6 +3278,506 @@ registerRenderer( {type: "categoryId", id: 109, configs: "summary_section"}, fun
     r.height( totalheight )
     return g
 })
+registerRenderer({ type: "categoryId", id: 109, configs: "summary_section" }, function renderFunc(primitive, options = {}) {
+  // ---------- base config ----------
+  const config = {
+    field: "summary",
+    showId: true,
+    idSize: 14,
+    fontSize: 16,
+    width: 1600,
+    maxHeight: 3000,
+    padding: [10, 10, 10, 10],
+    ...options
+  };
+
+  if (config.minWidth) config.width = Math.max(config.width ?? 0, config.minWidth);
+
+  const idHeight = config.showId ? 20 : 0;
+  const availableWidth = config.width - config.padding[1] - config.padding[3];
+  const availableHeight = config.maxHeight != null
+    ? config.maxHeight - config.padding[0] - config.padding[2] - idHeight
+    : undefined;
+
+  const ox = options.x ?? 0;
+  const oy = options.y ?? 0;
+
+  const g = new Konva.Group({
+    id: primitive.id,
+    x: ox,
+    y: oy,
+    width: config.width,
+    onClick: options.onClick,
+    name: "inf_track primitive"
+  });
+  const r = new Konva.Rect({
+    x: 0,
+    y: 0,
+    width: config.width,
+    cornerRadius: 10,
+    fill: "white",
+    name: "item_background"
+  });
+  g.add(r);
+
+  // ===========================================================
+  // 1) CLASSIFICATION + RENDERER REGISTRY
+  // ===========================================================
+
+  const L = s => (s || "").toLowerCase().trim();
+
+  // fuzzy-ish matcher using compareTwoStrings if present
+  const scoreMatch = (heading, targets, opts = {}) => {
+    const h = L(heading || "");
+    if (!h) return 0;
+    const list = [targets].flat().map(L);
+
+    let best = 0;
+    for (const t of list) {
+      if (!t) continue;
+      if (h === t) return 1;                         // exact
+      if (h.includes(t) || t.includes(h)) best = Math.max(best, 0.85); // contains
+      if (typeof compareTwoStrings === "function") {
+        best = Math.max(best, compareTwoStrings(h, t));
+      }
+    }
+    // optional regex boosts
+    if (opts.regex && opts.regex.test(h)) best = Math.max(best, 0.9);
+    return best;
+  };
+
+  // Render helpers return the height they consume (and mutate y)
+  const mkText = (attrs) => new CustomText({
+    fontFamily: "Poppins",
+    lineHeight: 1.3,
+    fill: "#334155",
+    wrap: true,
+    withMarkdown: true,
+    ...attrs
+  });
+
+  // ----------------------------------------------------------------
+  // Renderers: add more by pushing into RENDERERS
+  // Each renderer: {name, match(heading,node)=>score, render(ctx)}
+  // ctx: {group, x, y, config, availableWidth, clampHeight, options, primitive}
+  // node: {heading, content, subsections?}
+  // render MUST return {heightConsumed, skipTraversal?: boolean}
+  // ----------------------------------------------------------------
+  const RENDERERS = [
+    {
+      name: "segmentTitle",
+      match: (h, node, ctx) => (options?.data?.segment_title && primitive.filterDescription) ? 0.98 : 0,
+      render: (ctx, node) => {
+        const text = `**${primitive.filterDescription}**`;
+        const t = mkText({
+            x: ctx.config.padding[3],
+            y: ctx.y,
+            fontSize: ctx.config.fontSize * 1.5,
+            fontStyle: ctx.config.fontStyle,
+            lineHeight: 1.1,
+            text,
+            width: ctx.availableWidth
+        });
+        ctx.group.add(t);
+        return { heightConsumed: t.height() + ctx.spaceY };
+      }
+    },
+    {
+      name: "title",
+      match: (h) => scoreMatch(h, ["title", "analysis title", "summary title"]),
+      render: (ctx, node) => {
+        const titleText = (node.content || node.heading || "")
+          .replace(/^title\s*[-:]\s*/i, "");
+        const t = mkText({
+          x: ctx.config.padding[3],
+          y: ctx.y,
+          fontSize: ctx.config.fontSize * 1.5,
+            fontStyle: ctx.config.fontStyle,
+          lineHeight: 1.3,
+          text: `**${titleText}**`,
+          width: ctx.availableWidth,
+          name: "section section_title"
+        });
+        ctx.group.add(t);
+        return { heightConsumed: t.height() + ctx.spaceY };
+      }
+    },
+    {
+      name: "summary",
+      match: (h) => scoreMatch(h, ["description", "summary", "overview"]),
+      render: (ctx, node) => {
+        const t = mkText({
+          x: ctx.config.padding[3],
+          y: ctx.y,
+          fontSize: ctx.config.fontSize * 1.2,
+            fontStyle: ctx.config.fontStyle,
+          text: node.content ?? "",
+          width: ctx.availableWidth,
+          name: "section section_summary"
+        });
+        ctx.group.add(t);
+        return { heightConsumed: t.height() + ctx.spaceY };
+      }
+    },
+    {
+      name: "detailsBullets",
+      match: (h) => scoreMatch(h, ["recurring topics", "themes", "topics", "capabilities"]),
+      render: (ctx, node) => {
+        let content;
+        if (typeof node.content === "string") {
+          content = node.content.split(/\n/);
+        } else if (Array.isArray(node.content)) {
+          content = node.content;
+        } else {
+          content = node.subsections?.map(d => d.content);
+        }
+        content = (content || [])
+          .filter(d => typeof d === "string")
+          .map(d => d.replace(/^(\s*-?\s*)([^:]+)[:\]]/, (m, p1, p2) => {
+            if (p2.startsWith("[")) p2 = p2.slice(1);
+            if (p2.endsWith("]")) p2 = p2.slice(0, -1);
+            p2 = p2.trim();
+            if (!p2.startsWith("**")) p2 = "**" + p2;
+            if (!p2.endsWith("**")) p2 = p2 + "**";
+            return p2;
+          }))
+          .join("\n");
+
+        const t = mkText({
+          x: ctx.config.padding[3],
+          y: ctx.y,
+          fontSize: ctx.config.fontSize,
+            fontStyle: ctx.config.fontStyle,
+          text: content,
+          width: ctx.availableWidth,
+          name: "section section_details"
+        });
+        ctx.group.add(t);
+        return { heightConsumed: t.height() + ctx.spaceY };
+      }
+    },
+    {
+      name: "quotes",
+      match: (h) => scoreMatch(h, ["quotes", "verbatim quotes", "examples", "evidence quotes", "customers"]),
+      render: (ctx, node) => {
+        let content;
+        if (typeof node.content === "string") content = node.content;
+        else if (Array.isArray(node.content)) content = node.content.join("\n");
+        else content = node.subsections?.map(d => d.content).join("\n");
+
+        const regex = /\(?[Ff]ragments?:? ?(?:\d+(?:, ?\d+)*|\d+(?: and \d+)*|\d+)\)?/g;
+        content = (content || "").replace(regex, "").replace(/[ \t]{2,}/g, " ").trim();
+        content = (content || "")
+                .split("\n")
+                .map(line => {
+                    // Match any leading indent/markup (spaces, tabs, bullets, numbers, etc.)
+                    const match = line.match(/^(\s*(?:[-*]|\d+\.)?\s*)(.*)$/);
+                    if (!match) return `"${line}"`; // no special leading text
+
+                    const [, prefix, text] = match;
+                    //areturn `${prefix}"${text}"`;
+                    return `"${text}"`;
+                })
+                .join("\n");
+        const t = mkText({
+          x: ctx.config.padding[3] * 4,
+          y: ctx.y,
+          fontSize: ctx.config.fontSize,
+            fontStyle: ctx.config.fontStyle ?? "italic",
+          lineHeight: 1.1,
+          sectionSpacing: 2.2,
+          leftBorder: '#bbb',
+          text: content,
+          width: ctx.availableWidth - (ctx.config.padding[3] * 8),
+          name: "section section_quotes"
+        });
+        ctx.group.add(t);
+        return { heightConsumed: t.height() + ctx.spaceY };
+      }
+    },
+    {
+      name: "sentiment",
+      match: (h) => scoreMatch(h, ["overall sentiment", "sentiment"]),
+      render: (ctx, node) => {
+        let ly = 0;
+        const g2 = new Konva.Group({
+          x: ctx.config.padding[3],
+          y: ctx.y,
+          name: "section section_sentiment"
+        });
+        ctx.group.add(g2);
+
+        const headingText = mkText({
+          x: 0, y: 0,
+          fontSize: ctx.config.fontSize,
+          text: "Sentiment",
+          width: ctx.availableWidth
+        });
+        g2.add(headingText);
+        ly += headingText.height() + ctx.spaceY / 2;
+
+        const steps = ["overwhelmingly negative", "mostly negative", ["neutral", "mixed"], "mostly positive", "overwhelmingly positive"];
+        const stepText = ["Overwhelmingly Negative", "Mostly Negative", "Neutral / Mixed", "Mostly Positive", "Overwhelmingly Positive"];
+        const colors = ["#eeb9b7", "#f8d1a0", "#bcddfb", "#a2ccfb", "#cbe6bc"];
+        const sentimentText = node.content;
+        const score = steps.findIndex(d => typeof d === "string" ? d === sentimentText : d.includes(sentimentText));
+        const stepWidth = ctx.availableWidth / steps.length;
+        const h = ctx.config.fontSize * 1.25;
+
+        steps.forEach((d, i) => {
+          g2.add(new Konva.Rect({
+            x: stepWidth * i, y: ly,
+            width: stepWidth, height: h,
+            stroke: "#c2c2c2", fill: colors[i]
+          }));
+        });
+        ly += h + (score > -1 ? ctx.spaceY : ctx.spaceY * 0.5);
+
+        const label = mkText({
+          x: 0, y: ly,
+          fontSize: ctx.config.fontSize,
+          text: (score === -1) ? (sentimentText || "") : stepText[score],
+          width: "auto",
+          align: "center"
+        });
+        if (score > -1) {
+          const midX = ((score + 0.5) * stepWidth);
+          g2.add(label);
+          label.x(midX - label.width() / 2);
+          g2.add(new Konva.Line({
+            x: midX,
+            y: ly - ctx.config.fontSize * 1.5,
+            points: [0, 0, ctx.config.fontSize / 2, ctx.config.fontSize, -ctx.config.fontSize / 2, ctx.config.fontSize],
+            closed: true,
+            strokeWidth: 0,
+            fill: "#666"
+          }));
+        } else {
+          g2.add(label);
+        }
+
+        ly += label.height() + ctx.spaceY / 2;
+        return { heightConsumed: ly };
+      }
+    },
+    {
+      name: "organizations",
+      match: (h) => scoreMatch(h, ["companies", "organizations"]),
+      render: (ctx, node) => {
+        // layout logos + captions
+        const names = Array.isArray(node.content)
+          ? node.content
+          : String(node.content || "")
+              .split(/[,\n]/)
+              .map(d => d.replace(/^\s*-\s+/, "").trim())
+              .filter(Boolean);
+
+        const candidates = options?.data?.company_candidates ?? [];
+        const companySizing = 96;
+        let x = ctx.config.padding[3];
+        let consumed = ctx.spaceY * 2; // top spacing
+
+        const pickPrimitive = (name) => {
+          const variants = name.split(" ").map((_, i, a) => a.slice(0, i + 1).join(" ")).reverse();
+          for (const v of variants) {
+            let p = candidates.find(d => d.title.toLowerCase() === v.toLowerCase());
+            if (!p && typeof compareTwoStrings === "function") {
+              const scored = candidates
+                .map(d => [d, compareTwoStrings(d.title, v)])
+                .filter(d => d[1] > 0.75)
+                .sort((a, b) => b[1] - a[1]);
+              p = scored[0]?.[0];
+            }
+            if (p) return p;
+          }
+          return undefined;
+        };
+
+        const primitives = names.map(pickPrimitive).filter(Boolean).slice(0, 5);
+
+        for (const d of primitives) {
+          const logo = imageHelper(`/api/image/${d.id}` + (d.imageCount ? `?${d.imageCount}` : ""), {
+            x, y: ctx.y + consumed,
+            width: companySizing,
+            height: companySizing / 2,
+            center: true,
+            imageCallback: options.imageCallback,
+            placeholder: options.placeholder !== false,
+            maxScale: 1,
+            scaleRatio: 1
+          });
+          ctx.group.add(logo);
+          const t = mkText({
+            x,
+            y: ctx.y + consumed + (companySizing / 2) + ctx.spaceY,
+            fontSize: ctx.config.fontSize * 0.6,
+            text: d.title,
+            align: "center",
+            width: companySizing
+          });
+          ctx.group.add(t);
+          x += companySizing + ctx.config.padding[3];
+        }
+
+        // total height chunk
+        return { heightConsumed: 48 + ctx.spaceY + (ctx.config.fontSize * 0.6) + (ctx.spaceY * 3) };
+      }
+    },
+    {
+      name: "paragraphFallback",
+      match: (h, node) => {
+        // default for anything with content but no strong match
+        const has = (node?.content && String(node.content).trim()) ? 0.65 : 0;
+        return has;
+      },
+      render: (ctx, node) => {
+        const t = mkText({
+          x: ctx.config.padding[3],
+          y: ctx.y,
+          fontSize: ctx.config.fontSize,
+          fontStyle: "light",
+          text: node?.content ? String(node.content) : (node?.heading || ""),
+          width: ctx.availableWidth,
+          name: "section section_paragraph"
+        });
+        t.attrs.refreshCallback = options.imageCallback;
+        ctx.group.add(t);
+        return { heightConsumed: t.height() + ctx.spaceY };
+      }
+    }
+  ];
+
+  // ===========================================================
+  // 2) TREE WALK
+  // ===========================================================
+
+  const spaceYBase = config.fontSize * 1;
+  let y = config.padding[0];
+
+  // availableHeight clamping helper
+  const clampHeight = (h) => {
+    if (availableHeight == null) return h;
+    const used = y - config.padding[0]; // already used
+    const left = Math.max(availableHeight - used, 0);
+    return Math.min(h, left);
+  };
+
+  const ctxBase = {
+    group: g,
+    config,
+    availableWidth,
+    options,
+    primitive,
+    spaceY: spaceYBase,
+    clampHeight
+  };
+
+  const chooseRenderer = (node) => {
+    const h = node?.heading || "";
+    let best = { score: -1, r: null };
+    for (const r of RENDERERS) {
+      const s = r.match(h, node, ctxBase) ?? 0;
+      if (s > best.score) best = { score: s, r };
+    }
+    return best.r;
+  };
+
+  const titleRenderer = RENDERERS.find(d=>d.name === "title")
+  let first = true
+
+  const visit = (node) => {
+    if (!node) return;
+    const thisSectionConfig = options.sectionConfig[node.heading] ?? {}
+    const renderer = (thisSectionConfig.sectionStyle ? RENDERERS.find(d=>d.name === thisSectionConfig.sectionStyle) : undefined) ?? chooseRenderer(node);
+    if( thisSectionConfig.show == false){
+        return
+    }
+
+    if (renderer) {
+        if( thisSectionConfig.largeSpacing && !first ){
+            y += ctxBase.spaceY
+        }
+        if( thisSectionConfig.heading ){
+            const res = titleRenderer.render({ ...ctxBase, config: {...ctxBase.config , ...thisSectionConfig}, y }, {content: node.heading}) || { heightConsumed: 0 };
+            let consume = clampHeight(res.heightConsumed || 0);
+            if (availableHeight != null && consume <= 0) return;
+            y += consume - ctxBase.spaceY;
+        }
+        
+        const res = renderer.render({ ...ctxBase, config: {...ctxBase.config , ...thisSectionConfig}, y }, node) || { heightConsumed: 0 };
+        let consume = clampHeight(res.heightConsumed || 0);
+
+        // if we've run out of space, stop walking
+        if (availableHeight != null && consume <= 0) return;
+
+        y += consume;
+        first = false
+
+        // if renderer says "don't traverse children", stop here
+        if (res.skipTraversal) return;
+    }
+
+    // traverse children
+    if (Array.isArray(node.subsections)) {
+      for (const child of node.subsections) {
+        if (availableHeight != null && (y - config.padding[0]) >= availableHeight) break;
+        visit(child);
+      }
+    }
+  };
+
+  const data = primitive.referenceParameters.structured_summary;
+
+  if (Array.isArray(data) && data.length) {
+    // special-case: if there's no explicit title/summary sections, synthesize them from the first node
+    /*const hasAny = (targets) =>
+      data.some(n => scoreMatch(n?.heading, targets) >= 0.9);
+
+    if (!hasAny(["title", "analysis title", "summary title"]) &&
+        !hasAny(["description", "summary", "overview"])) {
+      // synthesize: first node's heading as title; node as summary
+      visit({ heading: "title", content: data[0]?.heading });
+      visit({ heading: "summary", content: data[0]?.content ?? data[0]?.heading });
+    }*/
+
+    for (const node of data) {
+      if (availableHeight != null && (y - config.padding[0]) >= availableHeight) break;
+      visit(node);
+    }
+  } else {
+    // --------- legacy single-field path (unchanged) ----------
+    let text = primitive.referenceParameters[config.field];
+    text = text?.replaceAll("\\n", "\n");
+    const t = mkText({
+      x: config.padding[3],
+      y: config.padding[0],
+      fontSize: config.fontSize,
+      text,
+      width: availableWidth
+    });
+    t.attrs.refreshCallback = options.imageCallback;
+    if (options.inTable && options.height) t.y((options.height - t.height()) / 2);
+
+    let h = t.height();
+    if (availableHeight && h > availableHeight) {
+      t.ellipsis(true);
+      t.height(availableHeight);
+      h = availableHeight;
+    }
+    g.add(t);
+    y = Math.max(h + config.padding[0], options.height ?? 0);
+  }
+
+  const totalheight = Math.max(y + config.padding[2], config.padding[0] + config.padding[2]) + idHeight;
+
+  if (options.getConfig) {
+    return { ...config, height: totalheight };
+  }
+
+  g.setAttrs({ width: config.width, height: totalheight });
+  r.height(totalheight);
+  return g;
+});
 registerRenderer( {type: "categoryId", id: 109, configs: "default"}, function renderFunc(primitive, options = {}){
 
     const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 1200, padding: [10,10,10,10], ...options}
@@ -3764,64 +4266,8 @@ export function renderPlainObject(renderOptions = {}){
             g.name("inf_track primitive")
         }
     }else  if( type === "structured_text"){
-        let y = 0, idx = 0
-        const padding = options.padding ?? [0,0,0,0]
-        g.name("inf_track primitive")
-        const columns = renderOptions.columns ?? 1
-        const itemPadding = (options.fontSize ?? 16) * 0.5
-        const textWidth = (width - padding[3] - padding[1] - (itemPadding * columns - 1) ) / columns
-        let cIdx = 0
-        let yPos = new Array(columns).fill(0)
-        for(const block of text ){
-            y = yPos[cIdx]
-            const itemsForBlock = []
-            if( y < height ){
-                for(const section of block){
-                    const thisText = flattenStructuredResponse([section], [section])
-                    const lineHeight = options.lineHeight ?? 1.2
-                    const fontSize = section.fontSize ?? options.fontSize ?? 16
-                    const fontStyle = section.fontStyle ?? options.fontStyle
-                    if( idx > 0 ){
-                        const incr = fontSize * lineHeight * (section.sectionStart ? 0.5 : 1) * (section.largeSpacing ? 1.5 : 0.5)
-                        y += incr
-                    }
-                    const t = new CustomText({
-                        x: padding[3] + (cIdx * (itemPadding + textWidth)),
-                        y: padding[1] + y,
-                        width: textWidth,
-                        //height: height - padding[2] - padding[0],
-                        lineHeight,
-                        text: thisText,
-                        withMarkdown: true,
-                        fontFamily: section.fontFamily ?? fontFamily,
-                        fontStyle,
-                        fontSize,
-                        refreshCallback: options.imageCallback
-                    })
-                    g.add(t)
-                    itemsForBlock.push(t)
-                    y += t.height() 
-                    if( y > height ){
-                        didOverflow = true
-                        //const delta = height - t.y()
-                        //t.height(delta)
-                        itemsForBlock.forEach(d=>d.destroy())
-                        break
-                    }
-                    idx++
-                }
-            }
-            yPos[cIdx] = y + itemPadding
-            cIdx ++
-            if( cIdx === columns){
-                if( options.alignRows ){
-                    const maxInRow = Math.max(...yPos)
-                    yPos.fill(maxInRow)
-                    
-                }
-                cIdx = 0
-            }
-        }
+        const {didOverflow: thisOverflow} = renderFormattedSections( text, g, {width, height, fontFamily, ...options})
+        didOverflow ||= thisOverflow
     }
     if( didOverflow ){
         g.attrs.overflowing = true
@@ -6947,7 +7393,7 @@ registerRenderer( {type: "default", configs: "datatable_timeseries"}, function r
     const timeseries = cell.timeseries
     let seriesIdx = -1
 
-    const showingDeltas = renderOptions.timeRange?.startsWith("delta_")
+    const showingDeltas = renderOptions.timeRange ? renderOptions.timeRange?.startsWith("delta_") : false
 
     function minMaxTimeForCell( series ){
         const msList = Object.keys(series ?? {}).map(d=>parseInt(d)).sort().sort((a,b)=>a-b)
@@ -8197,6 +8643,72 @@ export function renderIndicators(indicatorList, options){
         y += fullWidth
     }
     return g
+}
+
+function renderFormattedSections( text, g, fullOptions = {} ){
+    let {width, height, fontFamily, ...options} = fullOptions
+    let didOverflow = false
+    let y = 0, idx = 0
+    const padding = options.padding ?? [0,0,0,0]
+    g.name("inf_track primitive")
+    const columns = options.columns ?? 1
+    const itemPadding = (options.fontSize ?? 16) * 0.5
+    const textWidth = (width - padding[3] - padding[1] - (itemPadding * columns - 1) ) / columns
+    let cIdx = 0
+    let yPos = new Array(columns).fill(0)
+    for(const block of text ){
+        y = yPos[cIdx]
+        const itemsForBlock = []
+        if( y < height ){
+            for(const section of block){
+                const thisText = flattenStructuredResponse([section], [section])
+                const lineHeight = options.lineHeight ?? 1.2
+                const fontSize = section.fontSize ?? options.fontSize ?? 16
+                const fontStyle = section.fontStyle ?? options.fontStyle
+                if( idx > 0 ){
+                    const incr = fontSize * lineHeight * (section.sectionStart ? 0.5 : 1) * (section.largeSpacing ? 1.5 : 0.5)
+                    y += incr
+                }
+                const t = new CustomText({
+                    x: padding[3] + (cIdx * (itemPadding + textWidth)),
+                    y: padding[1] + y,
+                    width: textWidth,
+                    lineHeight,
+                    text: thisText,
+                    withMarkdown: true,
+                    fontFamily: section.fontFamily ?? fontFamily,
+                    fontStyle,
+                    fontSize,
+                    refreshCallback: options.imageCallback
+                })
+                g.add(t)
+                itemsForBlock.push(t)
+                y += t.height() 
+                if( y > height ){
+                    didOverflow = true
+                    if( cIdx === 0){
+                        const delta = height - t.y()
+                        t.height(delta)
+                    }else{
+                        itemsForBlock.forEach(d=>d.destroy())
+                    }
+                    break
+                }
+                idx++
+            }
+        }
+        yPos[cIdx] = y + itemPadding
+        cIdx ++
+        if( cIdx === columns){
+            if( options.alignRows ){
+                const maxInRow = Math.max(...yPos)
+                yPos.fill(maxInRow)
+                
+            }
+            cIdx = 0
+        }
+    }
+    return {didOverflow}
 }
 
 

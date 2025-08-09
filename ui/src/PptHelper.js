@@ -120,6 +120,20 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
         
         function processNode( konvaNode, ox = 0, oy = 0, pScale = 1, first = false ){
             const {scale: _scale, clipBox} = calcInheritedBounds(konvaNode);
+                    if( clipBox?.x < 0 ){
+                        clipBox.width += clipBox.x
+                        clipBox.x = 0
+                    }
+                    if( clipBox?.y < 0 ){
+                        clipBox.height += clipBox.y
+                        clipBox.y = 0
+                    }
+                    if( clipBox?.height > konvaNode.height()){
+                        clipBox.height = konvaNode.height()
+                    }
+                    if( clipBox?.width > konvaNode.width()){
+                        clipBox.width = konvaNode.width()
+                    }
 
 
             const nodeClass = konvaNode.name().split(" ")
@@ -379,6 +393,22 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                                     color: toHex(konvaNode.tableDecoration?.[0]?.stroke)
                                 }
                             })
+                        }
+                    }
+
+                    if( konvaNode.borderSections ){
+                        for(const [x, y, w, h] of konvaNode.borderSections){
+                            if( !clipBox || y < clipBox.height){
+                                let tx = x * scale * thisScale, ty = y  * scale * thisScale
+                                let tw = w * scale * thisScale, th = h * scale * thisScale
+                                slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, {
+                                    x: rx + tx,
+                                    y: ry + ty,
+                                    w: tw,
+                                    h: th,
+                                    fill: toHex( konvaNode.attrs.leftBorder ),
+                                });
+                            }
                         }
                     }
                 }else{

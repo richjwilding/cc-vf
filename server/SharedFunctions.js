@@ -5266,7 +5266,7 @@ export async function createWorkspace( allData, owner, options={} ){
         let {users, ...data} = allData
 
         if( options.organizationId){
-            data.organizationId = organizationId
+            data.organizationId = options.organizationId
         }
         
         users.push(owner)

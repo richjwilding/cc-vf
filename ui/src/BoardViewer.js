@@ -1594,7 +1594,7 @@ export default function BoardViewer({primitive,...props}){
                                 let resized = false
                                 let changedRenderConfig = false
                                 let needRebuild = ((event === "set_field" || event === "set_parameter") && info === "referenceParameters.explore.view")
-                                console.log(event, info)
+                                //console.log(event, info)
                                 
 
                                 if( event === "set_field" && info && typeof(info)==="string"){
@@ -3068,7 +3068,7 @@ export default function BoardViewer({primitive,...props}){
 
     return <div className="flex w-full h-full bg-gray-100 space-x-4 overflow-hidden p-1">
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
-            {dockPaneInfo &&  <div className='overflow-y-scroll shrink-0 bg-white rounded-lg shadow w-[24rem] xl:w-[32rem] 5xl:w-[40rem] py-2 px-3 flex-col flex'>
+            {dockPaneInfo &&  <div className='overflow-y-scroll shrink-0 bg-white rounded-lg shadow w-[24rem] xl:w-[32rem] 6xl:w-[40rem] py-2 px-3 flex-col flex'>
                 <Tabs fullWidth variant="solid" selectedKey={panelTab} onSelectionChange={((id)=>setPanelTab(id))}>
                     <Tab key="info" title="Inspector"/>
                     <Tab key="ai" title="SENSE AI"/>

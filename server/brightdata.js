@@ -170,6 +170,36 @@ const bdExtractors = {
             }
         }
     },
+    "amazon_review":{
+        datasetId: "gd_le8e811kzy4ggddlq",
+        id: (data)=>data.url,
+        linkConfig:linkToPrimitiveViaSearchPath,
+        data:  (data)=>{
+            return {
+                title: data.review_header,
+                referenceId: 153,
+                referenceParameters:{
+                    url: data.url,
+                    api_source: "bd_amazonreview",
+                    author_name: data.author_name,
+                    author_link: data.author_link,
+                    review_date: data.review_posted_date,
+                    review_content: data.review_text,
+                    review_rating: data.rating,
+                    product_name: data.product_name,
+                    product_rating: data.product_rating,
+                    product_rating_max: data.product_rating_max,
+                    asin: data.asin,
+                    product_rating_count: data.product_rating_count,
+                    author_name: data.author_name,
+                    brand: data.brand,
+                    review_country: data.review_country,
+                    helpful_count: data.helpful_count,
+                    is_verified: data.is_verified,
+                }
+            }
+        }
+    },
     "reviewsio":{
         datasetId: "c_maapuho928uerzr6fk",
         id: (data)=>data.url,

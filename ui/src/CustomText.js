@@ -236,10 +236,10 @@ _setTextData() {
     this.headlineFont = this._getContextFont({weight: "bold", size: this.fontSize() * 1.5 })
   }
 
-  window.fonttrack ||= {}
+  /*window.fonttrack ||= {}
   window.fonttrack[this.standardFont] = (window.fonttrack[this.standardFont] ?? 0)+1
   window.fonttrack[this.boldFont] = (window.fonttrack[this.boldFont] ?? 0)+1
-  window.fonttrack[this.headlineFont] = (window.fonttrack[this.headlineFont] ?? 0)+1
+  window.fonttrack[this.headlineFont] = (window.fonttrack[this.headlineFont] ?? 0)+1*/
 
   if( !this.attrs.withMarkdown ){
     super._setTextData()
@@ -269,7 +269,8 @@ _setTextData() {
       wrap = this.wrap(), 
       shouldWrap = wrap !== NONE, 
       wrapAtWord = wrap !== CHAR && shouldWrap, 
-      shouldAddEllipsis = this.ellipsis();
+      shouldAddEllipsis = this.ellipsis(),
+      sectionSpacing = this.attrs.sectionSpacing
 
   let translateY
   let lineHeightPx 
@@ -410,6 +411,7 @@ _setTextData() {
 
     let didAdvance = false, needAdvance = false
     lineHeightPx = large ? baseLineHeightPx * 1.2 : baseLineHeightPx
+    const sectionStart = currentHeightPx
 
     if( section.type === "unordered-list" || section.type === "ordered-list"){
       const px = "" + lineHeightPx
@@ -620,8 +622,12 @@ _setTextData() {
         }
       }
     }
+    if( this.attrs.leftBorder ){
+      this.borderSections ||= []
+      this.borderSections.push([startIndent - (lineHeightPx / 2), sectionStart, lineHeightPx / 10, currentHeightPx + lineHeightPx - sectionStart])
+    }
     if( !didAdvance && needAdvance){
-      currentHeightPx += (lineHeightPx * (isListItem ? 1.1 : 1.4));
+      currentHeightPx += (lineHeightPx * (isListItem ? 1.1 : (sectionSpacing ?? 1.4)));
     }
     
     lastWasHeading = isHeading
@@ -959,6 +965,13 @@ checkCanvasCleared() {
                 context.strokeRect( decoration.x, decoration.y, decoration.width, decoration.height)
               }
             }              
+          }
+        }
+        if( this.borderSections ){
+          context.fillStyle = this.attrs.leftBorder
+          for(const [x, y, w, h] of this.borderSections){
+              context.lineWidth = 0.5
+              context.fillRect( x, y, w, h)
           }
         }
         this.renderText( context )

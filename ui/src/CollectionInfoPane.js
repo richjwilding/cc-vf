@@ -570,7 +570,12 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             }
         }
 
-        const updateViewMode = (value)=>{
+        const updateViewMode = (id)=>{
+            const newConfig = viewConfigs.find(d=>d.id === id)
+            const value = viewConfigs.findIndex(d=>d.id === id)
+            if( newConfig.categoryId !== frame.referenceParameters?.explore?.viewCategory ){
+                frame.setField(`referenceParameters.explore.viewCategory`, newConfig.categoryId)
+            }
             frame.setField(`referenceParameters.explore.view`, value)
             setActiveView( value )
             if( props.updateFrameExtents ){
@@ -720,7 +725,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                 <UIHelper.OptionList 
                                     title="View Mode" 
                                     options={viewConfigs} 
-                                    onChange={(id)=>updateViewMode(viewConfigs.findIndex(d=>d.id === id))} 
+                                    onChange={(id)=>updateViewMode(id)} 
                                     value={viewConfigs[activeView]?.id} 
                                     zIndex={50}
                                     />
@@ -946,87 +951,95 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                         if( list[0]?.type === "summary"){
                                             const sections = list.flatMap(d=>d.referenceParameters.structured_summary?.map(d=>d.heading)).filter((d,i,a)=>d && a.indexOf(d)===i) 
                                             if( sections.length > 0){
-                                                return <div className="px-2 py-1 flex flex-col space-y-2 text-gray-500 @container">
+                                                return <div className="px-2 py-1 flex flex-col space-y-4 text-gray-500 @container">
                                                             <DescriptionList inContainer={true}>
-                                                                <DescriptionTerm inContainer={true}>Segement name</DescriptionTerm>
-                                                                <DescriptionDetails inContainer={true}>
-                                                                    <LegacyCheckbox
-                                                                        checked={frame.referenceParameters?.sections?.segment_title?.show} 
-                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.segment_title.show`, !frame.referenceParameters?.sections?.segment_title?.show)}}
-                                                                    />
-                                                                </DescriptionDetails>
+                                                                <Checkbox 
+                                                                    size="sm"
+                                                                    isSelected={frame.referenceParameters?.sections?.segment_title?.show} 
+                                                                    onValueChange={()=>{frame.setField(`referenceParameters.sections.segment_title.show`, !frame.referenceParameters?.sections?.segment_title?.show)}}
+                                                                    >Segement name</Checkbox>
                                                                 {sections.map((d,i)=>{
                                                                     const show = frame.referenceParameters?.sections?.[d]?.show !== false
                                                                     const includeHeading = frame.referenceParameters?.sections?.[d]?.heading !== false
                                                                     const largeSpacing = frame.referenceParameters?.sections?.[d]?.largeSpacing !== false
-                                                                    const fontSize = frame.referenceParameters?.sections?.[d]?.fontSize ?? ""
-                                                                    const fontStyle = frame.referenceParameters?.sections?.[d]?.fontStyle ?? ""
+                                                                    const fontSize = frame.referenceParameters?.sections?.[d]?.fontSize ?? 16
+                                                                    const fontStyle = frame.referenceParameters?.sections?.[d]?.fontStyle ?? "normal"
+                                                                    const sectionStyle = frame.referenceParameters?.sections?.[d]?.sectionStyle ?? "paragraphFallback"
                                                                     return (
-                                                                    <>
-                                                                        <DescriptionTerm inContainer={true}>{d}</DescriptionTerm>
-                                                                        {!show && <div className="grid grid-cols-1 text-base/6 text-sm/6 @lg:!grid-cols-[min(40%,theme(spacing.40))_auto] py-2">
-                                                                                <p>Include</p>
-                                                                                    <LegacyCheckbox
-                                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.${d}.show`, true)}}
-                                                                                    />
-                                                                                </div>
-                                                                        }
-                                                                        {show && <DescriptionDetails inContainer={true} className="-mt-2">
-                                                                            <DescriptionList inContainer={true}>
-                                                                                <DescriptionTerm inContainer={true}>Include</DescriptionTerm>
-                                                                                <DescriptionDetails inContainer={true}>
-                                                                                    <LegacyCheckbox 
-                                                                                        checked={true} 
-                                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.${d}.show`, false)}}
-                                                                                        />
-                                                                                </DescriptionDetails>
-                                                                                <DescriptionTerm inContainer={true}>Large spacing</DescriptionTerm>
-                                                                                <DescriptionDetails inContainer={true}>
-                                                                                    <LegacyCheckbox 
-                                                                                        checked={largeSpacing} 
-                                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.${d}.largeSpacing`, !largeSpacing)}}
-                                                                                        />
-                                                                                </DescriptionDetails>
-                                                                                <DescriptionTerm inContainer={true}>Include heading</DescriptionTerm>
-                                                                                <DescriptionDetails inContainer={true}>
-                                                                                    <LegacyCheckbox 
-                                                                                        checked={includeHeading} 
-                                                                                        onClick={()=>{frame.setField(`referenceParameters.sections.${d}.heading`, !includeHeading)}}
-                                                                                        />
-                                                                                </DescriptionDetails>
-                                                                                <DescriptionTerm inContainer={true}>Font size</DescriptionTerm>
-                                                                                <DescriptionDetails inContainer={true}>
-                                                                                    <PrimitiveCard.RenderItem 
-                                                                                            item={{
-                                                                                                type:"number",
-                                                                                                value:fontSize
-                                                                                            }}
-                                                                                            callback={(value)=>{
-                                                                                                let size
-                                                                                                if( isNaN(value)){
-                                                                                                    size = null
-                                                                                                }else{                                                                                                    
-                                                                                                    size = Math.min(Math.max(1,value), 144)
-                                                                                                }
-                                                                                                frame.setField(`referenceParameters.sections.${d}.fontSize`, size)
-                                                                                                return true
-                                                                                            }}
-                                                                                        />
-                                                                                </DescriptionDetails>
-                                                                                <DescriptionTerm inContainer={true}>Font style</DescriptionTerm>
-                                                                                <DescriptionDetails inContainer={true}>
-                                                                                        <PrimitiveCard.RenderItem 
-                                                                                            item={{
-                                                                                                type:"option_list",
-                                                                                                options:["light","normal","bold","italic"],
-                                                                                                value:fontStyle
-                                                                                            }}
-                                                                                            callback={(v)=>frame.setField(`referenceParameters.sections.${d}.fontStyle`, v)}
-                                                                                        />
-                                                                                </DescriptionDetails>
-                                                                            </DescriptionList>
-                                                                        </DescriptionDetails>}
-                                                                    </>
+                                                                    <div className="rounded-md bg-background p-2 my-1 space-y-2">
+                                                                        <Checkbox 
+                                                                            isSelected={show}
+                                                                            size="sm"
+                                                                            onValueChange={()=>{frame.setField(`referenceParameters.sections.${d}.show`, !show)}}
+                                                                            >{d}</Checkbox>
+                                                                        {show && <div className="flex flex-col space-y-2 ml-6 my-2">
+                                                                            <div className="flex space-x-2 w-full">
+                                                                            <Checkbox 
+                                                                                isSelected={includeHeading}
+                                                                                size="sm"
+                                                                                onValueChange={()=>{frame.setField(`referenceParameters.sections.${d}.heading`, !includeHeading)}}
+                                                                                >Include heading</Checkbox>
+                                                                            <Checkbox 
+                                                                                isSelected={largeSpacing}
+                                                                                size="sm"
+                                                                                onValueChange={()=>{frame.setField(`referenceParameters.sections.${d}.largeSpacing`, !largeSpacing)}}
+                                                                                >Large spacing</Checkbox>
+                                                                            </div>
+                                                                            <div className="flex space-x-2 w-full">
+                                                                                <DebouncedNumberInput
+                                                                                    value={fontSize} 
+                                                                                    variant="bordered"
+                                                                                    size="sm"
+                                                                                    label="Font size"
+                                                                                    minValue={1}
+                                                                                    maxValue={80}
+                                                                                    onValueChange={(value)=>{
+                                                                                                    let size
+                                                                                                    if( isNaN(value)){
+                                                                                                        size = null
+                                                                                                    }else{                                                                                                    
+                                                                                                        size = Math.min(Math.max(1,value), 144)
+                                                                                                    }
+                                                                                                    frame.setField(`referenceParameters.sections.${d}.fontSize`, size)
+                                                                                                    return true
+                                                                                                }}
+                                                                                />
+                                                                                <Select 
+                                                                                    className="w-full" 
+                                                                                    label="Font style" 
+                                                                                    size="sm"
+                                                                                    variant="bordered" 
+                                                                                    selectedKeys={[fontStyle]}
+                                                                                    onSelectionChange={(v)=>{
+                                                                                        frame.setField(`referenceParameters.sections.${d}.fontStyle`, Array.from(v)[0])
+                                                                                    }}>
+                                                                                        <SelectItem key="light">Light</SelectItem>
+                                                                                        <SelectItem key="normal">Normal</SelectItem>
+                                                                                        <SelectItem key="bold">Bold</SelectItem>
+                                                                                        <SelectItem key="italic">Italic</SelectItem>
+                                                                                </Select>
+                                                                            </div>
+                                                                        {frame.referenceParameters?.extract === "items" && <>
+                                                                                <Select 
+                                                                                    className="w-full" 
+                                                                                    label="Render style" 
+                                                                                    size="sm"
+                                                                                    variant="bordered" 
+                                                                                    selectedKeys={[sectionStyle]}
+                                                                                    onSelectionChange={(v)=>{
+                                                                                        frame.setField(`referenceParameters.sections.${d}.sectionStyle`, Array.from(v)[0])
+                                                                                    }}>
+                                                                                        <SelectItem key="paragraphFallback">Normal</SelectItem>
+                                                                                        <SelectItem key="title">Title</SelectItem>
+                                                                                        <SelectItem key="summary">Main summary</SelectItem>
+                                                                                        <SelectItem key="detailsBullets">Detailed bullets</SelectItem>
+                                                                                        <SelectItem key="quotes">Quotes</SelectItem>
+                                                                                        <SelectItem key="sentiment">sentiment</SelectItem>
+                                                                                        <SelectItem key="organizations">Company logos</SelectItem>
+                                                                                </Select>
+                                                                            </>}
+                                                                        </div>}
+                                                                    </div>
                                                                     )})}
                                                             </DescriptionList>
                                                         </div>

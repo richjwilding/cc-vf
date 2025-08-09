@@ -352,13 +352,14 @@ export function Sidebar({primitive, ...props}) {
             const data = categoryParents.map(d=>({
                         parent: d.origin?.title ?? "Unknown",
                         category: d.title,
-                        rationale: d.rationale[primitive.id] ?? ""
+                        rationale: d.rationale?.[primitive.id] ?? ""
                     }))
             rationaleList = 
             <Panel title="Categories" collapsable={true} open={false} major>
                 <Table 
                     className='!text-xs'
                     primitive={primitive}
+                    //popout
                     page={0}
                     pageItems={20}
                     columns={[

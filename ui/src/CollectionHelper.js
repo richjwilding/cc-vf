@@ -69,10 +69,14 @@ class CollectionUtils{
                     return {
                         ...(PrimitiveConfig.renderConfigs[d.builtIn] ?? {}),
                         title: d.title,
+                        categoryId: category.id,
                         id: d.id
                     }
                 }
-                return d
+                return {
+                    ...d,
+                    categoryId: category.id,
+                }
             })
             return metaConfigs
         }

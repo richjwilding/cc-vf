@@ -536,8 +536,8 @@ ctx.drawImage(
       if( options  ){
         let {x, y, width, height} = {x: 0, y: 0, width: this.maxImage.width, height: this.maxImage.height, ... options}
 
-        width = width * this.activeScale
-        height = height * this.activeScale
+        //width = width * this.activeScale
+        //height = height * this.activeScale
 
         const offscreen = document.createElement('canvas');
         offscreen.width = width;

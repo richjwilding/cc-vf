@@ -16,7 +16,7 @@ export default function NewPrimitivePanel({selectedCategory,...props}) {
     }, [selectedCategory?.id])
     
     const asMain = Object.keys(selectedCategory?.parameters ?? {}).filter(d=>selectedCategory.parameters[d].asMain)?.[0] ?? "title"
-    console.log(asMain)
+    //console.log(asMain)
 
 
     async function submit() {

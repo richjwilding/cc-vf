@@ -1783,7 +1783,9 @@ export async function processQueue(job){
                                     for( const d of Object.keys(resultCache)){
                                         console.log(`Setting ${d} -> ${resultCache[d].ids.length} items`)
                                         await addRelationshipToMultiple(resultCache[d].categoryId, resultCache[d].ids, 'ref', primitive.workspaceId)
-                                        dispatchControlUpdate(resultCache[d].categoryId, "rationale", resultCache[d].rationale)
+                                        if( primitiveConfig.rationale ){
+                                            dispatchControlUpdate(resultCache[d].categoryId, "rationale", resultCache[d].rationale)
+                                        }
                                     }
                                     return
                                 }else{
@@ -1877,7 +1879,9 @@ export async function processQueue(job){
                                         if( items ){
                                             console.log( `${d.plainId} ${d.title} -> ${items ? items.length : 0}`)
                                             await addRelationshipToMultiple(d.id, items, "ref", d.workspaceId )
-                                            dispatchControlUpdate(d.id, "rationale", categoryAllocations[d.id].rationale)
+                                            if( primitiveConfig.rationale ){
+                                                dispatchControlUpdate(d.id, "rationale", categoryAllocations[d.id].rationale)
+                                            }
                                         }
                                     }
                                     dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
