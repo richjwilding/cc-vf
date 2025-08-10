@@ -2,7 +2,7 @@ import { Stage, Layer, Text, Rect, Group, FastLayer} from 'react-konva';
 import Konva from 'konva';
 import { Children, cloneElement, forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGesture } from '@use-gesture/react';
-import { RenderPrimitiveAsKonva, finalizeImages, renderIndicators, renderToggle } from './RenderHelpers';
+import { RenderPrimitiveAsKonva, finalizeImages, renderIndicators } from './RenderHelpers';
 import { exportKonvaToPptx } from './PptHelper';
 import MainStore from './MainStore';
 import { AvoidLib } from 'libavoid-js';
@@ -3451,37 +3451,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 }
 
                             }
-                        }
-                        else if( cls === "_toggle"){
-                            const parent = d.findAncestor('Group')
-                            if(parent){
-                                const id = parent.attrs.id
-                                const toggleId = d.attrs.id
-                                const frameId = d.findAncestor('.frame')?.attrs.id
-                                if( props.callbacks?.onToggle ){
-                                    const status = await props.callbacks.onToggle(id, toggleId, frameId)
-                                    const frame =  myState.current.frames.find(d=>d.id === frameId)
-                                    console.log(status, frame)
-                                    if(frame){
-                                        const oldNode = frame.node.children.find(d=>d.attrs.id === id)
-                                        if( oldNode ){
-                                            console.log(status)
-                                            const newNode = renderToggle( status, 
-                                                d.attrs.x,
-                                                d.attrs.y,
-                                                d.attrs.width,
-                                                d.attrs.height,
-                                                d.attrs.id
-                                                )
-                                            
-                                            oldNode.add(newNode)
-                                            d.destroy()
-                                        }
-                                        oldNode.draw()
-                                    }
-                                }
-                            }
-                            doneClick = true
                         }else if( cls === "frame_label"){
                             const frame = d.findAncestor('.frame') 
                             if(frame){

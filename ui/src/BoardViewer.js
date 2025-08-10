@@ -2071,11 +2071,15 @@ export default function BoardViewer({primitive,...props}){
             if( resizeInfo.legendDeltaY){
                 height -= resizeInfo.legendDeltaY
             }
+            if( resizeInfo.padding){
+                width -= resizeInfo.padding[1] + resizeInfo.padding[3] 
+                height -= resizeInfo.padding[0] + resizeInfo.padding[2] 
+            }
             if( resizeInfo.columns ){
                 width = (width - ((resizeInfo.columns - 1) * (resizeInfo.spacing[0] ?? 0))) / resizeInfo.columns
             }
             if( resizeInfo.rows ){
-                height = (height - ((resizeInfo.rows - 1) * (resizeInfo.spacing[0] ?? 0))) / resizeInfo.rows
+                height = (height - ((resizeInfo.rows - 1) * (resizeInfo.spacing[1] ?? 0))) / resizeInfo.rows
             }
         }
 

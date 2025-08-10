@@ -14,44 +14,6 @@ import { findOrganizationForWorkflowAllocation, recordCreditUsageEvent } from ".
 var ObjectId = require('mongoose').Types.ObjectId;
 
 
-registerAction("new_flow_instance", undefined, async (primitive, a, options)=>{
-    throw "WHAT IS THIS FOR? new_flow_instance"
-    const inputType = options.type ?? "result"
-    const inputReferenceId = options.referenceId ?? 35
-    const inputSourceId = primitive.primitives?.imports?.[0]
-    if( inputSourceId ){
-        let inputSource = await fetchPrimitive( inputSourceId )
-        if( inputSource.type !== "segment"){
-            if( inputSource.type === "view" ){
-                inputSource = await fetchPrimitive( inputSource.primitives?.imports?.[0] )
-                if( inputSource.type !== "segment"){
-                    throw `Cant find segment - Dont know where to add for ${primitive.id} / ${primitive.plainId}`
-                }
-            }else{
-                throw `Dont know where to add for ${primitive.id} / ${primitive.plainId}`
-            }            
-        }
-        console.log(`Will add ${inputType} (${inputReferenceId}) to ${inputSource.title}`)
-
-        const newPrim = await createPrimitive({
-            workspaceId: inputSource.workspaceId,
-            paths: ["origin"],
-            parent: inputSource.id,
-            data:{
-                type: inputType,
-                referenceId: inputReferenceId,
-                title: `New ${inputType}`,
-            }
-        })
-        await dispatchControlUpdate( newPrim.id, "title", `New ${inputType} (${newPrim.plainId})`)
-        await scaffoldWorkflow(primitive)
-    }
-})
-registerAction("run_flow_instance", {id: "flowinstance"}, async (p,a,o)=>{
-    throw "DEPREACTED"
-    FlowQueue().runFlowInstance(p,{...o, force: true})
-})
-
 registerAction("run_step", undefined, async (p,a,o)=>FlowQueue().runStep(p,{...o, singleStep: true}))
 registerAction("run_flow", {id: "flow"}, async (p,a,o)=>FlowQueue().runFlow(p,o))
 registerAction("run_flowinstance_from_step", undefined, async (p,a,o, req)=>{
@@ -118,7 +80,7 @@ async function preWorkflowInstanceActions( flowInstance, {userInstantiated, ...d
             if( !flow.inFlow ){
                 logger.info( `Checking allocations` )
                 const organizationToChargeTo = await findOrganizationForWorkflowAllocation( flowInstance, {userInstantiated} )
-                const credits = flow.referenceParameters?.credits
+                const credits = flow.referenceParameters?.credits ?? 0
                 
                 const availableCredits = organizationToChargeTo.credits ?? 0
                 if( availableCredits < credits ){

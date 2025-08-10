@@ -965,6 +965,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                                                     const fontSize = frame.referenceParameters?.sections?.[d]?.fontSize ?? 16
                                                                     const fontStyle = frame.referenceParameters?.sections?.[d]?.fontStyle ?? "normal"
                                                                     const sectionStyle = frame.referenceParameters?.sections?.[d]?.sectionStyle ?? "paragraphFallback"
+                                                                    const itemCount = frame.referenceParameters?.sections?.[d]?.itemCount
                                                                     return (
                                                                     <div className="rounded-md bg-background p-2 my-1 space-y-2">
                                                                         <Checkbox 
@@ -1037,6 +1038,19 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                                                                         <SelectItem key="sentiment">sentiment</SelectItem>
                                                                                         <SelectItem key="organizations">Company logos</SelectItem>
                                                                                 </Select>
+                                                                                {(sectionStyle === "detailsBullets" || sectionStyle === "quotes") &&  <DebouncedNumberInput
+                                                                                    value={itemCount} 
+                                                                                    variant="bordered"
+                                                                                    size="sm"
+                                                                                    label="Item limit"
+                                                                                    minValue={1}
+                                                                                    maxValue={10}
+                                                                                    onValueChange={(value)=>{
+                                                                                                    frame.setField(`referenceParameters.sections.${d}.itemCount`, value)
+                                                                                                    return true
+                                                                                                }}
+                                                                                />
+                                                                                }
                                                                             </>}
                                                                         </div>}
                                                                     </div>

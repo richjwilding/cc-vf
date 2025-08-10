@@ -950,6 +950,7 @@ checkCanvasCleared() {
         }
     }else{
       if( DISABLE_CANVAS ){
+        const {scale, clipBox} = calcInheritedBounds( this )
         if( this.tableDecoration ){
           for(const decoration of this.tableDecoration){
             if( decoration.x > this.attrs.width || (decoration.x + decoration.width - this.attrs.width) > 1){continue}
@@ -970,6 +971,13 @@ checkCanvasCleared() {
         if( this.borderSections ){
           context.fillStyle = this.attrs.leftBorder
           for(const [x, y, w, h] of this.borderSections){
+              if( x > this.attrs.width || (x + w - this.attrs.width) > 1){continue}
+              if( y > this.attrs.height || (y + h - this.attrs.height) > 1){continue}
+              if( clipBox ){
+                if( y > (clipBox.y + clipBox.height)  ){
+                  continue
+                }
+              }
               context.lineWidth = 0.5
               context.fillRect( x, y, w, h)
           }
