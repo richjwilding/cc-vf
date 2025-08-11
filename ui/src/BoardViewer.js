@@ -324,7 +324,7 @@ function SharedRenderView(d, primitive, myState) {
     }
   
     // Merge size options if available
-    const configNames = ["width", "height"];
+    const configNames = view.primitive.type === "element" ? ["width", "height"] : ["width"] 
     const sizeSource = view.parentRender ? myState[view.parentRender].primitive.frames : primitive.frames;
     if (sizeSource?.[d.id]) {
       configNames.forEach(name => {
@@ -439,7 +439,14 @@ function SharedRenderView(d, primitive, myState) {
           items: stageOptions => {
             const data = myState[d.id].data;
             const viewConfig = myState[d.id].viewConfig;
-            return renderDatatable({ id: d.id, data, stageOptions, renderOptions, viewConfig });
+            return renderDatatable({ 
+                id: d.id, 
+                primitive: d, 
+                data, 
+                stageOptions, 
+                expand: Object.keys(primitive.frames?.[d.id]?.expand ?? {}),
+                renderOptions, 
+                viewConfig });
           }
         };
         break;
@@ -626,57 +633,33 @@ function SharedRenderView(d, primitive, myState) {
         break;
   
       default:
-        if (false && d.type === "query" && d.processing?.ai?.data_query) {
-          renderView = {
-            ...baseRenderView,
-            canChangeSize: true,
-            items: stageOptions =>
-              RenderPrimitiveAsKonva(primitiveToRender, {
-                config: "ai_processing",
-                ...stageOptions,
-                ...renderOptions,
-                renderOptions
-              })
-          };
-        } else if (view.viewConfig?.matrixType) {
-            
+        if (view.viewConfig?.matrixType) {
             const rows = ()=>view.rows.map(item => ({
                 ...item,
                 primitive: mainstore.primitive(item.idx)
             })).sort((a,b)=>b.count - a.count)
 
-            let columns
-
-            if( view.primitive.workspaceId === "680cb9e84d11562ca118b10d"){
-                const fixed = ["AA Breakdown Cover", "RAC Breakdown Cover", "Green Flag Breakdown Cover", "Start Rescue", "Emergency Assist"].reverse()
-                columns = ()=>view.columns.map(item => ({
-                    ...item,
-                    primitive: mainstore.primitive(item.idx)
-                })).sort((a,b)=>fixed.indexOf(b.label) - fixed.indexOf(a.label))
-
-            }else{
-                columns = ()=>view.columns.map(item => ({
-                    ...item,
-                    primitive: mainstore.primitive(item.idx)
-                }))
-            }
+            let columns = ()=>view.columns.map(item => ({
+                ...item,
+                primitive: mainstore.primitive(item.idx)
+            }))
 
             renderView = {
                 ...baseRenderView,
                 canChangeSize: view?.viewConfig?.resizable,
                 items: stageOptions =>
-                RenderSetAsKonva(primitiveToRender, view.list, {
-                    ...stageOptions,
-                    ...renderOptions,
-                    renderOptions,
-                    axis: view.axis,
-                    allocations: view.filteredAllocations,
-                    extents: {
-                    column: columns(),
-                    row: rows()
-                    },
-                    config: view.viewConfig?.matrixType
-                })
+                    RenderSetAsKonva(primitiveToRender, view.list, {
+                        ...stageOptions,
+                        ...renderOptions,
+                        renderOptions,
+                        axis: view.axis,
+                        allocations: view.filteredAllocations,
+                        extents: {
+                        column: columns(),
+                        row: rows()
+                        },
+                        config: view.viewConfig?.matrixType
+                    })
             };
         } else {
           renderView = {
@@ -765,7 +748,6 @@ function SharedRenderView(d, primitive, myState) {
         if( d.type === "element" ){
             const pagePrimitive = myState[stateId].page
             const pageState = pagePrimitive ? myState[pagePrimitive.id] : undefined
-            let inputs
             const config = basePrimitive.getConfig
 
             const format = {
@@ -1156,7 +1138,7 @@ function SharedRenderView(d, primitive, myState) {
                     mappedCategories
                 }
             }else{
-                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts){
+                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts || viewConfig.matrixType === undefined){
                     let dataTable 
 
                     function setupDataConfig( viewConfig ){
@@ -1264,13 +1246,6 @@ function SharedRenderView(d, primitive, myState) {
                     return a
                 }, {})
 
-                /*let filtered = CollectionUtils.filterCollectionAndAxis( data, [
-                    {field: "column", exclude: filterApplyColumns},
-                    {field: "row", exclude: filterApplyRows},
-                    ...viewFilters.map((d,i)=>{
-                        return {field: `filterGroup${i}`, exclude: d.filter}
-                    })
-                ], {columns: filteredColumnExtents, rows: filteredRowExtents, hideNull})*/
                 let filtered = CollectionUtils.filterCollectionAndAxis( data, [], {columns: filteredColumnExtents, rows: filteredRowExtents, hideNull})
 
                 if( myState[stateId].list ){
@@ -1299,6 +1274,7 @@ function SharedRenderView(d, primitive, myState) {
 
                 const watchIds = new Set( filtered.data.flatMap(d=>d.primitive.parentPrimitiveIds) )
                             
+                console.warn(`DEPRECATED renderMatrix for ${viewConfig.configName} / ${viewConfig.title} / ${viewConfig.matrixType}`)
                 myState[stateId].primitive = basePrimitive
                 myState[stateId].config = viewConfig.configName ?? "explore_" + activeView
                 myState[stateId].list = filtered.data
@@ -1444,12 +1420,6 @@ function SharedRenderView(d, primitive, myState) {
             childNodes = childNodes.filter(d=>d.type !== "flowinstance")
             didChange ||= d.referenceParameters?.explore?.view !== myState[stateId].lastView
             
-            /*if(flowInstanceToShow ){
-                stopWatchingFlowInstances(primitiveToPrepare, flowInstances, myState, flowInstanceToShow.id)
-                watchFlowInstance( primitiveToPrepare, flowInstanceToShow, myState)
-                myState[stateId].internalWatchIds = [flowInstanceToShow.id, ...flowInstanceToShow.primitives.origin.allIds]
-            }*/
-
             myState[stateId].primitive = basePrimitive
             myState[stateId].flowInstances = flowInstances
             myState[stateId].config = "flow"
@@ -2065,23 +2035,35 @@ export default function BoardViewer({primitive,...props}){
         const board = myState[fId]
 
         if( resizeInfo ){
-            if( resizeInfo.legendDeltaX){
-                width -= resizeInfo.legendDeltaX
+            if( width !== undefined){
+                if( resizeInfo.legendDeltaX ){
+                    width -= resizeInfo.legendDeltaX
+                }
+                if( resizeInfo.widthPadding ){
+                    width -= resizeInfo.widthPadding
+                }else{
+                    if( resizeInfo.padding){
+                        width -= resizeInfo.padding[1] + resizeInfo.padding[3] 
+                    }
+                    width = (width - ((resizeInfo.columns - 1) * (resizeInfo.spacing[0] ?? 0))) 
+                }
+                if( resizeInfo.columns){
+                    width = width / resizeInfo.columns
+                }
             }
-            if( resizeInfo.legendDeltaY){
-                height -= resizeInfo.legendDeltaY
-            }
-            if( resizeInfo.padding){
-                width -= resizeInfo.padding[1] + resizeInfo.padding[3] 
-                height -= resizeInfo.padding[0] + resizeInfo.padding[2] 
-            }
-            if( resizeInfo.columns ){
-                width = (width - ((resizeInfo.columns - 1) * (resizeInfo.spacing[0] ?? 0))) / resizeInfo.columns
-            }
-            if( resizeInfo.rows ){
-                height = (height - ((resizeInfo.rows - 1) * (resizeInfo.spacing[1] ?? 0))) / resizeInfo.rows
+            if(height !== undefined){
+                if( resizeInfo.legendDeltaY  ){
+                    height -= resizeInfo.legendDeltaY
+                }
+                if( resizeInfo.padding){
+                    height -= resizeInfo.padding[0] + resizeInfo.padding[2] 
+                }
+                if( resizeInfo.rows ){
+                    height = (height - ((resizeInfo.rows - 1) * (resizeInfo.spacing[1] ?? 0))) / resizeInfo.rows
+                }
             }
         }
+
 
         const updateData = {
             ...(target.frames?.[fId] ?? {}),
@@ -3370,12 +3352,17 @@ export default function BoardViewer({primitive,...props}){
                                             widget:{
                                                 show_extra:(d,frameId)=>{
                                                     const cellId = d.attrs.id
-                                                    const [cIdx,rIdx] = cellId.split("-")
                                                     console.log(`Toggle extra of ${frameId} / ${cellId}`)
-                                                    const mappedColumn = myState[frameId].columns[cIdx] 
-                                                    const mappedRow = myState[frameId].rows[rIdx] 
+                                                    let key
+                                                    if( myState[frameId].data){
+                                                        key = cellId
+                                                    }else{
+                                                        const [cIdx,rIdx] = cellId.split("-")
+                                                        const mappedColumn = myState[frameId].columns[cIdx] 
+                                                        const mappedRow = myState[frameId].rows[rIdx] 
+                                                        key = [mappedColumn?.idx, mappedRow?.idx].filter(d=>d).join("-")
+                                                    }
                                                     const current = primitive.frames?.[frameId]?.expand ?? {}
-                                                    const key = [mappedColumn?.idx, mappedRow?.idx].filter(d=>d).join("-")
 
                                                     if( current[key] ){
                                                         delete current[key]

@@ -18,8 +18,16 @@ const categoryMaps = {}
 
 
 const defaultWidthByCategory = {
+    34: 256,
+    63: 256,
+    138: 256,
+    109: 480,
+    122: 320,
+    123: 320,
     124: 480,
-    109: 480
+    125: 320,
+    149: 280,
+    152: 320
 }
 
 export const heatMapPalette = PrimitiveConfig.heatMapPalette
@@ -1092,6 +1100,177 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
     return g
 })*/
+
+registerRenderer( {type: "default", configs: "datatable_grid"}, function renderFunc({table, cell, renderOptions, stageOptions, ...options}){
+    const items = cell.items
+    const config = {columns: 1, padding: [0, 0, 0, 0], spacing: [10,10], ...options}
+    const itemWidth = renderOptions.width ?? config.itemSize ?? defaultWidthByCategory[items[0]?.referenceId] ?? 200
+    const maxHeight = renderOptions.maxHeight
+    let itemCount = items.length
+
+    const referenceIds = items.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
+    if( referenceIds.length > 1){
+        console.log(`Multiple types in list, selecting first`)
+    }
+    
+    let cellContentLimit = {
+            "result": 50,
+            "evidence": 150
+        }[items[0]?.type] ?? 150
+        
+        cellContentLimit = {
+            29: 63
+        }[referenceIds[0]] ?? cellContentLimit
+
+    let cellShowExtra
+    if( cellContentLimit ){
+        if( items.length > cellContentLimit){
+            //if( options.expand && options.expand.includes([column.idx, row.idx].filter(d=>d).join("-"))){
+            if( options.expand && options.expand.includes(cell.id)){
+                cellShowExtra = -1
+            }else{
+                cellShowExtra = items.length - cellContentLimit
+                itemCount = cellContentLimit
+            }
+        }
+    }
+    
+    config.columns = Math.max( renderOptions.columns, options.minColumns ?? 1, 1)
+    if( !renderOptions.columns ){
+        if( options.width ){
+            config.columns = (options.width -  config.padding[1] - config.padding[3] + config.spacing[0]) / (itemWidth + config.spacing[0]) 
+        }else{
+            config.columns = Math.max(1, Math.floor( Math.sqrt( itemCount ) ))
+        }
+    }
+
+    let width = (config.columns * itemWidth) + ((config.columns - 1) * config.spacing[0])
+    config.width =  width + config.padding[1] + config.padding[3]
+
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width
+    })
+    const bgRect = new Konva.Rect({
+        x: config.padding[3],
+        y: config.padding[0],
+        width: width,
+        name: "background",
+        fill: options.palette?.cells?.background ?? '#f9fafb'
+    });
+    g.add(bgRect);
+    let x = config.padding[3];
+    let y = config.padding[0];
+    let idx = 0;
+    let rows = 0;
+    let thisRow = [];
+
+    const columnYs = new Array(config.columns).fill(y);
+    const skipForOverflow = new Array(config.columns).fill(false);
+
+    for (let dIdx = 0; dIdx < itemCount; dIdx++) {
+        if (idx === 0){
+            rows++;
+            if( dIdx > 0){
+                columnYs.forEach((d, i)=>columnYs[i] = d +  config.spacing[0])
+            }
+        }
+
+        if (config.maxHeight && skipForOverflow[idx]) continue;
+
+        const data = items[dIdx];
+        let node;
+
+        if (data) {
+            const rConfig = (options.config === "grid" ? "default" : options.config) ?? "default";
+            node = RenderPrimitiveAsKonva(data, {
+                config: rConfig,
+                x: x,
+                y: columnYs[idx],
+                onClick: options.primitiveClick,
+                width: itemWidth,
+                placeholder: stageOptions.placeholder !== false,
+                imageCallback: stageOptions.imageCallback,
+                utils: options.utils,
+                data: options.data,
+                sectionConfig: config.sectionConfig,
+                ...options.extras
+            });
+        } else {
+            node = addExtraNode(config, options, x, y, itemWidth);
+        }
+
+        g.add(node);
+        thisRow.push(node);
+
+        const nodeHeight = node.attrs.height;
+        const nextY = columnYs[idx] + nodeHeight;
+
+        if (config.maxHeight && nextY > config.maxHeight) {
+            skipForOverflow[idx] = true;
+            //node.destroy();
+            //thisRow.pop();
+            node.clipHeight( config.maxHeight - columnYs[idx] )
+            columnYs[idx] = config.maxHeight
+        } else {
+            columnYs[idx] = nextY;
+        }
+
+        x += itemWidth + config.spacing[1];
+        idx++;
+
+        if (idx === config.columns) {
+            idx = 0;
+            x = config.padding[3] //+ config.spacing[1];
+
+            if (config.alignHeight && thisRow.length) {
+                const maxY = Math.max(...columnYs);
+                const maxHeight = thisRow
+                                .map(d => d.find('.item_background')[0]?.height() ?? 0)
+                                .reduce((a, c) => (a > c ? a : c), 0);
+
+                columnYs.fill(maxY);
+                for (const d of thisRow) {
+                    d.height(maxHeight);
+                    const bg = d.find('.item_background')[0];
+                    if (bg) bg.height(maxHeight);
+                }
+            }
+
+            y = columnYs[idx];
+            thisRow = [];
+        }
+    }
+    if( cellShowExtra  ){
+        idx = config.columns - 1
+        x = (itemWidth + config.spacing[1]) * idx
+        columnYs[idx] += config.spacing[0]
+        const node = addExtraNode({showExtra: cellShowExtra}, options, x, columnYs[idx], itemWidth);
+        columnYs[idx] += node.height() + config.spacing[0]
+        g.add(node);
+    }
+
+    const maxY = Math.max(...columnYs);
+    const newHeight = maxY + config.padding[2];
+    bgRect.height(newHeight - config.padding[0] - config.padding[2]);
+    g.height(newHeight);
+    config.height = newHeight;
+
+    g.attrs.resizeInfo = {
+        //padding: config.padding,
+        //spacing: config.spacing,
+        widthPadding: config.padding[1] + config.padding[3] + ((config.columns - 1) * config.spacing[1]),
+        columns: config.columns,
+        rows,
+    };
+
+    Object.assign(config, config);
+    if (options.getConfig) return config;
+    return g
+})
 registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemSize: 256, columns: 5, spacing: [8,12], itemPadding: [10,12,10,8], padding: [5,5,5,5], ...(options.renderConfig ?? {}), ...(options.renderOptions ?? {})}
     if( config.minWidth ){
@@ -1178,7 +1357,6 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
                         x: x, 
                         y: y, 
                         onClick: options.primitiveClick,
-                        //maxHeight: 400,
                         width: fullWidth, 
                         padding: config.itemPadding, 
                         placeholder: options.placeholder !== false,
@@ -1187,8 +1365,6 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
                     })
                 }
                 if( options.renderOptions.height && (y + node.height()) > options.renderOptions.height ){
-                    //node.destroy()
-                    //continue
                     const delta = options.renderOptions.height - node.y()
                     node.height( delta)
                     node.clipHeight(delta)
@@ -1222,7 +1398,6 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
     config.height = height + config.spacing[0]
 
     if( options.getConfig){
-        //config.cachedNodes = g
         return config
     }else{
         if( options.cachedNodes ){
@@ -4940,40 +5115,6 @@ function imageHelper(url, options){
 }
 
 
-/*
-function getRotatedPolygon(node) {
-    // Get the unrotated rectangle. This returns an object with { x, y, width, height }.
-    const rect = node.getClientRect({ skipTransform: true });
-    // Use the node's (x, y) as the pivot point.
-    //const pivot = { x: 0, y: 0};
-    const pivot = { x: rect.width / 2, y: rect.height / 2 }
-    const angle = node.rotation(); // in degrees
-    const rad = angle * Math.PI / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-  
-    // Define the four corners of the unrotated rectangle.
-    const corners = [
-      { x: rect.x, y: rect.y },
-      { x: rect.x + rect.width, y: rect.y },
-      { x: rect.x + rect.width, y: rect.y + rect.height },
-      { x: rect.x, y: rect.y + rect.height }
-    ];
-  
-    const ox = node.x() +  pivot.x
-    const oy = node.y() +  pivot.y
-    // Rotate each corner around the pivot.
-    const rotatedCorners = corners.map(corner => {
-      const dx = corner.x - pivot.x;
-      const dy = corner.y - pivot.y;
-      return {
-        x: ox +  dx * cos - dy * sin,
-        y: oy +  dx * sin + dy * cos,
-      };
-    });
-  
-    return rotatedCorners;
-  }*/
     function getRotatedPolygon(node) {
         // Get the local dimensions.
         const rect = node.getClientRect({ skipTransform: true });
@@ -6226,14 +6367,6 @@ function renderLegend( data, {colors, itemSize, height, width, maxWidth, ...opti
     sg.height(maxY)
     return sg
 
-}
-function ringWedge(options){
-    return new Konva.Shape({
-        sceneFunc: function (context, shape) {
-          
-        },
-        ...options
-      });
 }
 registerRenderer( {type: "default", configs: "dial"}, (primitive, options = {})=>{
     const config = {field: "summary", showId: true, idSize: 14, fontSize: 16, width: 400, padding: [0,0,0,0], ...options, ...(primitive.renderConfig ?? {})}
@@ -8128,10 +8261,9 @@ function renderFormattedSections( text, g, fullOptions = {} ){
 }
 
 
-export function renderDatatable({id, data, stageOptions, renderOptions, viewConfig, ...options}){
+export function renderDatatable({id, primitive, data, stageOptions, renderOptions, viewConfig, ...options}){
     const { 
         width = 128, 
-        height = 128,
     } = { 
         ...renderOptions 
     };
@@ -8141,12 +8273,50 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
         imageCallback        
     } = stageOptions
 
+    if( renderOptions.widgetConfig && primitive){
+        const g = new Konva.Group({
+            name: "view",
+            x:options.x ?? 0,
+            y:options.y ?? 0
+        })
+
+        let w, h
+        const widget = RenderPrimitiveAsKonva( primitive, {config: "widget", data: renderOptions.widgetConfig, imageCallback: options.imageCallback})
+        widget.name(widget.name() + " item_info")
+        g.add( widget )
+        w = widget.width()
+        h = widget.height()
+
+        if( renderOptions.widgetConfig.showItems ){
+
+            const padding = options.x ? [0,0,0,0] : [10,10,10,10]
+            
+            const content = renderDatatable({id, data, stageOptions, renderOptions, viewConfig, ...options})
+            if( content ){
+
+                const contentScale = Math.min(1, w / content.width() )
+                if( content.width() < w){
+                    content.x( Math.min(padding[3], (w - content.width()) / 2))
+                }
+                content.scale({x:contentScale, y:contentScale})
+                content.y( h + padding[0])
+                g.add(content)
+                
+                h = h + (content.height() * contentScale) + padding[0] + padding[2]
+            }
+        }
+
+        g.width( w  )
+        g.height( h )
+        
+        return g
+    }
+
     const g = new Konva.Group({
         id: id,
         x,
         y,
         width,
-        height,
         name:"view"
     })
 
@@ -8177,11 +8347,25 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     }
     relayConfig.show_legend = showSingleLegend ? false : legendPosition
 
+    const commonOptions = {
+        stageOptions, 
+        renderOptions: relayConfig, 
+        expand: options.expand,
+        config, 
+        maxHeight: renderOptions.height
+    }
+
     let configForCells = data.cells.reduce((a,cell)=>{
         if( cell.cIdx > maxColIdx || cell.rId > maxRowIdx){
             return a
         }
-        const cellConfig = renderer({id: cell.id, table:data, getConfig: true, renderOptions: relayConfig, config, cell})
+        const cellConfig = renderer({
+            id: cell.id, 
+            ...commonOptions,
+            table:data, 
+            getConfig: true, 
+            cell
+        })
         a[cell.id] = cellConfig
         if( cellConfig.height > rowHeights[cell.rIdx]){
             rowHeights[cell.rIdx] = cellConfig.height
@@ -8192,7 +8376,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
         return a
     },{})
     let maxDim = Math.max(...columnWidths, ...rowHeights)
-    const spacing = Math.round( maxDim * 0.05)
+    const spacing = 10//Math.round( maxDim * 0.05)
 
     const columnX = columnWidths.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + columnWidths[i - 1] + spacing : 0), acc), []);
     const rowY = rowHeights.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + rowHeights[i - 1] + spacing : 0), acc), []);
@@ -8229,6 +8413,7 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
     let legendInfo
     let legendDeltaX, legendDeltaY
 
+    const subColumnTracker = new Array(maxColIdx + 1).fill(undefined)
 
     for(const cell of data.cells){
         if( cell.cIdx > maxColIdx || cell.rId > maxRowIdx){
@@ -8243,8 +8428,8 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
             x, 
             y, 
             table: data, 
+            ...commonOptions,
             renderOptions: {...relayConfig, colorMap: legendInfo?.colorMap},
-            config, 
             cell})
 
         if( !legendInfo){
@@ -8257,6 +8442,11 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
         if( x + width > maxX){ maxX = x + width}
         if( y + height > maxY){ maxY = y + height}
         g.add(rendered)
+        if( rendered.attrs.resizeInfo ){
+            if( !subColumnTracker[ cell.cIdx ] || rendered.attrs.resizeInfo.columns > subColumnTracker[ cell.cIdx ].columns ){
+                subColumnTracker[ cell.cIdx ] = rendered.attrs.resizeInfo
+            }
+        }
     }
     if( footers?.columns){
         footers?.columns.y(maxY)
@@ -8313,12 +8503,14 @@ export function renderDatatable({id, data, stageOptions, renderOptions, viewConf
         }
     }
 
+    const subColumns = subColumnTracker.reduce((a,c)=>a + (c?.columns ?? 0), 0)
+    const widthPadding = (maxColIdx  * spacing) + subColumnTracker.reduce((a,c)=>a + (c?.widthPadding ?? 0), 0)
+
     g.attrs.resizeInfo = {
-        spacing: [spacing, spacing],
-        columns: columns.length,
+        //spacing: [spacing, spacing],
+        columns: subColumns, //columns.length,
         rows: rows.length,
-        legendDeltaX,
-        legendDeltaY
+        widthPadding
     }
 
     return g

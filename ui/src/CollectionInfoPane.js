@@ -746,7 +746,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                                     labelPlacement="outside"
                                                     minValue={viewConfig.config[d].min ?? 1}
                                                     maxValue={viewConfig.config[d].max ?? 10}
-                                                    initialValue={currentValue}
+                                                    value={currentValue}
                                                     onValueChange={onValueChange}
                                                     startContent={
                                                         <div className="pointer-events-none flex items-center">
