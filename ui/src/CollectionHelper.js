@@ -5,6 +5,8 @@ import PrimitiveConfig from "./PrimitiveConfig"
 import UIHelper from "./UIHelper"
 import { roundCurrency } from "./SharedTransforms"
 import { Temporal } from "@js-temporal/polyfill"
+import { DatePicker, Tabs, Tab } from "@heroui/react"
+import {now, getLocalTimeZone, parseAbsolute} from "@internationalized/date";
 
 
 class CollectionUtils{
@@ -85,7 +87,16 @@ class CollectionUtils{
     static updateAxisFilter(primitive, mode, filter, item, setAll, axisExtents, callback){
         console.log(item, mode, setAll)
 
+        let path = (mode === "column" || mode === "row") ? `referenceParameters.explore.axis.${mode}.filter` : `referenceParameters.explore.filters.${mode}.filter`
+
         filter = filter || {}
+        if( item.lte || item.gte){
+            primitive.setField(path, item )
+            if( callback ){
+                callback( item )
+            }
+            return
+        }
 
         const encodeMap = axisExtents.reduce((a,item)=>{
             if(item.bucket_min !== undefined || item.bucket_max !== undefined ){
@@ -117,7 +128,6 @@ class CollectionUtils{
         }
         
 
-        let path = (mode === "column" || mode === "row") ? `referenceParameters.explore.axis.${mode}.filter` : `referenceParameters.explore.filters.${mode}.filter`
 
         //const keys = Object.keys(filter ?? {}).map(d=>d === "undefined" && (filter[undefined] !== undefined) ? undefined : filter[d] ).filter(d=>d)
         const keys = Object.keys(filter ?? {}).map(d=>d === "_N_" ? undefined : encodeMap[d])
@@ -136,6 +146,7 @@ class CollectionUtils{
             id: idx, 
             track: filter.track,
             filter: PrimitiveConfig.decodeExploreFilter(filter?.filter) ?? [],
+            treatment: filter.treatment,
             rawFilter: filter?.filter ?? []
         })) : []
     }
@@ -148,6 +159,81 @@ class CollectionUtils{
         return sets.map(set=>{
             const axis = extentMap[set.selection]
             if(axis){
+                let inner = <></>
+                if(set.axis?.parameterType === "date"){
+                    let dateSetting = set.list?.gte ? "gte" : "lte"
+
+                    function updateDate(d){
+                        const val = d.toDate().toISOString()
+                        const dateObject = dateSetting === "lte" ? {lte: val} : {gte: val}
+                        updateAxisFilter( dateObject, set.mode, true, axis)
+                    }
+                    
+                    inner = <div className="flex flex-col space-y-2 py-2">
+                        <Tabs 
+                            aria-label="Options" 
+                            size="sm" 
+                            fullWidth 
+                            variant="solid" 
+                            selectedKey={dateSetting}
+                            onSelectionChange={d=>{
+                                dateSetting = d
+                                const dte = (set.list?.[dateSetting] ? parseAbsolute( set.list?.[dateSetting]) : undefined) ?? now()
+                                updateDate( dte )
+                            }}>
+                            <Tab key="gte" title="On or after"></Tab>
+                            <Tab key="lte" title="On or before"></Tab>
+                        </Tabs>
+                        <DatePicker
+                            hideTimeZone
+                            showMonthAndYearPickers
+                            granularity="second"
+                            value={ set.list?.[dateSetting] ? parseAbsolute( set.list?.[dateSetting]) : undefined}
+                            defaultValue={now()}
+                            onChange={updateDate}
+                            label="Event Date"
+                            variant="bordered"
+                        />
+                    </div>
+
+                }else{
+                    inner = <>
+                            <div className='flex space-x-2 justify-end'>
+                                <button
+                                    type="button"
+                                    className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                                    onClick={()=>updateAxisFilter(false, set.mode, true, axis)}
+                                >
+                                    Select all
+                                </button>
+                                <button
+                                    type="button"
+                                    className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                                    onClick={()=>updateAxisFilter(true, set.mode, true, axis)}
+                                >
+                                    Clear all
+                                </button>
+                            </div>
+                            <div className='space-y-2 divide-y divide-gray-200 flex flex-col bg-gray-50 border border-gray-200 rounded-lg text-sm p-2 mt-2'>
+                                {axis.map(d=>{
+                                    return (
+                                    <label
+                                        className='flex place-items-center '>
+                                        <input
+                                        aria-describedby="comments-description"
+                                        name="comments"
+                                        type="checkbox"
+                                        checked={!(set.list && set.list[d.idx === undefined ? "_N_" : d.idx] !== undefined)}
+                                        onChange={()=>updateAxisFilter(d.idx, set.mode, false, axis)}
+                                        className="accent-ccgreen-700"
+                                    />
+                                        <p className={`p-2 ${set.list && set.list[d.idx] ? "text-gray-500" : ""}`}>{d.label}</p>
+                                    </label>
+                                    )})}
+                            </div> 
+                        </>
+
+                }
                 return  <Panel title={set.title} noSpace 
                             deleteButton={
                                 set.deleteIdx === undefined
@@ -155,41 +241,7 @@ class CollectionUtils{
                                     : (e)=>{e.preventDefault();mainstore.promptDelete({message: "Remove filter?", handleDelete:()=>{deleteViewFilter(set.deleteIdx); return true}})}
                             }
                             collapsable>
-                        <>
-                        <div className='flex space-x-2 justify-end'>
-                            <button
-                                type="button"
-                                className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                                onClick={()=>updateAxisFilter(false, set.mode, true, axis)}
-                            >
-                                Select all
-                            </button>
-                            <button
-                                type="button"
-                                className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                                onClick={()=>updateAxisFilter(true, set.mode, true, axis)}
-                            >
-                                Clear all
-                            </button>
-                        </div>
-                        <div className='space-y-2 divide-y divide-gray-200 flex flex-col bg-gray-50 border border-gray-200 rounded-lg text-sm p-2 mt-2'>
-                            {axis.map(d=>{
-                                return (
-                                <label
-                                    className='flex place-items-center '>
-                                    <input
-                                    aria-describedby="comments-description"
-                                    name="comments"
-                                    type="checkbox"
-                                    checked={!(set.list && set.list[d.idx === undefined ? "_N_" : d.idx] !== undefined)}
-                                    onChange={()=>updateAxisFilter(d.idx, set.mode, false, axis)}
-                                    className="accent-ccgreen-700"
-                                />
-                                    <p className={`p-2 ${set.list && set.list[d.idx] ? "text-gray-500" : ""}`}>{d.label}</p>
-                                </label>
-                                )})}
-                        </div> 
-                        </>
+                        {inner}
                     </Panel>
             }
         })
@@ -840,7 +892,38 @@ class CollectionUtils{
             "date": (field)=>{
                 const mode = "year"//axis.axisData.dateOptions[0]
 
-                function convert(date){
+                function makeConverter(mode) {
+                const pad2 = n => (n < 10 ? "0" : "") + n;
+
+                switch (mode) {
+                    case "day":
+                    // e.g., 2025-217 (year-dayOfYear)
+                    return d => `${d.year()}-${d.dayOfYear()}`;
+
+                    case "week":
+                    // ISO week: YYYY-WWW
+                    return d => {
+                        const y = d.isoWeekYear();
+                        const w = d.isoWeek();
+                        return `${y}-W${w < 10 ? "0" : ""}${w}`;
+                    };
+
+                    case "month":
+                    // YYYY-MM
+                    return d => `${d.year()}-${pad2(d.month() + 1)}`;
+
+                    case "year":
+                    return d => String(d.year());
+
+                    default:
+                    return () => "";
+                }
+                }
+
+                // usage
+                const convert = makeConverter(mode);
+
+                /*function convert(date){
                     if( mode === "day"){
                         return date.year() + "-" + date.dayOfYear()
                     }else if( mode === "week"){
@@ -850,7 +933,7 @@ class CollectionUtils{
                     }else if( mode === "year"){
                         return date.format('YYYY');
                     }
-                }
+                }*/
 
                 let minDate, maxDate
                 for(const d of interim){
@@ -867,7 +950,7 @@ class CollectionUtils{
                         d[field] = convert(date)
                     }
                 }
-                if( maxDate && mode === "day"){
+                /*if( maxDate && mode === "day"){
                     for(const d of interim){
                         let date = moment(d["original_" + field])
                         if( maxDate.diff(date, "d") > 30){
@@ -878,10 +961,7 @@ class CollectionUtils{
                         minDate = maxDate.clone().subtract(30, "d");
                     }
 
-                }
-                if( minDate < moment("1995-01-01")){
-                    minDate = moment("1995-01-01")
-                }
+                }*/
                 if( minDate && maxDate){
                     let bucketCount = maxDate.diff( minDate, mode) + 1
                     let buckets = new Array(bucketCount).fill(0).map((_,i)=>convert(minDate.clone().add(i, mode)))
@@ -1027,25 +1107,23 @@ class CollectionUtils{
         if( viewFilters ){
             defs.viewFilters = viewFilters
         }
-        
-        const allocations = viewFilters.slice(0,1).map(d=>{
-            if( d ){
-                defs.allocations = [d]
-                const field = "filterGroup0"
-                if( otherExtents[field] && d.filter){
-                    const filterToCheck = typeof( d.filter[0] ) === "object" ? d.filter.map(d=>d ? d.idx : d) : d.filter
 
-                    otherExtents[field]= otherExtents[field].filter(f=>{
+         const allocations = viewFilters.map((d,i)=>d.treatment === "allocation" || (d.treatment === undefined && i === 0) ? ({field: `filterGroup${i}`, ...d}) : undefined).filter(Boolean)
+        
+        allocations.forEach(d=>{
+            defs.allocations = [d]
+            if( otherExtents[d.field] && d.filter){
+                if( Array.isArray(d.filter) ){
+                    const filterToCheck = typeof( d.filter[0] ) === "object" ? d.filter.map(d=>d ? d.idx : d) : d.filter
+                    otherExtents[d.field]= otherExtents[d.field].filter(f=>{
                         if( f.idx === "_N_" && (d.filter.includes(undefined) || d.filter.includes(null))){
                             return false
                         }
                         return !filterToCheck.includes(f.idx)
                     })
                 }
-                return {...d, field}
             }
-            return undefined
-        }).filter(d=>d)
+        })
 
                 
         let {data: filtered, columns: finalColumns, rows: finalRows} = CollectionUtils.filterCollectionAndAxis( data, filters , {columns: columnExtents, rows: rowExtents, otherExtents, hideNull, skipItemsFilter: alreadyFiltered})
@@ -1119,6 +1197,50 @@ class CollectionUtils{
                 }
                 if( allocations?.length > 0 ){
                     cell.allocations = {}
+                    const maxAllocationIdx = allocations.length - 1
+                    function buildAllocations( target, idx, subList ){
+                        const d = allocations[idx]
+                        if( otherExtents[d.field] ){
+                            target[d.field] = otherExtents[d.field].map((c)=>{
+                                const o = {
+                                    idx: c.idx, 
+                                    label: c.label, 
+                                    count: 0, 
+                                    items: [],
+                                }
+                                if( idx < maxAllocationIdx ){
+                                    o.allocations = {}
+                                    o.collection = []
+                                }
+                                return o
+                            })
+                            const pos = Object.fromEntries(target[d.field].map((d,i)=>[d.idx, i]))
+                            for(const item of subList){
+                                const parts = [item[d.field]].flat()
+                                for( const part of parts){
+                                    if( target[d.field][pos[part]] ){
+                                        target[d.field][pos[part]].count++
+                                        target[d.field][pos[part]].items.push( item.primitive)
+                                        if( idx < maxAllocationIdx ){
+                                            target[d.field][pos[part]].collection.push( item )
+                                        }
+                                    }else{
+                                        console.warn(`Couldnt find ${part}`)
+                                    }
+                                }
+                            }
+                            if( idx < maxAllocationIdx ){
+                                for( const nest of Object.values(target) ){
+                                    for( const d of nest){
+                                        buildAllocations( d.allocations, idx + 1, d.collection )
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                    buildAllocations( cell.allocations, 0, subList)
+                    /*console.log(cell._allocations)
                     allocations.forEach((d)=>{
                         if( otherExtents[d.field] ){
                             cell.allocations[d.field] = otherExtents[d.field].map((c)=>({idx: c.idx, label: c.label, count: 0, items: []}))
@@ -1135,7 +1257,7 @@ class CollectionUtils{
                                 }
                             }
                         }
-                    })
+                    })*/
                 }
                 if( config.timeseries ){
                     const resScale = {

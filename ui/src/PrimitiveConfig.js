@@ -958,6 +958,9 @@ const PrimitiveConfig = {
         if( !filter){
             return filter
         }
+        if( typeof(filter) === "object" && !Array.isArray(filter) ){
+            return filter
+        }
         return filter.reduce((a,c)=>{
             if( c instanceof Object ){
                 a[c.idx] = c
@@ -974,6 +977,8 @@ const PrimitiveConfig = {
 
         if( val instanceof Object && !Array.isArray(val)){
             if( val.bucket_min !== undefined || val.bucket_max !== undefined ){
+            }else if( val.lte !== undefined || val.gte !== undefined ){
+                invert = !invert
             }else if(option?.type === "segment_filter"){
             }else if(option?.type === "icon"){
                 val = val.label
@@ -1049,9 +1054,9 @@ const PrimitiveConfig = {
         }
         if( filter.value ){
             if( Array.isArray(filter.value)){
-                isRange = filter.value.find(d=>d?.min_value !== undefined || d?.max_value !== undefined)
+                isRange = filter.value.find(d=>d?.gte !== undefined || d?.lte !== undefined || d?.min_value !== undefined || d?.max_value !== undefined )
             }else{
-                isRange = filter.value.min_value !== undefined || filter.value.max_value !== undefined
+                isRange = filter.value.gte !== undefined || filter.value.lte !== undefined || filter.value.min_value !== undefined || filter.value.max_value !== undefined
             }
         }
 
@@ -2118,13 +2123,28 @@ const PrimitiveConfig = {
 
             let doCheck
             if( isRange ){
-                doCheck =  (d)=>{
-                    return check.find(c=>{
-                        if( !c || (c.min_value === null && c.max_value === null) ){
-                            return (d === null || d === undefined)
-                        }
-                        return (d >= (c.min_value ?? -Infinity) && d <= (c.max_value ?? Infinity))
-                    }) !== undefined
+                let c = check.find(Boolean)
+                if( !c || c.hasOwnProperty("min_value") || c.hasOwnProperty("max_value") ){
+                    doCheck =  (d)=>{
+                        return check.find(c=>{
+                            if( !c || (c.min_value === null && c.max_value === null) ){
+                                return (d === null || d === undefined)
+                            }
+                            return (d >= (c.min_value ?? -Infinity) && d <= (c.max_value ?? Infinity))
+                        }) !== undefined
+                    }
+                }else if( c.hasOwnProperty("gte") ){
+                    doCheck =  (d)=>{
+                        return check.find(c=>{
+                            return d >= c.gte
+                        }) !== undefined
+                    }
+                }else if( c.hasOwnProperty("lte") ){
+                    doCheck =  (d)=>{
+                        return check.find(c=>{
+                            return d <= c.lte
+                        }) !== undefined
+                    }
                 }
             }else if( resolvedFilterType === "segment_filter"){
                 doCheck = (d)=>{

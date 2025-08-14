@@ -3387,7 +3387,7 @@ registerRenderer({ type: "categoryId", id: 109, configs: "summary_section" }, fu
 
   const visit = (node) => {
     if (!node) return;
-    const thisSectionConfig = options.sectionConfig[node.heading] ?? {}
+    const thisSectionConfig = options?.sectionConfig?.[node?.heading] ?? {}
     const renderer = (thisSectionConfig.sectionStyle ? RENDERERS.find(d=>d.name === thisSectionConfig.sectionStyle) : undefined) ?? chooseRenderer(node);
     if( thisSectionConfig.show == false){
         return
@@ -3440,6 +3440,12 @@ registerRenderer({ type: "categoryId", id: 109, configs: "summary_section" }, fu
       visit({ heading: "summary", content: data[0]?.content ?? data[0]?.heading });
     }*/
 
+    if( options.sectionConfig?.segment_title){
+    const res = titleRenderer.render({ ...ctxBase, config: {...ctxBase.config, fontSize: (ctxBase.config.fontSize ?? 16) * 1.2 }, y }, {content: primitive.filterDescription}) || { heightConsumed: 0 };
+    let consume = clampHeight(res.heightConsumed || 0);
+    if (availableHeight != null && consume <= 0) return;
+    y += consume - ctxBase.spaceY;
+    }
     for (const node of data) {
       if (availableHeight != null && (y - config.padding[0]) >= availableHeight) break;
       visit(node);
@@ -5948,57 +5954,91 @@ function renderBarChart( segments, options = {}){
     })
     let showValue = options.showValue
     const asPercent = options.showValue === "percent"
-    const barWidth = options.stack ? width : width / segments.length
+    const subSegments = options.sublabels?.items?.length ?? 1
+    const subSegmentGap = subSegments === 1 ? 0 : 0.2
+    const widthToUse = width * (1 - subSegmentGap)
+    const barWidth = options.stack ? width : widthToUse / (segments.length * subSegments)
+    const segmentGap = (width * subSegmentGap) / (segments.length - 1)
     const barBase = height - 0.2
     const barSize = height - 0.2
-    //const maxValue = options.stack ? segments.map(d=>d?.count ?? 0).reduce((a,c)=>c + a,0) : (asPercent ? 100 : segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0))
-    const total = segments.reduce((a,d)=>a+(d.count ?? 0), 0)
-    const maxValue = options.stack ? segments.map(d=>d?.count ?? 0).reduce((a,c)=>c + a,0) : (segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0) * (asPercent ? (100/total) : 1))
-    const scale = barSize / maxValue 
+
+    const totals = [];
+    let maxValues = []
+    for (const { count } of segments) {
+        if (Array.isArray(count)) {
+            for (let i = 0; i < count.length; i++) {
+                const v = count[i] ?? 0
+                totals[i] = (totals[i] ?? 0) + v;
+                if( options.stack ){
+                    maxValues[i] += v
+                }else{
+                    if( !maxValues[i] || v > maxValues[i]){
+                        maxValues[i] = v
+                    }
+                }
+            }
+        } else {
+            const v = (count ?? 0)
+            totals[0] = (totals[0] ?? 0) + v;
+            if( options.stack ){
+                maxValues[0] += v
+            }else{
+                if( !maxValues[0] || v > maxValues[0]){
+                    maxValues[0] = v
+                }
+            }
+        }
+    }
+    if( !options.stack && asPercent ){
+        maxValues = maxValues.map((d,i)=>d * 100 / totals[i])
+
+    }
+    //const maxValues = options.stack ? segments.map(d=>d?.count ?? 0).reduce((a,c)=>c + a,0) : (segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0) * (asPercent ? (100/total) : 1))
     let colors = options.colors ?? categoryColors
     
-
-
+    
     const fontSize = 4
-    let x = 0, idx = 0, y = barBase
+    let x = 0, idx = 0, y = barBase, subIdx = 0
     for( const s of  segments){
-        const count = asPercent ? 100 * s.count / total : s.count
-        const h = count * scale
-        if( h > 0){
-
-            var bar = new Konva.Rect({
-                x: x,
-                y: y - h,
-                width: barWidth,
-                height: h,
-                fill: s.color ?? colors[idx % colors.length],
-                name: "cell clickable hover",
-                id: `0-${s.idx}`,
-            });
-            g.add(bar)
-        }
-        if( showValue ){
-            const t = new CustomText({
-                x: x,
-                y: (barBase - h) - fontSize * 1.2,
-                fontSize: fontSize,
-                text: asPercent ? `${count.toFixed(0)}%` : count,
-                align:"center",
-                fill: '#334155',
-                bgFill: 'transparent',
-                width: barWidth,
-                align: "center",
-                refreshCallback: options.imageCallback
+        [s.count].flat().forEach((ss, iIdx)=>{
+            const scale = barSize / maxValues[iIdx] 
+            const count = asPercent ? 100 * ss / totals[iIdx] : ss
+            const h = count * scale
+            if( h > 0){
+                var bar = new Konva.Rect({
+                    x: x,
+                    y: y - h,
+                    width: barWidth,
+                    height: h,
+                    fill: s.color ?? colors[idx % colors.length],
+                    name: "cell clickable hover",
+                    id: `0-${s.idx}`,
+                });
+                g.add(bar)
+            }
+            if( showValue ){
+                const t = new CustomText({
+                    x: x,
+                    y: (barBase - h) - fontSize * 1.2,
+                    fontSize: fontSize,
+                    text: asPercent ? `${count.toFixed(0)}%` : count,
+                    align:"center",
+                    fill: '#334155',
+                    bgFill: 'transparent',
+                    width: barWidth,
+                    align: "center",
+                    refreshCallback: options.imageCallback
                 })
-            g.add(t)
-        }
+                g.add(t)
+            }
+            if( options.stack){
+                y -= h
+            }else{
+                x += barWidth
+            }
+        })
         idx++
-        if( options.stack){
-            y -= h
-
-        }else{
-            x += barWidth
-        }
+        x += segmentGap
     }
     return g
 }
@@ -6201,8 +6241,25 @@ function renderSubCategoryChart( title, data, options = {}){
 
 
     let mainChart
-    if( options.style ==="bar" || options.style ==="stacked_bar"  ){
-        mainChart = renderBarChart(data, {width: usableWidth, height: usableHeight, x: innerPadding[3], barHeght: options.scale ? usableHeight * options.scale : undefined, y: innerPadding[0], colors: colors, showValue: options.showValue, stack: options.style === "stacked_bar"})
+
+    if( options.style ==="bar" || options.style ==="stacked_bar"   ){
+        const barGraphOptions = {
+            width: usableWidth, 
+            height: usableHeight, 
+            x: innerPadding[3], 
+            barHeght: options.scale ? usableHeight * options.scale : undefined, 
+            y: innerPadding[0], 
+            colors: colors, 
+            showValue: options.showValue, 
+            stack: options.style === "stacked_bar",
+            sublabels: options.sublabels
+        }
+
+        if( options.style ==="bar" ){
+            mainChart = renderBarChart(data, barGraphOptions)
+        }else if( options.style ==="stacked_bar"  ){
+            mainChart = renderBarChart(data, barGraphOptions)
+        }
     }else if( options.style === "weighted"){
         showLegend = false
         const { weightedSum, totalCount } = data.reduce(
@@ -6645,8 +6702,32 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
     const width = renderOptions.width ?? config.itemSize
     const height = renderOptions.height ?? config.itemSize
 
+
+    function sortByOrder(values){
+        if( renderOptions.order === "high_to_low"){
+            return values.sort((a,b)=>b.count - a.count)
+        }else if( renderOptions.order === "low_to_high"){
+            return values.sort((a,b)=>a.count - b.count)
+        }
+        return values
+    }
+
     const count = cell.count
     let values = Object.values(cell.allocations ?? {})?.[0]
+    let sublabels
+    if( Object.keys(table.allocations ?? {}).length > 1 ){
+        values = sortByOrder(values)
+        values = values.map(d=>({label:d.label, count: Object.values(d.allocations)[0].map(d=>d.count)}))
+        sublabels = Object.values(table.allocations)[1]
+        if( renderOptions.style !== "bar"){
+            values = values.map(d=>d[0])
+            sublabels = null
+        }
+    }else{
+        values = Object.values(values)
+        values = sortByOrder(values)
+    }
+    
     if( !values ){
         values = [{count:cell.count, label: "Count"}]
     }
@@ -6662,11 +6743,6 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
     }
 
     
-    if( renderOptions.order === "high_to_low"){
-        values = values.sort((a,b)=>b.count - a.count)
-    }else if( renderOptions.order === "low_to_high"){
-        values = values.sort((a,b)=>a.count - b.count)
-    }
     
 
     let g = new Konva.Group({
@@ -6677,7 +6753,7 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         width,
         height
     })
-    const sg = renderSubCategoryChart("", Object.values(values), {
+    const sg = renderSubCategoryChart("", values, {
         x: 0,//config.itemSize,// * (renderOptions.show_legend ? 0.1 : 0), 
         y: 0, 
         width: width - config.padding[1] - config.padding[3],
@@ -6686,6 +6762,7 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         style: renderOptions.style, 
         hideTitle: true, 
         paletteName: renderOptions.colors,
+        sublabels,
         scale,
         max,
         min,
@@ -8347,12 +8424,14 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
     }
     relayConfig.show_legend = showSingleLegend ? false : legendPosition
 
+    let configName = viewConfig?.renderType ?? "grid" 
     const commonOptions = {
         stageOptions, 
         renderOptions: relayConfig, 
         expand: options.expand,
-        config, 
-        maxHeight: renderOptions.height
+        config: configName, 
+        maxHeight: renderOptions.height,
+        sectionConfig: primitive?.getConfig.sections
     }
 
     let configForCells = data.cells.reduce((a,cell)=>{

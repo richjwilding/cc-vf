@@ -86,7 +86,7 @@ class FlowQueueClass extends BaseQueue {
                     if(!result.started){
                         const counter = result.error ? "error_steps" : "completed_steps"
                         await Primitive.updateOne(
-                            { _id: primitive },
+                            { _id: primitive.id },
                             { $inc: { [`processing.flow.audit.${counter}`]: 1 }}
                         );
                     }

@@ -14,6 +14,7 @@ import AnimatedKonvaProgressBar from "./AnimatedKonvaProgressBar";
 import { instance } from "@viz-js/viz";
 import PrimitiveConfig from "./PrimitiveConfig";
 import { useRunningAnimation } from "./@components/RunningAnimation";
+import { useVizInstance } from "./@components/useVizInstance";
 
 
 /**
@@ -59,6 +60,7 @@ export default function WorkflowStructurePreview({ statusMap, ...props }) {
   const offsetRef = useRef(0);
   const [update, setUpdate] = useState({})
   const [ready, setReady] = useState(false)
+  const vizRef = useVizInstance();
 
 
   const { nodes, edges, visibleIds } = useMemo(() => {
@@ -89,16 +91,20 @@ export default function WorkflowStructurePreview({ statusMap, ...props }) {
 
   // 2) Compute x/y positions for each node using a simple tree layout
   const positions = useMemo(() => {
-    let maxX = 0, maxY = 0
-    const pos = computeTreeLayout(nodes, edges, NODE_WIDTH * 1, NODE_HEIGHT * 1, ()=>{
-      for(const p of Object.values(positions)){
-        if( p.x > maxX ){maxX = p.x + NODE_WIDTH}
-        if( p.y > maxY ){maxY = p.y + NODE_HEIGHT}
-      }
-      setReady({maxX, maxY})
-    });
-    return pos
-  }, [nodes, edges]);
+    console.log(`rerun pos ${vizRef}`)
+    if( vizRef ){
+
+      let maxX = 0, maxY = 0
+      const pos = computeTreeLayout(vizRef, nodes, edges, NODE_WIDTH * 1, NODE_HEIGHT * 1, (positions)=>{
+        for(const p of Object.values(positions)){
+          if( p.x > maxX ){maxX = p.x + NODE_WIDTH}
+          if( p.y > maxY ){maxY = p.y + NODE_HEIGHT}
+        }
+        setReady({maxX, maxY})
+      });
+      return pos
+    }
+  }, [vizRef, nodes, edges]);
 
   useRunningAnimation(layerRef, offsetRef);
 
@@ -239,15 +245,13 @@ export default function WorkflowStructurePreview({ statusMap, ...props }) {
       </AutoSizer>
   );
 }
-function computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100, ready) {
+function computeTreeLayout(viz, nodes, edges, hSpacing = 200, vSpacing = 100, ready) {
   let positions = {};
   for(const node of nodes){
     positions[node.id] = {x:0,y:0}
   }
+   let cancelled = false;
   (async () => {
-    // 1. Instantiate the Viz.js engine
-    const viz = await instance();
-
     function graphToDot({ nodes, edges }) {
       const midNodes = []
       const maxNodes = []
@@ -282,6 +286,7 @@ function computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100, ready) 
       if( nodes.length > 0){
 
         const layout = viz.renderJSON(dotSource);
+        if (cancelled) return;
         
         for(const node of layout.objects){
           if(node.pos){
@@ -289,12 +294,14 @@ function computeTreeLayout(nodes, edges, hSpacing = 200, vSpacing = 100, ready) 
             positions[node.name] = {x: parseFloat(x), y: parseFloat(y)}
           }
         }
-        ready()
+        ready(positions)
       }      
     } catch (err) {
       console.error("Graphviz layout error:", err);
     }
   })();
+
+   computeTreeLayout.cancel = () => { cancelled = true; };
 
   return positions;
 

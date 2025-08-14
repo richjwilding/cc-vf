@@ -16,6 +16,10 @@ window.setupPPTX = ()=>{
     return createPptx()
 }
 
+function sanitizeText(input) {
+  return input.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+}
+
 
 export async function exportKonvaToPptx( stage, pptx, options = {} ){
     try{
@@ -317,7 +321,7 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
 
                     if( textObjs.length > 0){
 
-                        slide.addText(textObjs, {
+                        slide.addText(textObjs.map(d=>({...d, text: sanitizeText(d.text)})), {
                             x: rx, y: ry, w: rw * 1.01, h: rh,
                             fontFace:           DF,
                             fontSize:           DS,

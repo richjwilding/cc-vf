@@ -6,7 +6,7 @@ import { getLogger } from './logger';
 import "./action_register"
 const asyncLocalStorage = require('./asyncLocalStorage');
 
-const logger = getLogger('job-worker', 'info'); // Debug level for moduleA
+const logger = getLogger('job-worker', 'debug'); // Debug level for moduleA
 
 let queueObject
 let isTerminating = false;
@@ -62,8 +62,13 @@ messageHandler['terminate'] = async ()=>{
         logger.info(`[Worker] Termination requested for queue: ${workerData.queueName}`, {  type: workerData.type });
         isTerminating = true;
 
+        try { await mongoose.connection.close() } catch {}
+        logger.info(`[Worker] MongoDB connection closed for queue: ${workerData.queueName}`, { type: workerData.type });
+        try { await redisClient.quit() } catch {}
+        logger.info(`[Worker] Redis closed: ${workerData.queueName}`, { type: workerData.type });
+        process.exit(0);
+
         mongoose.connection.close(() => {
-            logger.info(`[Worker] MongoDB connection closed for queue: ${workerData.queueName}`, { type: workerData.type });
             process.exit(0);
         });
 }
@@ -130,6 +135,8 @@ async function getQueueObject(type) {
             return;
         }
 
+        const parentMeta = job.parent ? { id: job.parent.id, queueName: job.parent.queueKey.slice(5) } : null;
+
         const isCancelled = await redisClient.get(`job:${job.id}:cancel`);
         if (isCancelled === 'true') {
             parentPort.postMessage({ result: 'cancelled', queueName, jobId: job.id });
@@ -139,7 +146,7 @@ async function getQueueObject(type) {
             logger.info(`\n\nThread running for ${workerData.queueName}`, {  type: workerData.type, attemptsMade: job.attemptsMade, token });
             if( job.attemptsMade > 1 ){
                 logger.debug(`===> Sending endJob message B ${job.id}`, { type: workerData.type });
-                await queueObject.default().endJob({ success: true, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
+                await queueObject.default().endJob({ success: true, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token, parent: parentMeta })
                 return
             }
             parentPort.postMessage({ type: "startJob", queueName, jobId: job.id, token: token });
@@ -163,9 +170,9 @@ async function getQueueObject(type) {
 
 
             await asyncLocalStorage.run(new Map(), async () => {
-                if(queueObject.default().resetChildWaiting){
+                /*if(queueObject.default().resetChildWaiting){
                     children = await queueObject.default().resetChildWaiting(queueName, job.id)
-                }
+                }*/
                 const store = asyncLocalStorage.getStore();
                 store.set('parentJob', job);
                 logger.debug(`---- ${queueName} set parentJob to ${job.id}`)
@@ -179,12 +186,12 @@ async function getQueueObject(type) {
                     logger.debug(`Error in ${workerData.type} queue during job processing: ${e.stack}`, { type: workerData.type });
                     logger.debug(e.stack)
                     //parentPort.postMessage({ result, success: false, error: e, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
-                    await queueObject.default().endJob({ result, success: false, error: e, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
+                    await queueObject.default().endJob({ result, success: false, error: e, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token, parent: parentMeta })
                     throw e;
                 } finally {
                     clearInterval(lockExtension);
                 }
-                let children
+                /*let children
                 if(queueObject.default().getChildWaiting){
                     children = await queueObject.default().getChildWaiting(queueName, job.id)
                     logger.debug(`Got children count ${children} for ${queueName} / ${job.id} token = ${token}`)
@@ -217,7 +224,21 @@ async function getQueueObject(type) {
                             throw new WaitingChildrenError();
                         }
                     }
+                }*/
+                clearInterval(lockExtension); // <— stop keepalive BEFORE moving state
+
+                // Ask BullMQ to park if there are outstanding deps.
+                // v4.2 returns a boolean: true => parent was moved to waiting-children.
+    logger.debug(`calling moveToWait for ${job.id}`)
+                const shouldWait = await job.moveToWaitingChildren(token);
+
+                if (shouldWait) {
+                    // IMPORTANT: do not call your endJob here — the worker will handle rescheduling.
+    logger.debug(`shouldWait -> throwing ${job.id}`)
+                    throw new WaitingChildrenError();
                 }
+    logger.debug(`continuing to finish ${job.id}`)
+
                 const reschedule = result?.reschedule
                 if( reschedule ){
                     if( job.parent ){
@@ -231,7 +252,7 @@ async function getQueueObject(type) {
                     result = "Reschedule requested"
                 }
                 logger.debug(`===> Sending endJob message A ${job.id}`, { type: workerData.type });
-                await queueObject.default().endJob({ success: true, error: result?.error, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token })
+                await queueObject.default().endJob({ success: true, error: result?.error, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token, parent: parentMeta })
 
 //                parentPort.postMessage({ /*result,*/ success: true, error: result?.error, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
             });

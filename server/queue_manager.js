@@ -131,13 +131,15 @@ class QueueManager {
                                 await this.resetChildWaiting(message.queueName, message.jobId)
 
 
-                                const parentJobFromRedis = await this.redis.get(`job:${message.jobId}:parent`)
+                                //const parentJobFromRedis = await this.redis.get(`job:${message.jobId}:parent`)
+                                const parentJob = message.parent || null;
+                                console.log(parentJob)
                                 
                                 this.setQueueActivity(message.queueName, false);
                                 await this.redis.del(`job:${message.jobId}:cancel`);
-                                await this.redis.del(`job:${message.jobId}:parent`)
+                                //await this.redis.del(`job:${message.jobId}:parent`)
 
-                                let parentJob
+                                /*let parentJob
                                 if( parentJobFromRedis ){
                                         try{
                                             parentJob = JSON.parse( parentJobFromRedis )
@@ -147,8 +149,8 @@ class QueueManager {
                                             logger.error(error.stack)
                                         }
                                     
-                                }
-                                logger.debug(`Sending notification from ${this.type} ${message.jobId} (${message.requestId})`)
+                                }*/
+                                logger.debug(`Sending notification from ${this.type} ${message.jobId} (${message.requestId}) `, {parentJob})
                                 const childResponse = await this.sendNotification(
                                     message.jobId,{
                                         result: message.result,
@@ -162,6 +164,7 @@ class QueueManager {
                                 logger.verbose(`Got child response `, childResponse)
 
                                 if( parentJob ){
+                                    console.log(`--- ParentJob`)
                                     if( childResponse?.keepAlive ){
                                         logger.info(`--- Child ${message.jobId} requested to not notify parent ${parentJob.id}`)
                                     }else{
@@ -169,7 +172,7 @@ class QueueManager {
                                         const qo = this.getQueueObject(qType)
                                         
                                         let grandparentJob
-                                        const grandparentJobFromRedis = await this.redis.get(`job:${parentJob.id}:parent`)
+                                        /*const grandparentJobFromRedis = await this.redis.get(`job:${parentJob.id}:parent`)
                                         if( grandparentJobFromRedis ){
                                             try{
                                                 grandparentJob = JSON.parse( grandparentJobFromRedis )
@@ -180,6 +183,21 @@ class QueueManager {
                                                 logger.error(error)
                                                 logger.error(error.stack)
                                             }
+                                        }*/
+                                       try {
+                                            const parentJobObject = await this.getJobFromQueue({
+                                                queueName: parentJob.queueName,
+                                                id: parentJob.id
+                                            });
+                                            if (parentJobObject?.parent) {
+                                                grandparentJob = {
+                                                    id: parentJobObject.parent.id,
+                                                    queueName: parentJobObject.parent.queueKey.slice(5)
+                                                };
+                                                logger.info(`---- GRANDPARENT `, grandparentJob)
+                                            }
+                                        } catch (e) {
+                                            logger.error('Error fetching grandparent from BullMQ', e);
                                         }
                                         
                                         logger.info(`Sending notification for child ${qType} from msgId ${message.jobId} (${message.requestId}) to ${this.type} ${grandparentJob?.id} `)
@@ -246,9 +264,8 @@ class QueueManager {
                                        const childId =  await queue.addJob( message.workspaceId, jobData, jobOptions)
                                        logger.info(`Child ID added ${childId} on ${jobOptions.parent.id} / ${jobOptions.parent.queue}`) 
                                        logger.debug(`Set Redis parent job:${childId}:parent to ${JSON.stringify(parentJob)}`)
-                                        await this.redis.set(`job:${childId}:parent`, JSON.stringify(parentJob));
-
-                                        this.markChildWaiting( parentJob.queueName, parentJob.id)
+                                        //await this.redis.set(`job:${childId}:parent`, JSON.stringify(parentJob));
+                                        //this.markChildWaiting( parentJob.queueName, parentJob.id)
                                         
                                         worker.postMessage({
                                             type: 'addJobResponse',
@@ -493,7 +510,7 @@ class QueueManager {
                         reject(new Error('addJob timed out'));
                         this.pendingRequests.delete(requestId);
                     }
-                }, 5000); // Timeout after 5 seconds
+                }, 15000); // Timeout after 15 seconds
             });
         };
 
@@ -668,7 +685,7 @@ class QueueManager {
                                 await job.updateProgress(1); 
                             }catch(e){
                                 logger.error(`ERROR EXTENDING LOCK FOR JOB ${job.id}`);
-                                logger.erroro(e)
+                                logger.error(e)
                             }
 
                         }

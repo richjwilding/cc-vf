@@ -2045,7 +2045,7 @@ export default function BoardViewer({primitive,...props}){
                     if( resizeInfo.padding){
                         width -= resizeInfo.padding[1] + resizeInfo.padding[3] 
                     }
-                    width = (width - ((resizeInfo.columns - 1) * (resizeInfo.spacing[0] ?? 0))) 
+                    width = (width - ((resizeInfo.columns - 1) * (resizeInfo.spacing?.[0] ?? 0))) 
                 }
                 if( resizeInfo.columns){
                     width = width / resizeInfo.columns

@@ -300,7 +300,12 @@ app.get('/api/status', (req, res) => {
     if (req.user) {
         res.status(200).json( {
             logged_in: true, 
-            user: req.user
+            user: req.user,
+            env: {
+              GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+              GOOGLE_API_KEY: process.env.GOOGLE_API_KEY
+
+            }
         })
     } else {
         res.status(200).json( {logged_in: false})

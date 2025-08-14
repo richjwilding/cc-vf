@@ -635,10 +635,21 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             let {_, extents} = CollectionUtils.mapCollectionByAxis( fullList, columnAxis, rowAxis, viewFilters, liveFilters, viewPivot )
 
             const sets = [
-                {selection: "column", mode: "column", title: "Columns", list: colFilter},
-                {selection: "row", mode: "row", title: "Rows", list: rowFilter},
-                ...localFilters.map((d,idx)=>({selection:  `filterGroup${idx}`, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, mode: idx, list: d.filter}))
+                {selection: "column", mode: "column", title: "Columns", list: colFilter, axis: columnAxis},
+                {selection: "row", mode: "row", title: "Rows", list: rowFilter, axis: rowAxis},
+                ...localFilters.map((d,idx)=>({axis: axisOptions[d.option], selection:  `filterGroup${idx}`, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, treatment: d.treatment, mode: idx, list: d.filter}))
             ]
+
+            const forFilters = sets.filter((d,i)=> d.treatment === "filter" || (d.treatment === undefined && i !== 2) )
+            const forAllocations = sets.slice(2).filter((d,i)=> d.treatment === "allocation" || (d.treatment === undefined && i === 0) )
+
+            return [
+                filterAllocationsPane({mode:"filter", sets: forFilters, extents, axisOptions, rowFilter, colFilter, viewFilters, totalItems: fullList.length}),
+                filterAllocationsPane({mode:"allocation", sets: forAllocations, extents, axisOptions, rowFilter, colFilter, viewFilters, totalItems: fullList.length}),
+            ]
+        }
+        function filterAllocationsPane({mode, sets, extents, axisOptions, rowFilter, colFilter, viewFilters, totalItems}){
+            const primitiveForFilter = frame
 
             const addViewFilter = (item)=>{
                 const axis = axisOptions[item]
@@ -652,6 +663,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         subtype: axis.subtype,
                         parameter: axis.parameter,
                         relationship: axis.relationship,
+                        treatment: mode,
                         access: axis.access,
                         value: undefined
                     }
@@ -706,11 +718,13 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
 
                 }
             )
+            const isFilter = mode === "fitler"
+            const isAllocation = !isFilter
             return <>
-                    <p className="text-xs mt-1">Filtered from {fullList.length} to {list.length} items</p>
+                    <p className="text-xs mt-1">Filtered from {totalItems} to {list.length} items</p>
                     <div className='w-full px-1 py-2 text-lg flex place-items-center justify-between text-gray-600 font-normal'>
-                        <TooggleButton title='Hide empty rows / columns' enabled={hideNull} setEnabled={updateHideNull}/>
-                        <HierarchyNavigator noBorder portal icon={<HeroIcon icon='FunnelPlus' className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' action={(d)=>addViewFilter(d.id)} dropdownWidth='w-64' className='ml-auto hover:text-ccgreen-800 hover:shadow-md'/>
+                        {isFilter && <TooggleButton title='Hide empty rows / columns' enabled={hideNull} setEnabled={updateHideNull}/>}
+                        <HierarchyNavigator noBorder portal icon={isFilter ? <HeroIcon icon='FunnelPlus' className='w-5 h-5 '/> : <Icon icon="material-symbols:scatter-plot"  className='w-5 h-5 '/>} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' action={(d)=>addViewFilter(d.id)} dropdownWidth='w-64' className='ml-auto hover:text-ccgreen-800 hover:shadow-md'/>
                     </div>
                     <div className='w-full p-2 text-sm space-y-2 overflow-y-scroll'>
                         {filterList}
@@ -774,14 +788,24 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                         </UIHelper.Panel>
                     </div>
         }
-        function filterPanel(){
-            return <div className="space-y-2">
+        function filterAndAllocationsPanels(){
+            const [filterPanel, allocationsPanel] = filterPane()
+            return <>
+                    <div className="space-y-2">
                         <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
-                            <UIHelper.Panel title="Filters" icon={<FontAwesomeIcon icon={["fal", "filter"]} />}>
-                                        {filterPane}
+                            <UIHelper.Panel title="Pivots" icon={<FontAwesomeIcon icon={["fal", "filter"]} />}>
+                                        {allocationsPanel}
                             </UIHelper.Panel>
                         </div>
                     </div>
+                    <div className="space-y-2">
+                        <div className="border rounded-md bg-gray-50 text-gray-500 font-medium px-3 p-2">
+                            <UIHelper.Panel title="Filters" icon={<FontAwesomeIcon icon={["fal", "filter"]} />}>
+                                        {filterPanel}
+                            </UIHelper.Panel>
+                        </div>
+                    </div>
+            </>
         }
             function pinSet(title, target ){
                 const pins = frame.referenceParameters?.[target] ?? {}
@@ -1073,7 +1097,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
             <div className="space-y-2">
                 {(["query","view","flow"].includes(frame.type) || (frame.type === "element" && frame.getConfig.extract === "items")) && viewConfigPanel()}
                 {["query","view"].includes(frame.type) && categoryPanel()}
-                {["query","view"].includes(frame.type) && filterPanel()}
+                {["query","view"].includes(frame.type) && filterAndAllocationsPanels()}
             </div>
             {frame.type === "flow" && flowPanel()}
             

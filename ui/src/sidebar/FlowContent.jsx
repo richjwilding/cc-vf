@@ -189,6 +189,9 @@ export function FlowContent({ primitives, axisData, ...props }) {
                   <span className='font-semibold'>{primitive.title}{progress ? ` - ${progress}` : ""}</span>
                   <ul class="list-disc list-outside pl-6 w-full">
                     {nestedSearches.map(d=>{
+                      if( !d.processing ){ 
+                        return <></>
+                      }
                       const hasError = d.processing.query?.error
                       const overrideTextColor = showRetry && !hasError
                       
