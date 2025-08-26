@@ -2293,7 +2293,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
 
     if(source.type === "view" ){
         let viewFilters = (await getBaseFilterForView( source, sourceConfig )).map(d=>{
-            if( d.type === "parameter" && (d.value?.[0].min_value !== undefined  || d.value.min_value !== undefined || d.value.max_value !== undefined  || d.value?.[0].max_value !== undefined )){
+            if( d.type === "parameter" && (d.value?.[0]?.min_value !== undefined  || d.value?.min_value !== undefined || d.value?.max_value !== undefined  || d.value?.[0]?.max_value !== undefined )){
                 return {
                     ...d,
                     is_range: true

@@ -2255,7 +2255,7 @@ export default function BoardViewer({primitive,...props}){
         }
         if( agentRef.current ){
             const prim = myState.activeBoard?.underlying ?? myState.activeBoard?.primitive
-            if( prim?.type === "page"){
+            if( prim?.type === "page" && false){
                 agentRef.current.setContext( uniquePrimitives(myState.activeBoard.primitive.primitives.allElement.flatMap(d=>myState[d.id].axisSource).filter(Boolean)) )
             }else{
                 agentRef.current.setContext( prim )

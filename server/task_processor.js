@@ -1948,7 +1948,8 @@ export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], 
             let inScopeSources = sources
             let baseScopes = inScopeSources.filter(d=>d.type === "result" || d.type === "summary")
             const searchScopes = inScopeSources.filter(d=>d.type === "search")
-            const otherScopes = inScopeSources.filter(d=>d.type === "query" || d.type === "view" || d.type === "working" || d.type === "segment")
+            //const otherScopes = inScopeSources.filter(d=>d.type === "query" || d.type === "view" || d.type === "working" || d.type === "segment")
+            const otherScopes = inScopeSources.filter(d=>d.type !== "search")
 
             if( types?.length > 0 ){
                 baseScopes = baseScopes.filter(d=>types.includes(d.type))

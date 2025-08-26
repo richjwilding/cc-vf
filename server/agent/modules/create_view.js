@@ -63,6 +63,7 @@ export async function implementation(params, scope, notify){
     const latestView = mostRecentResult ("design_view", scope.history)
     console.log(params)
     console.log(latestView)
+    console.log(scope.vizSession)
 
     if( latestView ){
         try{

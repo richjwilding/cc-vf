@@ -1,6 +1,6 @@
 import { getLogger } from "../../logger";
 import Category from "../../model/Category";
-import { getConfig } from "../../SharedFunctions";
+import { getConfig, getDataForImport } from "../../SharedFunctions";
 import { categoryDetailsForAgent, resolveId } from "../utils";
 
 const logger = getLogger('agent_module_object_params', "debug", 0); // Debug level for moduleA
@@ -14,6 +14,10 @@ export async function implementation(params, scope, notify){
             const category = await Category.findOne( {id: primitive.referenceId })
             const sources = config.sources.map(s=>category?.parameters.sources.options.find(d2=>d2.id === s))
             targetReferenceIds.push(...sources.flatMap(d=>d?.resultCategoryId).filter(d=>d))
+        }else{
+            logger.info(`Doing lookup`, {chatId: scope.chatUUID})
+            let items = await getDataForImport( primitive )
+            targetReferenceIds = Array.from( new Set( items.map(d=>d.referenceId) ) ) 
         }
         const referenceIds = []
         if( targetReferenceIds.length > 0){

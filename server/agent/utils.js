@@ -299,7 +299,7 @@ export async function resolveId(id_or_ids, scope){
 }
 export async function getDataForAgentAction(params, scope){
     let items = [], toSummarize = []
-    let sources = await resolveId(params.sourceIds, {...scope, projection: "_id primitives type flowElement"})
+    let sources = await resolveId(params.sourceIds, {...scope, projection: "_id referenceId workspaceId primitives type flowElement"})
 
     let field = "context"
     if( params.field === "title"){

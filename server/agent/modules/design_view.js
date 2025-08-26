@@ -5,6 +5,16 @@ import * as suggest_visualizations from "./suggest_visualizations.js";
 const logger = getLogger('agent_module_design_view', "debug", 0); // Debug level for moduleA
 
 export async function implementation(params, scope, notify){
+
+    const chosenSuggestionId = (typeof params.suggestion_id === 'number' ? params.suggestion_id : null);
+
+    if (scope.workSession) {
+        if (chosenSuggestionId != null) {
+            scope.workSession.selection = chosenSuggestionId;
+        }
+        scope.touchVizSession?.();
+    }
+
     const openai = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
 
     const flowEditor = scope.mode === "flow_editor"
@@ -28,6 +38,102 @@ export async function implementation(params, scope, notify){
         - values: an array of values to filter
         }
         */
+
+    const filterDef = {
+                        "type": "object",
+                        "description": "Filter to apply",
+                        "properties": {
+                            "field":{
+                                "type": "string",
+                                "enum": ["x_axis", "y_axis", "parameter"],
+                                "description": "Where to apply the filter. For x/y_axis it applies to that axis' bound data."
+                            },
+                            "parameter_name":{
+                                "type": "string",
+                                "description": "Required only when field === 'parameter'. The parameter/field to filter."
+                            },
+                            "operator": {
+                                "type": "string",
+                                "enum": ["includes", "excludes", "eq", "ne", "lt", "lte", "gt", "gte", "in", "not_in", "between"],
+                                "description": "Operation to use for filter"
+                            },
+                            "items": {
+                            "description": "The value(s) to filter by",
+                            "oneOf": [
+                                { "type": "string" },
+                                { "type": "number" },
+                                { "type": "boolean" },
+                                {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "values": {
+                                        "oneOf": [
+                                            { "type": "string" },
+                                            { "type": "number" },
+                                            { "type": "boolean" },
+                                        ]
+                                },
+                                }
+                            ]
+                            }
+                        },
+                        "required": ["field", "operator", "values"],
+                        "additionalProperties": false,
+                        "allOf": [
+                                {
+                                    "if": { "properties": { "field": { "const": "parameter" } }, "required": ["field"] },
+                                    "then": { "required": ["parameter_name"] }
+                                },
+                                {
+                                    "if": { "properties": { "field": { "enum": ["x_axis", "y_axis"] } }, "required": ["field"] },
+                                    "then": { "not": { "required": ["parameter_name"] } }
+                                },
+
+                                {
+                                    "if": { "properties": { "operator": { "enum": ["lt", "lte", "gt", "gte"] } }, "required": ["operator"] },
+                                    "then": { "properties": { "value": { "type": "number" } } }
+                                },
+                                {
+                                    "if": { "properties": { "operator": { "const": "between" } }, "required": ["operator"] },
+                                    "then": {
+                                        "properties": {
+                                            "value": {
+                                                "type": "array",
+                                                "min": 2,
+                                                "maxItems": 2,
+                                                "values": { "type": "number" },
+                                                "description": "[min, max] bounds"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "if": { "properties": { "operator": { "enum": ["in", "not_in"] } }, "required": ["operator"] },
+                                    "then": {
+                                        "properties": {
+                                            "value": {
+                                                "type": "array",
+                                                "minItems": 1,
+                                                "values": { "oneOf": [ { "type": "string" }, { "type": "number" }, { "type": "boolean" } ] }
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                "if": { "properties": { "operator": { "enum": ["includes", "excludes"] } }, "required": ["operator"] },
+                                "then": {
+                                    "properties": {
+                                    "value": {
+                                        "oneOf": [
+                                        { "type": "string" },
+                                        { "type": "array", "minItems": 1, "values": { "type": "string" } }
+                                        ]
+                                    }
+                                    }
+                                }
+                                }
+                            ]
+                    }
 
     const axisDef = flowEditor
         ? {
@@ -88,89 +194,93 @@ export async function implementation(params, scope, notify){
         "description": "Axis specification: choose exactly one of the following shapes.",
         "oneOf": [
             {
-            "type": "object",
-            "required": ["category_id"],
-            "properties": {
-                "category_id": {
-                "type": "string",
-                "description": "Id returned from existing_categorization"
-                }
-            },
-            "additionalProperties": false
+                "type": "object",
+                "required": ["category_id"],
+                "properties": {
+                    "category_id": {
+                    "type": "string",
+                    "description": "Id returned from existing_categorization"
+                    }
+                },
+                "additionalProperties": false
             },
             {
-            "type": "object",
-            "required": ["new_category"],
-            "properties": {
-                "new_category": {
                 "type": "object",
-                "description": "Define a new categorization",
+                "required": ["new_category"],
                 "properties": {
-                    "title": {
-                    "type": "string",
-                    "description": "Name of the categorization"
-                    },
-                    "parameter": {
-                    "type": "string",
-                    "description": "Parameter to categorize"
-                    },
-                    "items": {
-                    "type": "array",
-                    "minItems": 1,
-                    "description": "List of categories",
-                    "items": {
-                        "type": "object",
-                        "required": ["title","description"],
-                        "properties": {
+                    "new_category": {
+                    "type": "object",
+                    "description": "Define a new categorization",
+                    "properties": {
                         "title": {
                             "type": "string",
-                            "description": "Name of this category"
+                            "description": "Name of the categorization"
                         },
-                        "description": {
+                        "parameter": {
                             "type": "string",
-                            "description": "Description of this category"
-                        }
+                            "description": "Parameter to categorize"
                         },
-                        "additionalProperties": false
-                    }
+                        "items": {
+                            "type": "array",
+                            "minItems": 1,
+                            "description": "List of categories",
+                            "items": {
+                                "type": "object",
+                                "required": ["title","description"],
+                                "properties": {
+                                    "title": {
+                                        "type": "string",
+                                        "description": "Name of this category"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "Description of this category"
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        }
+                    },
+                    "required": ["title","parameter","items"],
+                    "additionalProperties": false
                     }
                 },
-                "required": ["title","parameter","items"],
                 "additionalProperties": false
-                }
-            },
-            "additionalProperties": false
             },
             {
-            "type": "object",
-            "required": ["operator","parameter"],
-            "properties": {
-                "operator": {
-                "type": "string",
-                "enum": ["none", "sum","max","min","mean"],
-                "description": "Aggregate operator to apply"
+                "type": "object",
+                "required": ["operator","parameter"],
+                "properties": {
+                    "operator": {
+                        "type": "string",
+                        "enum": ["count", "sum","max","min","mean"],
+                        "description": "Aggregate operator to apply"
+                    },
+                    "parameter": {
+                        "type": "string",
+                        "description": "Parameter to which the operation is applied"
+                    }
                 },
-                "parameter": {
-                "type": "string",
-                "description": "Parameter to which the operation is applied"
-                }
-            },
-            "additionalProperties": false
+                "additionalProperties": false
             },{
-            "type": "object",
-            "required": ["parameter"],
-            "properties": {
-                "parameter": {
-                "type": "string",
-                "description": "Parameter to use (raw of with custom bracket) - without applying any categorization or operation"
-                }
-            },
-            "additionalProperties": false
+                "type": "object",
+                "required": ["parameter"],
+                "properties": {
+                    "parameter": {
+                        "type": "string",
+                        "description": "Parameter to use (raw of with custom bracket) - without applying any categorization or operation"
+                    }
+                },
+                "additionalProperties": false
             }
         ],
         "additionalProperties": false
         }
 
+    const vizIndex = scope.workSession ? (scope.workSession.payload?.suggestions || []).map(s => ({
+                                        id: s.id, type: s.type, label: s.description
+                                        }))
+                                    : []
 
     const messages = [
         {
@@ -186,26 +296,21 @@ export async function implementation(params, scope, notify){
     1) Use any relevant categorization from the chat context
     2) Call "existing_categorization" to check for existing categorizations that are suitable
     3) Call suggest_categories only if nothing from the previous 2 steps is suitable
+    
     Inspect the data using parameter_values_for_data or sample_data, and object_params to understand the schema, then use this knowledge in setting axis and filters as appropriate`}
 
     Think very carefully about the most optimal way to create a view the result the user is asking for - here are the details about what is possible
-    ${suggest_visualizations.VIEW_OPTIONS}` 
+    ${suggest_visualizations.VIEW_OPTIONS}
+    ${scope.workSession ? `You have a suggestion index: ${JSON.stringify(vizIndex)}` : ''}
+      `
         },
         {
             role: "user",
             content: `Here are the parameters of the objects from the source: ${JSON.stringify(fields)}`
         },
-        /*{
-            role: "user",
-            content: `Here is the recent chat history for context: ${JSON.stringify(scope.history.filter(d=>!d.removePrevious).slice(-15))}`
-        },*/
         scope.latestCategories && {
             role: "user",
             content: `Here is the latest discussion with the user about categorization: ${JSON.stringify(scope.latestCategories)}`
-        },
-        scope.latestView && {
-            role: "user",
-            content: `Here is the latest discussion with the user about visualization: ${JSON.stringify(scope.latestView)}`
         },
         {
             role: "user",
@@ -236,11 +341,6 @@ const output_schema = {
                         "type": "string",
                         "enum": ["items", "heatmap", "bubble", "pie", "bar"],
                         "description": "Name of layout to use"
-                    },
-                    filters: {
-                        "type": "array",
-                        "items":axisDef,
-                        "description": "List of filters to apply"
                     },
                     palette: {
                         "type": "object",
@@ -276,20 +376,25 @@ const output_schema = {
                         "additionalProperties": false
                     },
                     x_axis: axisDef,
-                    y_axis: axisDef
+                    y_axis: axisDef,
+                    filters: {
+                        "type": "array",
+                        "items":filterDef,
+                        "description": "List of filters to apply pre-visualization (not to be used for filtering axis values)"
+                    }
                 }
                 }
             }
         }
         }
-}
+    }
         
-        logger.debug(scope.chatUUID, messages)
+    logger.debug(scope.chatUUID, messages)
 
-        let planJson = null;
-        while (true) {
+    let planJson = null;
+    while (true) {
         const res = await openai.chat.completions.create({
-            model: "gpt-4o",
+            model: "o4-mini",
             messages,
             functions: fns,
             function_call: "auto",
@@ -330,7 +435,7 @@ const output_schema = {
         planJson = msg.content;
         messages.push(msg);
         break;
-        }
+    }
     
     logger.info("design_view done", {planJson, chatId: scope.chatUUID})
     try{
@@ -339,16 +444,20 @@ const output_schema = {
         
         notify(`[[chat_scope:${sourceIds[0]}]]`, false, true)
         
-        result.views.forEach(d=>{
-            d.referenceId = referenceIds[0]
-        })
+        result.views.forEach(d=>d.referenceId = referenceIds[0])
         const views = JSON.stringify({views: result.views})
+
+        if (scope.workSession) {
+            scope.workSession.state = 'preview';          // or 'refine' if you detect missing info
+            scope.workSession.spec  = result;             // keep the draft spec for confirm/build
+            scope.touchWorkSession?.();
+            console.log(`updated spec state`)
+        }
         
         return {
             dataForClient: views,
             dataType: "preview",
             result: result
-
         }
     }catch(e){
         logger.error(e)
@@ -362,6 +471,10 @@ export const definition = {
           "type": "object",
           "required": ["prompt", "source_ids", "axis"],
           "properties": {
+                "suggestion_id": {
+                "type": "number",
+                "description": "If this design corresponds to a specific suggestion from suggest_visualizations, pass that id (e.g., 1..5)."
+            },
             "prompt": {
               "type": "string",
               "description": "A clear definition of what the user has asked for including objective, any filtering and categorization that is needed, how many views and their layouts. Do not include ordering unless user specified it."

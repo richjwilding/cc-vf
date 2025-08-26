@@ -1,6 +1,7 @@
 import OpenAI from "openai"
 import { getLogger } from "../../logger";
 import { categoryDetailsForAgent, resolveId } from "../utils";
+import { recordUsage } from "../../usage_tracker";
 
 export const VIEW_OPTIONS = `*) Views can be built from the raw data of another object, and can also be built from categorized and / or filtered live views of the original data, so be sure to consider pre-processing steps if its valuable to split out or filter the data to build a compelling view
                     *) - Data for views can be categorized as a pre-processing step 
@@ -21,6 +22,7 @@ export const VIEW_OPTIONS = `*) Views can be built from the raw data of another 
 const logger = getLogger('agent_module_suggest_visualizations', "debug", 0); // Debug level for moduleA
 
 export async function implementation(params, scope, notify){
+  console.log(params)
         const {data, categories} = await scope.functionMap["sample_data"]({limit: 20, ...params, withCategory: true}, scope)
         if( data && categories){
             const categoryDefs = categories.map(d=>categoryDetailsForAgent( d )).filter(d=>d)
@@ -43,13 +45,17 @@ export async function implementation(params, scope, notify){
                },{
                 role: "user",
                 content: `Suggest some suitable visualizations using the options available and which are achievable for the data sample, schema and the view options provided.
-                        Ensure the options align to the goal from the user. Use the human friendly name of fields rather than the field name in your summary.
+                        Ensure the options meets the specific goal from the user.  Summaries, categorization and filters must be used on the data to be as specific and precise as possible in meeting the user's goal - do not suggest general ideas. Use the human friendly name of fields rather than the field name in your summary.
                         Provide your answer in a json object as follows:
                         {
                           suggestions:[{
                             id: number to identify the suggestions - start at 1 and increment,
                             "type": type of visualization (pie, bubble, items, timeline, heatmap etc),
                             "description": A title for the visualization,
+                              "categorization": an optional description of how to categorize the data (for visualization or summarization) ensuring alignment with the data schema,
+                              "summarization": a detailed description of how to summarize the data to achieve the goal of the user (taking into account the schema, and pre-filter and any categorzation) - only inlucde if type is "summary",
+                              "visualization": a detailed description of how to visualize the data to achieve the goal of the user (taking into account the schema, and pre-filter and any categorzation) - only inlucde if type is "visualization",
+                              "post_filter": an optional description of the filter to apply post categorization / visualization ensuring alignment with the data schema (ie allows segments to be removed from the final result),
                             "data": {
                                 "rows": what to display in the rows - a paramater name, catgeorization type, operation (such as count of posts),
                                 "columns": what to display in the columns - a paramater name, catgeorization type, operation (such as count of posts),
@@ -58,18 +64,27 @@ export async function implementation(params, scope, notify){
                           },
                           ....remaining suggestions
                         ],
-                      }`.replaceAll(/\s+/g," ")
+                      }
+                        
+                      Note that each suggestions must contain all relevant information - do not reference other suggestions`.replaceAll(/\s+/g," ")
                }
    
             ]
             const openai = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
             const res = await openai.chat.completions.create({
-              model: "gpt-4o",
+              model: "o4-mini",
               messages,
               response_format: { type: "json_object" }
             });
         
             const msg = res.choices[0].message;
+            recordUsage( {
+              workspace: scope.workspaceId, 
+              functionName: "agent_module_suggest_visualizations", 
+              usageId: "agent_module_suggest_visualizations", 
+              api: "open_ai", 
+              data: res
+            })
             try{
               const suggestions = JSON.parse(msg?.content)?.suggestions
               return {

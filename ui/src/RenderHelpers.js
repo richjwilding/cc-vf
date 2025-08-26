@@ -5953,14 +5953,18 @@ function renderBarChart( segments, options = {}){
         height
     })
     let showValue = options.showValue
+    let mode = false ? "seperate" : "interleave"
+    let showAxis = true
+    const fontSize = 4
+    let axisFontSize = 6
+
     const asPercent = options.showValue === "percent"
+    const segmentCount = segments.length
     const subSegments = options.sublabels?.items?.length ?? 1
-    const subSegmentGap = subSegments === 1 ? 0 : 0.2
+    const subSegmentGap = subSegments === 1 ? 0 : (mode === "interleave" ? 0.2 : 0.05)
     const widthToUse = width * (1 - subSegmentGap)
-    const barWidth = options.stack ? width : widthToUse / (segments.length * subSegments)
-    const segmentGap = (width * subSegmentGap) / (segments.length - 1)
-    const barBase = height - 0.2
-    const barSize = height - 0.2
+    const barWidth = options.stack ? width : widthToUse / (segmentCount * subSegments)
+    const segmentGap = (width * subSegmentGap) / (segmentCount - 1)
 
     const totals = [];
     let maxValues = []
@@ -5993,24 +5997,81 @@ function renderBarChart( segments, options = {}){
         maxValues = maxValues.map((d,i)=>d * 100 / totals[i])
 
     }
-    //const maxValues = options.stack ? segments.map(d=>d?.count ?? 0).reduce((a,c)=>c + a,0) : (segments.map(d=>d?.count ?? 0).reduce((a,c)=>c > a ? c : a,0) * (asPercent ? (100/total) : 1))
     let colors = options.colors ?? categoryColors
     
+    const axisWidth = barWidth * (mode === "interleave" ? subSegments : 1)
+    let axisList = []
+
+    if( showAxis ){
+        let rescaleAxis = false
+        segments.forEach((s, idx)=>{
+            [s.count].flat().forEach((ss, iIdx)=>{
+                let x
+                if( mode === "interleave"){
+                    x = (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
+                }else{
+                    x = (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
+                }
+                if( mode !== "interleave" || iIdx === 0){
+                    const r = prepareAxisText( s, {
+                        fontSize: axisFontSize, 
+                        maxWidth: axisWidth,
+                        textPadding: [0,0,0,0],
+                        minFontSize: 1,
+                        refreshCallback: options.imageCallback
+                    } )
+                    r.rendered.x(x)
+                    g.add( r.rendered)
+                    axisList.push(r.rendered)
+                    if( r.rescaled ){
+                        if( !rescaleAxis || r.fontSize < rescaleAxis ){
+                            rescaleAxis = r.fontSize
+                        }
+                    }
+                }
+                if( rescaleAxis ){
+                    axisFontSize = rescaleAxis
+                    for(const d of axisList ){
+                        d.fontSize( rescaleAxis )
+                    }
+                }
+            })
+        })
+    }
+
+    const barBase = height - (showAxis ? axisFontSize * 3 : 0.2)
+    const barSize = barBase
+    let y = barBase, idx = 0 
     
-    const fontSize = 4
-    let x = 0, idx = 0, y = barBase, subIdx = 0
+    if( showAxis){
+        for(const d of axisList ){
+            d.y( y + (axisFontSize * 0.5) )
+        }
+    }
+
     for( const s of  segments){
         [s.count].flat().forEach((ss, iIdx)=>{
+            let x
+            if( mode === "interleave"){
+                x = (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
+            }else{
+                x = (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
+            }
             const scale = barSize / maxValues[iIdx] 
             const count = asPercent ? 100 * ss / totals[iIdx] : ss
             const h = count * scale
             if( h > 0){
+                let color = s.color ?? colors[idx % colors.length]
+                if( iIdx > 0 ){
+                    color = mixHexWithWhite(color, (iIdx * 0.3))
+                }
+                
                 var bar = new Konva.Rect({
                     x: x,
                     y: y - h,
                     width: barWidth,
                     height: h,
-                    fill: s.color ?? colors[idx % colors.length],
+                    fill: color,
                     name: "cell clickable hover",
                     id: `0-${s.idx}`,
                 });
@@ -6033,12 +6094,9 @@ function renderBarChart( segments, options = {}){
             }
             if( options.stack){
                 y -= h
-            }else{
-                x += barWidth
             }
         })
         idx++
-        x += segmentGap
     }
     return g
 }
@@ -8594,7 +8652,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
 
     return g
 }
-function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, refreshCallback, longestPair}){
+function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, refreshCallback, longestPair, minFontSize = 6}){
     const d = header
     let longestFrag
     const words = `${(d.label  ?? "")}`.split(" ")
@@ -8619,22 +8677,25 @@ function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, re
         height: "auto",
         refreshCallback
     })
+    let rescaled = false
     
     if( maxWidth ){
-        while( text.measureSize(longestFrag).width > maxWidth && fontSize > 6){
+        while( text.measureSize(longestFrag).width > maxWidth && fontSize > minFontSize){
             fontSize = fontSize > 50 ? fontSize -= (fontSize * 0.1) : fontSize - 0.25
             text.fontSize( fontSize )
+            rescaled = true
         } 
     }
     text.text( d.label ?? "" )  
     if( maxHeight ){
-        while( text.height() > maxHeight && fontSize > 6){
+        while( text.height() > maxHeight && fontSize > minFontSize){
             fontSize = fontSize > 50 ? fontSize -= (fontSize * 0.1) : fontSize - 0.25
             text.fontSize( fontSize )
+            rescaled = true
         } 
     }
     
-    return {rendered: text, fontSize}
+    return {rendered: text, fontSize, rescaled}
 }
 function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY, renderOptions, baseFontSize = 12, spacing, textPadding = [5,5,5,5], refreshCallback, includeColumns = true, includeRows = true, background = true,...options}){
     const maxColumnWidth = Math.max(...columnWidths)

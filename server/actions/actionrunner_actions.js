@@ -31,7 +31,7 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
             }else{
                 lookupList = lookupList.split(",")
             }
-            lookupList = lookupList.map(d=>d.trim())
+            lookupList = lookupList.map(d=>d.trim()).filter(Boolean)
         }
         const existing = await primitiveDescendents(primitive, "entity", {fields:"referenceParameters", first: true})
 
