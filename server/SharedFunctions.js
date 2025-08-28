@@ -36,6 +36,7 @@ import { reviseUserRequest } from './prompt_helper.js';
 import Workspace from './model/Workspace.js';
 import User from './model/User.js';
 import Organization from './model/Organization.js';
+import { getDataForImportDB } from './actions/getDataForImportDB.js';
 
 const logger = getLogger('sharedfn', "debug"); // Debug level for moduleA
 
@@ -2034,6 +2035,28 @@ async function __OLD__filterItems(list, filters){
 
 
 export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}, query:{}, depth: 0}, forceImport = false, first = true ){
+    if (process.env.USE_DB_IMPORTS === "true") {
+        const dbResult = await getDataForImportDB(source, { forceImport });
+        if (dbResult) {
+            let out = dbResult;
+
+            out = out.filter(d => !["segment","category","query","report","reportinstance"].includes(d.type));
+
+            const sourceConfig = await getConfig(source);
+            if (sourceConfig?.extract) {
+                const check = [sourceConfig.extract].flat();
+                out = out.filter(d => check.includes(d.referenceId));
+            }
+
+            return out;
+        }
+    }
+    console.log(`>>> Fallback to legacy import handling`)
+
+    // Fallback to your legacy implementation
+    return await legacyGetDataForImport(source, cache, forceImport, first);
+}
+export async function legacyGetDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}, query:{}, depth: 0}, forceImport = false, first = true ){
     let fullList = []
 
     const sourceConfig = await getConfig(source)
@@ -2246,7 +2269,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             }
         }
         if( params.type ){
-            list = list.filter(d=>d.referenceId === params.type) 
+            list = list.filter(d=>d.type === params.type) 
         }
         if( source.type === "actionrunner"){
             list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
@@ -3020,6 +3043,12 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     }
     if( actionKey === "pq_test"){
         let items = await runQueryOnPrimitive(primitive, options.steps)
+        return items
+    }
+    if( actionKey === "itpdb_test"){
+        console.time("item_test")
+        let items = await getDataForImportDB( primitive )
+        console.timeEnd("item_test")
         return items
     }
     if( actionKey === "itp_test"){

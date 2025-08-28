@@ -71,7 +71,9 @@ export async function fetchUserProfile(userId) {
 
 
 mongoose.set('strictQuery', false);
-mongoose.connect(process.env.MONGOOSE_URL)
+mongoose.connect(process.env.MONGOOSE_URL, {
+   compressors: 'zstd'
+})
 
 
 passport.serializeUser((user, done) => {

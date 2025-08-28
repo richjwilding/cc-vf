@@ -178,7 +178,8 @@ export const update_slide_section = {
             "Partial updates to apply to each section. This MUST be a JSON object, not a quoted string. " +
             "Supported keys: pre_filter, categorization, summarization, visualization, post_filter. " +
             "Each key's value can be either a literal string/object, or {$ref:'<group>.<key>'}. " +
-            "Do NOT send JSON-in-a-string; send the object itself.",
+            "Do NOT send JSON-in-a-string; send the object itself." +  
+            "If you are updating a categorization be sure to update the relevant summarization or visualization definition to align with the update",
           additionalProperties: true,
           properties: {
             pre_filter: { type: ["string", "object"] },
