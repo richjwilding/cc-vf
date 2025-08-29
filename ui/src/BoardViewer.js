@@ -1138,7 +1138,7 @@ function SharedRenderView(d, primitive, myState) {
                     mappedCategories
                 }
             }else{
-                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts || viewConfig.matrixType === undefined){
+                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts ){//|| viewConfig.matrixType === undefined){
                     let dataTable 
 
                     function setupDataConfig( viewConfig ){

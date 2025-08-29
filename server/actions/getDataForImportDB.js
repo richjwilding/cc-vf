@@ -27,9 +27,13 @@ function makePostJoinFilterQuery(sigObj, filters = []) {
     const field = f.parameter ? String(f.parameter) : '';
 
     const raw = f.value ?? f.filter;
-    const val = [raw].flat().filter(v => v !== null && v !== undefined && v !== '');
+    const val = [raw].flat()
 
     if (filterType === 'category') {
+        if( val.includes( null )){
+            console.log(`Null needs `)
+            query.push({$or: f.sourcePrimOrigin.map(d=>({[`parentPrimitives.${d}.0`]: { $exists: true }}))})
+        }
         const cleaned = val.filter(Boolean)
         if(cleaned.length > 0){
             query.push({$and: cleaned.map(d=>({[`parentPrimitives.${d}.0`]: { $exists: false }}))})
@@ -61,7 +65,7 @@ function normalizeFilters(filters) {
   }).sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
 }
 
-function extractSigParts(refParams = {}, nodeType) {
+function extractSigParts(refParams = {}, nodeType, sourcePrimOrigins) {
   const { type, referenceId, explore } = refParams || {};
   const base = { type, referenceId };
   let normalizedFilters = [];
@@ -149,15 +153,12 @@ export function buildDepthBuckets(chain) {
 
     const { sigObj, normalizedFilters: ownFilters } = extractSigParts(n.referenceParameters, n.type);
 
-    // If it’s a pure noop view with no own filters, it only propagates; skip creating a bucket
-    // (If it has own filters but no ref/type, it still qualifies as a view filter source handled upstream)
     if (isViewNoop(n, ownFilters)) continue;
 
     if (hasImports || !hasPrimAll) {
       continue;
     }
 
-    // figure out how many incoming filter groups this node should receive
     const nodeId = String(n._id);
     const groups = incomingGroups.get(nodeId) || [[]]; // at least one empty group
 
@@ -185,66 +186,57 @@ export function buildDepthBuckets(chain) {
         depthMap.set(sigStr, bucket);
       }
       bucket.parentIds.add(nodeId);
-      //n.primitivesAllIds.forEach(d=>bucket.childIds.add(d.toString()))
     }
   }
 
   return byDepth;
 }
+export function buildLookups(chain) {
+  const out = []
+  const incomingGroups = computeIncomingViewFilterGroups(chain); // NEW
 
-export async function fetchPerBucket({
-  workspaceId,
-  depthBuckets,
-  hydrateProject = {
-    _id: 1,
-    type: 1,
-    referenceId: 1,
-    title: 1,
-    workspaceId: 1,
-  },
-}) {
-  const pipeline = [{ $match: { _id: { $exists: false } } }];
-  const depths = Array.from(depthBuckets.keys()).sort((a, b) => a - b);
+  for (const n of chain) {
+    const hasImports = Array.isArray(n.importsIds) && n.importsIds.length > 0;
+    const hasPrimAll = n.hasPrimitiveIds;
 
-  const payloads = []
+    const { sigObj, normalizedFilters: ownFilters } = extractSigParts(n.referenceParameters, n.type, n.sourcePrimOrigins);
 
-  for (const depth of depths) {
-    const sigMap = depthBuckets.get(depth);
+    // If it’s a pure noop view with no own filters, it only propagates; skip creating a bucket
+    // (If it has own filters but no ref/type, it still qualifies as a view filter source handled upstream)
+    if (isViewNoop(n, ownFilters)) continue;
 
-    for (const [, bucket] of sigMap.entries()) {
-      const parentObjIds = Array.from(bucket.parentIds).map(
-        (s) => new mongoose.Types.ObjectId(s)
-      );
+    if (hasImports || !hasPrimAll) {
+      continue;
+    }
 
-      const postJoinFilter = {
-        deleted: { $exists: false },
-        ...bucket.postJoinFilterQuery,
-        //$or: parentObjIds.map(d=>({[`parentPrimitives.${d}`]: "primitives.origin"}))
-      };
-      /*const children = Array.from(bucket.childIds)
-      const inChunks = chunked( children, 5000 )
+    // figure out how many incoming filter groups this node should receive
+    const nodeId = String(n._id);
+    const groups = incomingGroups.get(nodeId) || [[]]; // at least one empty group
 
-      for(const chunk of inChunks.hint("workspaceId_1_parentPrimitives.$**_1")){
-          payloads.push({postJoinFilter, chunk})
-        }*/
-       for(const d of parentObjIds){
-        postJoinFilter
-       }
-       payloads.push({postJoinFilter, parentId: parentObjIds[0]})
+    for (const incoming of groups) {
+      const combinedFilters = mergeFilterArrays(ownFilters, incoming);
+      out.push(
+        {
+            parentId: nodeId,
+            query: {
+                deleted: { $exists: false },
+                ...makePostJoinFilterQuery(sigObj, combinedFilters)
+            }
+        }
+      )
     }
   }
-  const data = await executeConcurrently( payloads, async ({postJoinFilter, parentId})=>{
+
+  return out;
+}
+
+
+export async function fetchPerBucket({workspaceId, buckets}) {
+  const data = await executeConcurrently( buckets, async ({query, parentId})=>{
     
     console.log(`Will for ${parentId}`)
-    const query = {
-        ...postJoinFilter,
-        //_id: {$in: chunk}
-    }
-    //console.log(query)
-    //return await Primitive.find(query).hint("workspaceId_1_parentPrimitives.$**_1").lean(true)
 
     console.time(`Fetch_${parentId}`)
-
     const res = await Primitive.aggregate([
         {
             $match: {
@@ -257,20 +249,13 @@ export async function fetchPerBucket({
 
         },
         {
-            $match: {
-                ...postJoinFilter
-            }
+            $match: query
         },
         { $project: {...DONT_LOAD, primitives: 0, parentPrimitives: 0, processing: 0, comments: 0, workspaceId: 0}}
     ]).hint("workspaceId_1_parentPrimitives.$**_1") ?? []
     console.timeEnd(`Fetch_${parentId}`)
 
     return res
-
-    /*
-    const docs = [];
-    for await (const doc of cursor) docs.push(doc);
-    return docs; */
   }, undefined, undefined, 5)
   
   return uniqueLeanPrimitives( data?.results.flat() )
@@ -283,102 +268,9 @@ function uniqueLeanPrimitives(list){
         return p
     })
 }
-export function buildStreamingPipelineByDepth({
-  workspaceId,
-  depthBuckets,
-  // you won’t need child chunking anymore with localField join
-  hydrateProject = {
-    _id: 1,
-    type: 1,
-    referenceId: 1,
-    title: 1,
-    workspaceId: 1,
-  },
-}) {
-  const pipeline = [{ $match: { _id: { $exists: false } } }];
-  const depths = Array.from(depthBuckets.keys()).sort((a, b) => a - b);
-
-  const runs = [], filters =[]
-
-  for (const depth of depths) {
-    const sigMap = depthBuckets.get(depth);
-
-    for (const [, bucket] of sigMap.entries()) {
-      const parentObjIds = Array.from(bucket.parentIds).map(
-        (s) => new mongoose.Types.ObjectId(s)
-      );
-
-      const postJoinFilter = {
-        workspaceId,
-        deleted: { $exists: false },
-        ...bucket.postJoinFilterQuery
-      };
-      console.log(bucket.postJoinFilterQuery)
-
-      const bucketSubPipeline = [
-        { $match: { _id: { $in: parentObjIds }, workspaceId, deleted: { $exists: false } } },
-        { $project: { primitivesAllIds: 1 } },
-        { $unwind: "$primitivesAllIds" },
-        { $group: { _id: "$primitivesAllIds" } },
-        { $replaceWith: { childId: "$_id" } },
-        {
-          $lookup: {
-            from: "primitives",
-            localField: "childId",
-            foreignField: "_id",
-            as: "child",
-          },
-        },
-        { $unwind: "$child" },
-        {
-            $replaceRoot: {newRoot: "$child"}
-        },
-        { $match: postJoinFilter },
-        //{ $project: { _id: 1 } }
-                { $project: DONT_LOAD }
-      ];
-
-      pipeline.push({
-        $unionWith: { coll: "primitives_resolved", pipeline: bucketSubPipeline },
-      });
-      runs.push( bucketSubPipeline)
-    }
-  }
-  
-
-    //pipeline.push({$group: { _id: "$_id", doc: { $first: "$$ROOT" } }})
-    //pipeline.push({$replaceRoot: { newRoot: "$doc" }})
-
-  /*
-  // Dedupe across buckets
-    pipeline.push({ $group: { _id: "$_id" } });
-
-    // Batched hydration: switch from $expr $in to per-id localField/foreignField
-    pipeline.push(
-    { $group: { _id: null, ids: { $addToSet: "$_id" } } },
-    { $unwind: "$ids" },                           // <- one ObjectId per doc
-    {
-        $lookup: {                                   // uses _id_ index
-            from: "primitives",
-            localField: "ids",
-            foreignField: "_id",
-            as: "doc",
-            pipeline:[
-                { $project: hydrateProject }
-            ],
-        }
-    },
-    { $unwind: "$doc" },
-    { $replaceRoot: { newRoot: "$doc" } },         // you were right: keep this
-    );*/
-
-  return {pipeline, runs};
-}
-
-// --- fetch & drive ---------------------------------------------------------
 
 async function fetchImportChainIds({ sourceId, workspaceId }) {
-    const pipeline =  [
+ /*   const pipeline =  [
     { $match: { _id: sourceId, workspaceId, deleted: { $exists: false } } },
     {
       $graphLookup: {
@@ -394,25 +286,87 @@ async function fetchImportChainIds({ sourceId, workspaceId }) {
     {
       $project: {
         chain: {
-          _id: 1,
+         _id: 1,
           depth: 1,
           type: 1,
           referenceId: 1,
           importsIds: 1,
           hasPrimitiveIds: 1,
           referenceParameters: 1,
-          //parentPrimitives: 1,
+          parentPrimitives: 1
         },
       },
     },
-  ]
-  const [doc] = await LeanPrimitiveResolved.aggregate(pipeline).toArray();
+  ]*/
 
-  return doc?.chain ?? [];
+const pipeline = [
+  { $match: {
+      _id: sourceId,
+      workspaceId,
+      deleted: { $exists: false }
+  }},
+
+  {
+    $graphLookup: {
+      from: "lean_primitives_resolved",
+      startWith: "$_id",
+      connectFromField: "importsIds",
+      connectToField: "_id",
+      as: "chain",
+      depthField: "depth",
+      restrictSearchWithMatch: {
+        workspaceId,
+        deleted: { $exists: false }
+      }
+    }
+  },
+  { $unwind: { path: "$chain", preserveNullAndEmptyArrays: true } },
+  { $replaceRoot: { newRoot: { $mergeObjects: ["$chain", { rootId: "$rootId" }] } } },
+  {
+    $graphLookup: {
+      from: "primitive_config_chain",   
+      startWith: "$_id",                 
+      connectFromField: "configParentId",
+      connectToField: "_id",
+      as: "configParentChainAll",
+      depthField: "depth",
+      maxDepth: 10
+    }
+  },{
+    $set: {
+      configParentChain: {
+        $sortArray: {
+          input: {
+            $filter: {
+              input: "$configParentChainAll",
+              as: "p",
+              cond: { $gt: ["$$p.depth", 0] }
+            }
+          },
+          sortBy: { depth: 1 }
+        }
+      }
+    }
+  },
+  {
+    $project: {
+      _id: 1,
+      depth: 1,
+      type: 1,
+      referenceId: 1,
+      importsIds: 1,
+      hasPrimitiveIds: 1,
+      referenceParameters: 1,
+      parentPrimitives: 1,
+      configParentChain: 1,
+      rootId: 1
+    }
+  }]
+
+  return await LeanPrimitiveResolved.aggregate(pipeline).toArray();
 }
 
 export async function getDataForImportDB(source, { forceImport = false } = {}) {
-  // Keep your early-escape logic
   if (
     (!forceImport && (["query", "summary", "search"].includes(source.type))) ||
     ((["actionrunner", "action"].includes(source.type)) &&
@@ -452,45 +406,15 @@ export async function getDataForImportDB(source, { forceImport = false } = {}) {
 
   }
 
-  const hydrateProject = {
-        _id: 1,
-        type: 1,
-        referenceId: 1,
-        title: 1,
-        workspaceId: 1,
-        }
-
   let results
   console.time("Buckets")
-  const depthBuckets = buildDepthBuckets(chain);
+  const buckets = buildLookups( chain )
   console.timeEnd("Buckets")
+  console.log(buckets)
 
-  if( true ){
     console.time("Fetch")
-    results = await fetchPerBucket({workspaceId,depthBuckets,hydrateProject})
+    results = await fetchPerBucket({workspaceId, buckets})
     console.timeEnd("Fetch")
-    }else{
-
-    const {pipeline, runs} = buildStreamingPipelineByDepth({workspaceId,depthBuckets,hydrateProject})
-  
-      results =(await PrimitiveResolved.aggregate(pipeline, {
-          allowDiskUse: true,
-          batchSize: 5000
-        }).toArray()) ?? [];
-    }
 
   return results;
-}
-
-
-
-function chunked(arr, size) {
-  if (!Number.isFinite(size) || size <= 0) {
-    throw new Error(`chunk size must be > 0 (got ${size})`);
-  }
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) {
-    out.push(arr.slice(i, i + size));
-  }
-  return out;
 }
