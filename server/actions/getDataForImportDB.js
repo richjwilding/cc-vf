@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { DONT_LOAD, executeConcurrently, uniquePrimitives } from "../SharedFunctions";
 import Primitive from "../model/Primitive";
-const PrimitiveResolved = mongoose.connection.collection("primitives_resolved");
+const LeanPrimitiveResolved = mongoose.connection.collection("lean_primitives_resolved");
 
 // --- helpers ---------------------------------------------------------------
 
@@ -164,7 +164,7 @@ export function buildDepthBuckets(chain) {
     for (const incoming of groups) {
       const combinedFilters = mergeFilterArrays(ownFilters, incoming);
       
-      const sigStr = stableStringify({sigObj,incomingViewFilters: combinedFilters});
+      const sigStr = nodeId //stableStringify({sigObj,incomingViewFilters: combinedFilters});
         
         console.log(`${nodeId} - ${sigStr}`)
       let depthMap = byDepth.get(n.depth);
@@ -185,7 +185,7 @@ export function buildDepthBuckets(chain) {
         depthMap.set(sigStr, bucket);
       }
       bucket.parentIds.add(nodeId);
-      n.primitivesAllIds.forEach(d=>bucket.childIds.add(d.toString()))
+      //n.primitivesAllIds.forEach(d=>bucket.childIds.add(d.toString()))
     }
   }
 
@@ -217,25 +217,56 @@ export async function fetchPerBucket({
       );
 
       const postJoinFilter = {
-        workspaceId,
         deleted: { $exists: false },
-        ...bucket.postJoinFilterQuery
+        ...bucket.postJoinFilterQuery,
+        //$or: parentObjIds.map(d=>({[`parentPrimitives.${d}`]: "primitives.origin"}))
       };
-      const children = Array.from(bucket.childIds)
+      /*const children = Array.from(bucket.childIds)
       const inChunks = chunked( children, 5000 )
 
-      for(const chunk of inChunks){
+      for(const chunk of inChunks.hint("workspaceId_1_parentPrimitives.$**_1")){
           payloads.push({postJoinFilter, chunk})
-        }
+        }*/
+       for(const d of parentObjIds){
+        postJoinFilter
+       }
+       payloads.push({postJoinFilter, parentId: parentObjIds[0]})
     }
   }
-  const data = await executeConcurrently( payloads, async ({postJoinFilter, chunk})=>{
-    console.log(`Will do ${chunk.length} from ${chunk[0]}`)
+  const data = await executeConcurrently( payloads, async ({postJoinFilter, parentId})=>{
+    
+    console.log(`Will for ${parentId}`)
     const query = {
         ...postJoinFilter,
-        _id: {$in: chunk}
+        //_id: {$in: chunk}
     }
-    return await Primitive.find(query).lean(true)
+    //console.log(query)
+    //return await Primitive.find(query).hint("workspaceId_1_parentPrimitives.$**_1").lean(true)
+
+    console.time(`Fetch_${parentId}`)
+
+    const res = await Primitive.aggregate([
+        {
+            $match: {
+                workspaceId,
+                [`parentPrimitives.${parentId}`]: "primitives.origin"
+            }
+        },
+        {
+            $limit: 1000000000,
+
+        },
+        {
+            $match: {
+                ...postJoinFilter
+            }
+        },
+        { $project: {...DONT_LOAD, primitives: 0, parentPrimitives: 0, processing: 0, comments: 0, workspaceId: 0}}
+    ]).hint("workspaceId_1_parentPrimitives.$**_1") ?? []
+    console.timeEnd(`Fetch_${parentId}`)
+
+    return res
+
     /*
     const docs = [];
     for await (const doc of cursor) docs.push(doc);
@@ -347,11 +378,11 @@ export function buildStreamingPipelineByDepth({
 // --- fetch & drive ---------------------------------------------------------
 
 async function fetchImportChainIds({ sourceId, workspaceId }) {
-  const [doc] = await PrimitiveResolved.aggregate([
+    const pipeline =  [
     { $match: { _id: sourceId, workspaceId, deleted: { $exists: false } } },
     {
       $graphLookup: {
-        from: "primitives_resolved",
+        from: "lean_primitives_resolved",
         startWith: "$_id",
         connectFromField: "importsIds",
         connectToField: "_id",
@@ -369,13 +400,13 @@ async function fetchImportChainIds({ sourceId, workspaceId }) {
           referenceId: 1,
           importsIds: 1,
           hasPrimitiveIds: 1,
-          primitivesAllIds: 1,
           referenceParameters: 1,
-          parentPrimitives: 1,
+          //parentPrimitives: 1,
         },
       },
     },
-  ]).toArray();
+  ]
+  const [doc] = await LeanPrimitiveResolved.aggregate(pipeline).toArray();
 
   return doc?.chain ?? [];
 }

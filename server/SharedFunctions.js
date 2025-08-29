@@ -2035,7 +2035,7 @@ async function __OLD__filterItems(list, filters){
 
 
 export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}, query:{}, depth: 0}, forceImport = false, first = true ){
-    if (process.env.USE_DB_IMPORTS === "true") {
+    if (false && process.env.USE_DB_IMPORTS === "true") {
         const dbResult = await getDataForImportDB(source, { forceImport });
         if (dbResult) {
             let out = dbResult;
