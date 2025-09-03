@@ -56,6 +56,12 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
       const readerRef = useRef(null);
       const actionData = useRef([])
       const insertedCount = useRef(0)
+
+      function setAgentStatus(status){
+        if( editorRef.current ){          
+            editorRef.current.statusMessage(status)
+        }
+      }
     
       useEffect(()=>{
         const mainstore = MainStore()
@@ -151,7 +157,7 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
       }, [messages])
 
 
-      function updateAssistantUI(text, hidden = false, other = {}) {
+      /*function updateAssistantUI(text, hidden = false, other = {}) {
         setMessages(h => {
           const lastMsg = h[h.length - 1]
           if (lastMsg.role === 'assistant' && !lastMsg.preview && !lastMsg.context && !other.context){
@@ -172,6 +178,15 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
           }
           return [...h, { hidden, role:'assistant', content: text, ...other }];
         });
+      }*/
+      function updateAssistantUI(text, hidden = false, other = {}) {
+        setMessages(h => {
+          const lastMsg = h[h.length - 1]
+          if (lastMsg.role === 'assistant' && !lastMsg.preview && !lastMsg.context && !other.context){
+                return [...h.slice(0, -1), { hidden, updated: true, role:'assistant', content: text, ...other }];
+          }
+          return [...h, { hidden, role:'assistant', content: text, ...other }];
+        });
       }
     
       async function sendChat() {
@@ -181,7 +196,9 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         }
         setPending(true)
         const userMsg = { role: 'user', content: inputBox.current?.value().trim() };
-        const nextFull = [...messages, userMsg, { role: 'assistant', content: "[[update:Thinking...]]"}]
+        //const nextFull = [...messages, userMsg, { role: 'assistant', content: "[[update:Thinking...]]"}]
+        const nextFull = [...messages, userMsg]//, { role: 'assistant', content: "[[update:Thinking...]]"}]
+        setAgentStatus("agent_responding")
         setMessages(nextFull);;
         inputBox.current.clear()
 
@@ -231,12 +248,25 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
                   payload.content = payload.content.slice(rewind[0].length)
                 }
               }
-              if( displayContent.endsWith("[[agent_running]]")){
-                displayContent = displayContent.slice(0, displayContent.length - 17 )
-              }else  {
-                displayContent = displayContent.replace(/\[\[update:[^\]]*\]\]$/, "");
-              }
+              let statusUpdate
+
               displayContent += payload.content;
+              
+              if( displayContent.match(/\[\[agent_running\]\]/)){
+                statusUpdate = "[[agent_running]]"
+                displayContent = displayContent.replace(statusUpdate, "" )
+              }else  {
+                const m = displayContent.match(/\[\[update:([^\]]*\]\])$/, "")
+                if( m ){
+                  statusUpdate = m[0]
+                  displayContent = displayContent.replace(statusUpdate, "");
+                }
+              }
+              if( statusUpdate ){
+                setAgentStatus( statusUpdate.slice(2, -2) )
+              }else{
+                setAgentStatus( "agent_responding" )
+              }
               updateAssistantUI(displayContent, payload.hidden);
               if( payload.hidden){
                 displayContent = ""
@@ -263,7 +293,8 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
             }
       
             if (payload.done) {
-                setPending(false)
+              setAgentStatus()
+              setPending(false)
               reader.cancel();
               readerRef.current = null;
               return;
@@ -344,7 +375,7 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
                   </div>
             </div>}
             {messages.length > 0 && <div className="flex flex-1 items-stretch oveflow-y-auto min-h-32 w-full mb-2">
-                <MarkdownEditor  actionCallback={actionCallback} scrollToEnd={true} float={true} ref={editorRef} controlled={false}/>
+                <MarkdownEditor actionCallback={actionCallback} scrollToEnd={true} float={true} ref={editorRef} controlled={false}/>
             </div>}
             <div className={clsx([
                     "w-full flex space-x-2",

@@ -722,6 +722,8 @@ function tokensForModel(model){
         defaultTokens = 115000
     }else if( model === "o3-mini" ){
         defaultTokens = 115000
+    }else if( model === "gpt-5-mini" ){
+        defaultTokens = 115000
     }else if( model === "o4-mini" ){
         defaultTokens = 115000
     }else if( model === "gpt-41-nano" || model === "gpt-41-mini"){
@@ -1001,7 +1003,22 @@ async function executeAI(messages, options = {}){
         sleepBase = 2000
         response_format = undefined
         output = 1536
-    }else if( options.engine === "o3-mini" || options.engine === "o4-mini" || options.engine === "o3"){
+    }else if( options.model === "gpt-5-mini"){
+        defaultTokens = 115000
+        model = options.engine
+        sleepBase = 20000
+        output = 80000
+        temperature = undefined
+        max_tokens = "max_completion_tokens"
+        response_format = { type: "json_object" }
+        messages = messages.map(d=>{
+            return {
+                ...d,
+                role: d.role === "system" ? "developer" : d.role
+            }
+        })
+    }else if( options.engine === "o3-mini" || options.engine === "o4-mini" || options.engine === "o3" ){
+        defaultTokens = 115000
         model = options.engine
         sleepBase = 20000
         output = 80000

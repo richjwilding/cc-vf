@@ -30,6 +30,14 @@ const cost_map = {
         "gpt-4.1-mini-2025-04-14":{
             "prompt_tokens": 0.4 / 1000000,
             "completion_tokens": 1.6 / 1000000
+        },
+        "gpt-5-mini-2025-08-07":{
+            "prompt_tokens": 0.25 / 1000000,
+            "completion_tokens": 2 / 1000000
+        },
+        "gpt-5-2025-08-07":{
+            "prompt_tokens": 1.25 / 1000000,
+            "completion_tokens": 10 / 1000000
         }
     }
 }

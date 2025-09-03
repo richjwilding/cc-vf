@@ -1,14 +1,12 @@
 import mongoose from "mongoose";
 import { DONT_LOAD, executeConcurrently, uniquePrimitives } from "../SharedFunctions";
+import { inspect } from 'node:util';
 import Primitive from "../model/Primitive";
 const LeanPrimitiveResolved = mongoose.connection.collection("lean_primitives_resolved");
 
-// --- helpers ---------------------------------------------------------------
-
-const arr = (v) => (Array.isArray(v) ? v : v == null ? [] : [v]);
-
 // Build a Mongo/Mongoose filter object from bucket signature + filters
 function makePostJoinFilterQuery(sigObj, filters = []) {
+
   const { type, referenceId } = sigObj || {};
   const query = [];
 
@@ -29,20 +27,44 @@ function makePostJoinFilterQuery(sigObj, filters = []) {
     const raw = f.value ?? f.filter;
     const val = [raw].flat()
 
-    if (filterType === 'category') {
-        if( val.includes( null )){
-            console.log(`Null needs `)
-            query.push({$or: f.sourcePrimOrigin.map(d=>({[`parentPrimitives.${d}.0`]: { $exists: true }}))})
+    function addParentPrimitiveCheck( items ){
+        if(items.length > 1){
+            if( f.invert ){
+                query.push({$or: items.map(d=>({[`parentPrimitives.${d}.0`]: { $exists: true }}))})
+            }else{
+                query.push({$and: items.map(d=>({[`parentPrimitives.${d}.0`]: { $exists: false }}))})
+            }
+        }else if(items.length == 1){                
+            query.push({[`parentPrimitives.${items[0]}.0`]: { $exists: f.invert ? true : false }})
         }
-        const cleaned = val.filter(Boolean)
-        if(cleaned.length > 0){
-            query.push({$and: cleaned.map(d=>({[`parentPrimitives.${d}.0`]: { $exists: false }}))})
-        }
-      continue;
     }
-    if( val[0]?.gte ){
-        query.push({[`referenceParameters.${field}`]: {$gte: val[0].gte}})
+
+    switch( filterType ){
+        case 'category':
+            if( val.includes( null )){
+                query.push({$or: f.sourcePrimOrigin.map(d=>({[`parentPrimitives.${d}.0`]: { $exists: true }}))})
+            }
+            addParentPrimitiveCheck( val.filter(Boolean) )
+            continue;
+        case "parent":
+            addParentPrimitiveCheck( val.filter(Boolean) )
+            continue
+        case "parameter":
+            console.log(f, val)
+            if( val[0]?.gte ){
+                query.push({[`referenceParameters.${field}`]: {$gte: val[0].gte}})
+                continue
+            }
+            if( f.invert ){
+                query.push({[`referenceParameters.${field}`]: {$in: val}})
+            }else{
+                query.push({[`referenceParameters.${field}`]: {$nin: val}})
+            }
+            continue
     }
+
+    console.log(f)
+    throw "Unsupported filter"
 }
 
   return query.length > 0 ? {$and: query} : {};
@@ -59,7 +81,6 @@ function normalizeFilters(filters) {
   if (!Array.isArray(filters) || filters.length === 0) return [];
   return filters.map(f => {
     const {track, treatment, ...out} = { ...f };
-    if (typeof out.op === 'string') out.op = out.op.toLowerCase();
     if (Array.isArray(out.value)) out.value = [...out.value].sort();
     return out;
   }).sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
@@ -90,6 +111,15 @@ function isViewFilter(node, normalizedFilters) {
 function nodeViewFilters(node) {
   const { normalizedFilters } = extractSigParts(node.referenceParameters, node.type);
   return normalizedFilters;
+}
+function importFilters(node) {
+    if( node.referenceParameters?.importConfig ){
+        return node.referenceParameters.importConfig.reduce((a,d)=>{
+            a[d.id] = normalizeFilters(d.filters).map(d=>({...d, invert: true}))
+            return a
+        }, {})
+    }
+    return {}
 }
 
 function mergeFilterArrays(a = [], b = []) {
@@ -127,13 +157,18 @@ function computeIncomingViewFilterGroups(chain) {
     const vFilters = nodeViewFilters(node);
     const acc2 = isViewFilter(node, vFilters) ? mergeFilterArrays(accFilters, vFilters) : accFilters;
 
+    const impFilters = importFilters(node)
     // Propagate to its imports (producers)
     const parents = importsMap.get(curId) || [];
     for (const parentId of parents) {
       // The parent’s outputs will later pass through acc2 worth of filters
-      pushIncoming(parentId, acc2);
-      dfsUpstream(parentId, acc2);
+      const thisImportFilters = impFilters[parentId]
+      const acc3 = thisImportFilters ? mergeFilterArrays(acc2, thisImportFilters) : acc2
+
+      pushIncoming(parentId, acc3);
+      dfsUpstream(parentId, acc3);
     }
+
   }
 
   // Start from each sink with an empty accumulator
@@ -143,54 +178,6 @@ function computeIncomingViewFilterGroups(chain) {
 
   return incoming;
 }
-export function buildDepthBuckets(chain) {
-  const byDepth = new Map();
-  const incomingGroups = computeIncomingViewFilterGroups(chain); // NEW
-
-  for (const n of chain) {
-    const hasImports = Array.isArray(n.importsIds) && n.importsIds.length > 0;
-    const hasPrimAll = n.hasPrimitiveIds;
-
-    const { sigObj, normalizedFilters: ownFilters } = extractSigParts(n.referenceParameters, n.type);
-
-    if (isViewNoop(n, ownFilters)) continue;
-
-    if (hasImports || !hasPrimAll) {
-      continue;
-    }
-
-    const nodeId = String(n._id);
-    const groups = incomingGroups.get(nodeId) || [[]]; // at least one empty group
-
-    for (const incoming of groups) {
-      const combinedFilters = mergeFilterArrays(ownFilters, incoming);
-      
-      const sigStr = nodeId //stableStringify({sigObj,incomingViewFilters: combinedFilters});
-        
-        console.log(`${nodeId} - ${sigStr}`)
-      let depthMap = byDepth.get(n.depth);
-      if (!depthMap) {
-        depthMap = new Map();
-        byDepth.set(n.depth, depthMap);
-      }
-
-      let bucket = depthMap.get(sigStr);
-      if (!bucket) {
-        bucket = {
-          sigObj,
-          parentIds: new Set(),
-          childIds: new Set(),
-          filters: combinedFilters,
-          postJoinFilterQuery: makePostJoinFilterQuery(sigObj, combinedFilters),
-        };
-        depthMap.set(sigStr, bucket);
-      }
-      bucket.parentIds.add(nodeId);
-    }
-  }
-
-  return byDepth;
-}
 export function buildLookups(chain) {
   const out = []
   const incomingGroups = computeIncomingViewFilterGroups(chain); // NEW
@@ -199,31 +186,32 @@ export function buildLookups(chain) {
     const hasImports = Array.isArray(n.importsIds) && n.importsIds.length > 0;
     const hasPrimAll = n.hasPrimitiveIds;
 
-    const { sigObj, normalizedFilters: ownFilters } = extractSigParts(n.referenceParameters, n.type, n.sourcePrimOrigins);
-
-    // If it’s a pure noop view with no own filters, it only propagates; skip creating a bucket
-    // (If it has own filters but no ref/type, it still qualifies as a view filter source handled upstream)
-    if (isViewNoop(n, ownFilters)) continue;
-
     if (hasImports || !hasPrimAll) {
       continue;
     }
+    const { sigObj, normalizedFilters: ownFilters } = extractSigParts(n.referenceParameters, n.type, n.sourcePrimOrigins);
 
-    // figure out how many incoming filter groups this node should receive
+    //if (isViewNoop(n, ownFilters)) continue;
+
     const nodeId = String(n._id);
     const groups = incomingGroups.get(nodeId) || [[]]; // at least one empty group
 
-    for (const incoming of groups) {
-      const combinedFilters = mergeFilterArrays(ownFilters, incoming);
-      out.push(
-        {
-            parentId: nodeId,
-            query: {
-                deleted: { $exists: false },
-                ...makePostJoinFilterQuery(sigObj, combinedFilters)
-            }
+    try{
+        for (const incoming of groups) {
+            const combinedFilters = mergeFilterArrays(ownFilters, incoming);
+            out.push(
+                {
+                    parentId: nodeId,
+                    query: {
+                        deleted: { $exists: false },
+                        ...makePostJoinFilterQuery(sigObj, combinedFilters)
+                    }
+                }
+            )
         }
-      )
+    }catch(e){
+        console.log(`Error building fast path filter for ${nodeId}`)
+        throw e
     }
   }
 
@@ -231,13 +219,14 @@ export function buildLookups(chain) {
 }
 
 
-export async function fetchPerBucket({workspaceId, buckets}) {
+export async function fetchPerBucket({workspaceId, buckets, options = {withParentPrimitives: false, withPrimitives: false }}) {
   const data = await executeConcurrently( buckets, async ({query, parentId})=>{
     
     console.log(`Will for ${parentId}`)
 
     console.time(`Fetch_${parentId}`)
-    const res = await Primitive.aggregate([
+
+    let pipeline = [
         {
             $match: {
                 workspaceId,
@@ -250,8 +239,29 @@ export async function fetchPerBucket({workspaceId, buckets}) {
         },
         {
             $match: query
-        },
-        { $project: {...DONT_LOAD, primitives: 0, parentPrimitives: 0, processing: 0, comments: 0, workspaceId: 0}}
+        }
+    ]
+    let projection = [
+      { $project: {
+            ...DONT_LOAD, 
+            ...(options.withPrimitives ? {} : {primitives:  0} ), 
+            ...(options.withParentPrimitives ? {} : {parentPrimitives:  0} ), 
+            processing: 0, 
+            comments: 0, 
+            workspaceId: 0
+        }}
+      ]
+    if( options.pipelineSteps ){
+      pipeline.push(...options.pipelineSteps)
+      if( options.pipelineSteps.at(-1).$project){
+        console.log(`Last step is custom projection`)
+        projection = []
+      }
+    }
+
+    const res = await Primitive.aggregate([
+      ...pipeline,
+      ...projection        
     ]).hint("workspaceId_1_parentPrimitives.$**_1") ?? []
     console.timeEnd(`Fetch_${parentId}`)
 
@@ -270,35 +280,6 @@ function uniqueLeanPrimitives(list){
 }
 
 async function fetchImportChainIds({ sourceId, workspaceId }) {
- /*   const pipeline =  [
-    { $match: { _id: sourceId, workspaceId, deleted: { $exists: false } } },
-    {
-      $graphLookup: {
-        from: "lean_primitives_resolved",
-        startWith: "$_id",
-        connectFromField: "importsIds",
-        connectToField: "_id",
-        as: "chain",
-        depthField: "depth",
-        restrictSearchWithMatch: { workspaceId, deleted: { $exists: false } },
-      },
-    },
-    {
-      $project: {
-        chain: {
-         _id: 1,
-          depth: 1,
-          type: 1,
-          referenceId: 1,
-          importsIds: 1,
-          hasPrimitiveIds: 1,
-          referenceParameters: 1,
-          parentPrimitives: 1
-        },
-      },
-    },
-  ]*/
-
 const pipeline = [
   { $match: {
       _id: sourceId,
@@ -366,54 +347,31 @@ const pipeline = [
   return await LeanPrimitiveResolved.aggregate(pipeline).toArray();
 }
 
-export async function getDataForImportDB(source, { forceImport = false } = {}) {
+export async function getDataForImportDB(source, options = { forceImport: false }) {
+    console.log(`>>>>> getDataForImportDB`)
   if (
-    (!forceImport && (["query", "summary", "search"].includes(source.type))) ||
+    (!options.forceImport && (["query", "summary", "search"].includes(source.type))) ||
     ((["actionrunner", "action"].includes(source.type)) &&
       !Object.keys(source.primitives ?? {}).includes("imports") &&
       !forceImport)
   ) {
-    return null;
+    throw "unsupported"
   }
 
   const workspaceId = source.workspaceId;
   const sourceId = new mongoose.Types.ObjectId(source.id);
 
-  console.time("Chain")
   const chain = await fetchImportChainIds({ sourceId, workspaceId });
-  console.timeEnd("Chain")
-
-  for(const d of chain){
-    console.log(`Checking ${d._id.toString()} ${d.type}`)
-    if( d.referenceParameters?.importConfig ){
-        console.log(`Fast path not supported for importConfig on ${d._id.toString()}`)
-        //return
-    }
-    if( d.referenceParameters?.explore?.filters ){
-        for(const filter of d.referenceParameters.explore.filters){
-            let supported = false
-            if( filter.type === "parameter"){
-                supported = true
-            }else if( filter.type === "category" && (!filter.access || filter.access === 0) ){
-                supported = true
-            }
-            if( !supported ){
-                console.log(`Fast path not supported for filter ${filter.type} ${filter.access} on ${d._id.toString()}`)
-                return undefined
-            }
-        }
-    }
-
-  }
 
   let results
-  console.time("Buckets")
   const buckets = buildLookups( chain )
-  console.timeEnd("Buckets")
-  console.log(buckets)
+/*for(const d of buckets){
+    console.log(inspect(d, { depth: 10, colors: true }))
+}*/
+  
 
     console.time("Fetch")
-    results = await fetchPerBucket({workspaceId, buckets})
+    results = await fetchPerBucket({workspaceId, buckets, options})
     console.timeEnd("Fetch")
 
   return results;

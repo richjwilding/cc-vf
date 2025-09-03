@@ -10,12 +10,13 @@ export async function implementation(params, scope, notify){
     const primitive = (await resolveId(params.id, scope))[0]
     if( primitive ){
         logger.info(`Doing lookup`, {chatId: scope.chatUUID})
-        let items = await getDataForImport( primitive )
+        let limit = params.limit ?? 20
+        let items = await getDataForImport( primitive, undefined, {sample: limit} )
         if( items.length > 0){
             const total = items.length
-            let limit = Math.min( params.limit ?? 20, total)
 
-            const resolved = pickAtRandom(items, limit)
+            //const resolved = pickAtRandom(items, limit)
+            const resolved = items
             const resultCategories = (await Category.find({id: {$in: resolved.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)}})).reduce((a,c)=>{a[c.id] = c; return a},{})
 
             const extracted = []

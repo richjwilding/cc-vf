@@ -45,8 +45,7 @@ function startWorkSession(key, flow, payload={}) {
     id: crypto.randomUUID(),
     flow,            // 'viz' | 'slides'
     state: 'list',   // or whatever initial state
-    data: {},        // flow-owned bag (avoid field collisions)
-    payload,         // stable seed (e.g., suggestions or slide brief)
+    ...payload,
     ts: Date.now()
   };
   workSessions.set(key, s);
@@ -59,7 +58,7 @@ export function exitWork(scope) {
   scope.endWorkSession?.();
 }
 
-function getWorkSession(key){ return workSessions.get(key) || null; }
+function getWorkSession(key){ console.log(Array.from(workSessions.keys())); return workSessions.get(key) || null; }
 function touchWorkSession(key){ const s=getWorkSession(key); if(s){ s.ts = Date.now(); } }
 function endWorkSession(key){ workSessions.delete(key); }
 
@@ -92,7 +91,7 @@ const flows = {
       current_state: s.state,
       selection: s.data.selection ?? null,
       current_spec: s.data.spec ?? null,
-      suggestions_index: (s.payload?.suggestions || []).map(x => ({
+      suggestions_index: (s.suggestions || []).map(x => ({
         id: x.id, chart: x.type, label: x.description
       }))
     }),
@@ -108,6 +107,7 @@ const flows = {
   slides: {
     toolNames: new Set([
       "design_slide_from_suggestion",
+      "update_slide_from_suggestion",
       "update_slide_title",
       "update_slide_layout",
       "add_slide_section",
@@ -126,14 +126,16 @@ const flows = {
                   *) - 3.	If a visualization needs to change, call update_slide_section for those section(s) and keep categorization consistent (reuse the same ref).
                   *) - 4.	If a summarization needs to change, call update_slide_section for those section(s).
                   *) - 5.	Confirm the updated slide spec to the user, then stop.
-                  *) Prefer slide-level defs + $ref reuse over same_as. If a new categorization replaces one referenced by multiple sections, update the def once and ensure sections point to the new $ref.`.replaceAll(/\s+/g," "),
+                  *) - 6.	If the user changes switches to a different suggestion call update_slide_from_suggestion with the new suggestion id and any title/layout overrides.
+                  *) Prefer slide-level defs + $ref reuse over same_as. If a new categorization replaces one referenced by multiple sections, update the def once and ensure sections point to the new $ref.
+                  *) You must NOT perform slide updates without calling one of the above functions`.replaceAll(/\s+/g," "),
     buildContext: (s) => ({
       slide_set_id: s.id,
       current_state: s.state,           // 'draft'|'preview'|'confirm'|'added'
       deck_id: s.data.deckId ?? null,
       selection: s.data.selection ?? null,
       current_slide_spec: s.data.slideSpec ?? null,
-      outline: s.payload?.outline ?? null // e.g., suggested slide outline you seed
+      suggestions: s.suggestions ?? null // e.g., suggested slide outline you seed
     }),
     enterTriggers: [
         /\b(slide|deck|presentation|title slide|agenda|layout|add slide|create slide)\b/i,
@@ -446,7 +448,8 @@ const functionMap = {
         console.log(prompt)
 
         const res = await openai.chat.completions.create({
-            model: "gpt-4o",
+            model: "gpt-5-mini",
+            //model: "gpt-4o",
             messages: [{
               role:"user",
               content: prompt,
@@ -1228,7 +1231,8 @@ export async function handleChat(primitive, options, req, res) {
             res.write(`data: ${JSON.stringify(delta)}\n\n`);
         };
     try{
-        let activeFunctions = functions.filter(d=>!["update_working_state", "update_query", "suggest_categories", "existing_categorizations", "prepare_categorization_preprocessing", "prepare_search_preprocessing"].includes(d.name)) 
+        //let activeFunctions = functions.filter(d=>!["update_working_state", "update_query", "suggest_categories", "existing_categorizations", "prepare_categorization_preprocessing", "prepare_search_preprocessing"].includes(d.name)) 
+        let activeFunctions = functions.filter(d=>!["update_working_state", "update_query","prepare_categorization_preprocessing", "prepare_search_preprocessing"].includes(d.name)) 
         let systemPrompt = agentSystem
         if( primitive.plainId === 1214361){
             systemPrompt =`You are Sense AI, an agent helping a user answer question about their data:
@@ -1356,8 +1360,10 @@ export async function handleChat(primitive, options, req, res) {
         }
 
         const userMessages = req.body.messages;
+        let immediateContext 
         if( options.immediateContext ){
           userMessages.splice(-1, undefined, {role: "assistant", content: `[[chat_scope:${options.immediateContext.join(",")}]]`})
+          immediateContext = await resolveId( options.immediateContext, {workspaceId: primitive.workspaceId} )
         }
 
         let history = [ 
@@ -1382,6 +1388,7 @@ export async function handleChat(primitive, options, req, res) {
             parent,
             mode: options.mode,
             workspaceId: primitive.workspaceId, 
+            immediateContext,
             primitive,
             latestCategories,
             ...(options.agentScope ?? {}),
@@ -1397,10 +1404,12 @@ export async function handleChat(primitive, options, req, res) {
           viz: workKey(primitive, req, 'viz'),
           slides: workKey(primitive, req, 'slides')
         };
+        console.log(keys)
         let sessions = {
           viz: getWorkSession(keys.viz),
           slides: getWorkSession(keys.slides)
         };
+        console.log(sessions)
 
         for (const f of Object.keys(sessions)) {
           const s = sessions[f];
@@ -1425,15 +1434,24 @@ export async function handleChat(primitive, options, req, res) {
           const def = flows[f];
           if (!sessions[f] && matchEnter(def, lastUserMsg)) {
             sessions[f] = startWorkSession(keys[f], f, /* payload */ {});
+            console.log(`Created ${f} session with key ${keys[f]}`)
           }
+        }
+        if( !sessions.slides && immediateContext[0]?.type === "page" && immediateContext[0].slide_state){
+          console.log(`Restore slide session from primitive`)
+          sessions.slides = startWorkSession(keys.slides, 'slides', immediateContext[0].slide_state);
         }
 
         if (!sessions.slides && !sessions.viz && latestView?.context?.suggestions) {
-          sessions.viz = startWorkSession(keys.viz, 'viz', latestView.context);
+          console.log(`Creating viz session`)
+          sessions.viz = startWorkSession(keys.viz, 'viz', {context: latestView.context});
         }
         if (!sessions.slides && !sessions.viz && latestSlide?.context?.suggestions) {
-          sessions.slides = startWorkSession(keys.slides, 'slides', latestSlide.context);
+          console.log(`Creating slides session`)
+          sessions.slides = startWorkSession(keys.slides, 'slides', {suggestions: latestSlide.context});
         }
+
+        console.log(`Session state = ${sessions.viz ? "VIZ" : "viz"} ${sessions.slides ? "SLIDES" : "slides"}`)
 
         let activeFlow = null;
         if (sessions.viz && sessions.slides) {
@@ -1444,6 +1462,7 @@ export async function handleChat(primitive, options, req, res) {
         } else if (sessions.viz) {
           activeFlow = 'viz';
         }
+        console.log(`Pick = ${activeFlow}`)
 
 
         if (activeFlow) {
@@ -1457,29 +1476,30 @@ export async function handleChat(primitive, options, req, res) {
           scope.workSessionKey    = keys[activeFlow];
           scope.touchWorkSession  = () => touchWorkSession(keys[activeFlow]);
           scope.endWorkSession    = () => { endWorkSession(keys[activeFlow]); scope.workSession = null; };
-          scope.beginWorkSession = (flow, payload = {}) => {
-            const key = workKey(primitive, req, flow);
-            const session = startWorkSession(key, flow, payload);
-            if (flow === 'slides') {
-              scope.workSession      = session;   // generic
-              scope.workSessionKey   = key;
-              scope.touchWorkSession = () => touchWorkSession(key);
-              scope.endWorkSession   = () => { endWorkSession(key); scope.workSession = null; };
-            }
-            return session;
-          };
 
           activeFunctions = functions.filter(d => def.toolNames.has(d.name));
 
           history = [
             { role: "system", content: agentSystem + ` You are in ${activeFlow} refinement mode.` },
-            { role: "system", content: `${def.contextName}: ${JSON.stringify(def.buildContext(sess))}` },
             def.extraSystem ? { role: "system", content: def.extraSystem } : undefined,
+            { role: "system", content: `${def.contextName}: ${JSON.stringify(def.buildContext(sess))}` },
             ...history.filter(m => m.role !== 'system')
           ].filter(Boolean)
           console.log(`--- IN ${def.contextName} MODE`)
           console.log(inspect( sess, {depth: 5, colors: true}))
         }
+        scope.beginWorkSession = (flow, payload = {}) => {
+          const key = workKey(primitive, req, flow);
+          const session = startWorkSession(key, flow, payload);
+          console.log(`Creating worksession ${flow} at ${key}`)
+          if (flow === 'slides') {
+            scope.workSession      = session;   // generic
+            scope.workSessionKey   = key;
+            scope.touchWorkSession = () => touchWorkSession(key);
+            scope.endWorkSession   = () => { endWorkSession(key); scope.workSession = null; };
+          }
+          return session;
+        };
         
         res.set({
             'Content-Type': 'text/event-stream',
@@ -1509,6 +1529,7 @@ export async function handleChat(primitive, options, req, res) {
             let funcName = '', funcArgs = '', assistantContent = '';
             const stream = await openai.chat.completions.create({
                 model: 'gpt-4.1',
+                //model: 'gpt-5-mini',
                 stream: true,
                 messages: history,
                 temperature: 0.2,
@@ -1549,7 +1570,8 @@ export async function handleChat(primitive, options, req, res) {
                         function_call: { name: funcName, arguments: funcArgs }
                     });
                     if( fn ){
-                        const fnResult = await fn(args, {...scope, history: history.slice(1)}, (m, update = true, hidden = false)=>{
+                        scope.history = history.slice(1)
+                        const fnResult = await fn(args, scope, (m, update = true, hidden = false)=>{
                             if( update ){
                                 sendSse({content: `[[update:${m}]]`})
                             }else{

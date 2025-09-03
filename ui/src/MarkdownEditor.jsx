@@ -33,14 +33,16 @@ function MarkdownBadge({ badgeType, actionCallback }) {
 
   function runningBadge(title){
     return <div className="animate-border inline-flex  animate-border bg-[length:400%_400%] bg-gradient-to-r bg-white from-green-500 inline-block to-blue-500 via-purple-500 p-[1px] rounded-full">
-      <span className="bg-slate-50 inline-flex  pl-1 pr-2 py-0.5 text-slate-700 rounded-full place-items-center text-sm">
-        <Logo active={true} className='bg-gray-100 h-4 w-4 rounded-full animate-ripple-color mr-1'/>
+      <span className={`bg-slate-50 inline-flex  pl-1 ${title ? "pr-2" : "pr-1"} py-0.5 text-slate-700 rounded-full place-items-center text-sm`}>
+        <Logo active={true} className={`bg-gray-100 h-4 w-4 rounded-full animate-ripple-color ${title ? "mr-1" : ""}`}/>
         {title}
         </span>
     </div>
   }
 
   switch (badgeType) {
+    case 'agent_responding':
+      return runningBadge("")
     case 'agent_running':
       return runningBadge("Running...")
     // add more cases for different badges…
@@ -241,9 +243,7 @@ function MarkdownBadge({ badgeType, actionCallback }) {
 const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, actionCallback, ...props }, ref){
   const editor = useMemo(() => withBadges(withHistory(withReact(createEditor()))), [])
   const slateRef = useRef()
-
-  
-
+  const statusMessage = useRef()
   const [value, setValue] = useState(() => convertInitialValue( initialMarkdown));
 
   useEffect(()=>{
@@ -272,12 +272,29 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
   
     return firstNode.children.length === 1 && Node.string(editor).trim() === '';
   }
+  function removeStatusBadges( editor ){
+        let idx = editor.children.findIndex(d=>d.statusBadge )
+        while( idx > -1){
+            Transforms.removeNodes(editor, { at: [idx] });
+            idx = editor.children.findIndex(d=>d.statusBadge )
+        }
+  }
 
   useImperativeHandle(ref, ()=>{
     return {
       copyToClipboard,
       empty:()=>isEditorEmpty( editor ),
       focus:()=>slateRef.current.focus(),
+      statusMessage:(status)=>{
+        if( status ){
+          statusMessage.current = [{ type:"paragraph", statusBadge: true, children: [{type: 'badge', badgeType: status, children:[{text: ""}]}]}]
+        }else{
+          statusMessage.current = undefined
+          Editor.withoutNormalizing(editor, () => {
+            removeStatusBadges(editor)
+          })
+        }
+      },
       clear:()=>{
         const d = convertInitialValue( "")
         editor.children = d
@@ -290,6 +307,9 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
         const isEmpty = !newMsgs || newMsgs.length === 0
         const nodes = convertInitialValue(newMsgs)
         let done = false
+        
+        removeStatusBadges(editor)
+        
         if( update ){
           const endIndex = editor.children.length - 1
           if (endIndex >= 0 ){
@@ -302,6 +322,9 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
         }
         if( !done && !isEmpty){
           Transforms.insertNodes(editor, nodes, { at: [editor.children.length] })
+        }
+        if( statusMessage.current){
+          Transforms.insertNodes(editor, statusMessage.current, { at: [editor.children.length] })
         }
         // insert at the end of the document
         if (slateRef.current && props.scrollToEnd && wasAtTop) {

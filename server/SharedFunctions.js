@@ -29,7 +29,7 @@ import "./workflow.js"
 import FlowQueue from './flow_queue.js';
 import { getLogger } from './logger.js';
 import { queryQuoraByRapidAPI } from './rapid_helper.js';
-import { baseURL, expandStringLiterals, findFilterMatches, getRegisteredDomain } from './actions/SharedTransforms.js';
+import { baseURL, expandStringLiterals, findFilterMatches, getRegisteredDomain, pickAtRandom } from './actions/SharedTransforms.js';
 import { fetchMoneySavingExpertSearchResults, moneySavingExpertSERP } from './scrapers/moneysavingexpert.js';
 import mongoose, { Types } from 'mongoose';
 import { reviseUserRequest } from './prompt_helper.js';
@@ -2034,27 +2034,39 @@ async function __OLD__filterItems(list, filters){
 }
 
 
-export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}, query:{}, depth: 0}, forceImport = false, first = true ){
-    if (false && process.env.USE_DB_IMPORTS === "true") {
-        const dbResult = await getDataForImportDB(source, { forceImport });
-        if (dbResult) {
-            let out = dbResult;
-
-            out = out.filter(d => !["segment","category","query","report","reportinstance"].includes(d.type));
-
-            const sourceConfig = await getConfig(source);
-            if (sourceConfig?.extract) {
-                const check = [sourceConfig.extract].flat();
-                out = out.filter(d => check.includes(d.referenceId));
-            }
-
-            return out;
+export async function getDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}, query:{}, depth: 0}, options , first = true ){
+    let forceImport = false
+    if( typeof(options) === "object" ){
+        if( options.hasOwnProperty("forceImport") ){
+            forceImport = options.forceImport
         }
+    }else{
+        forceImport = options
+        options = {}
     }
-    console.log(`>>> Fallback to legacy import handling`)
+    let result = []
+    if (first && process.env.USE_DB_IMPORTS === "true") {
+        try{
+            const {sample, forceImport, ...theseOptions} = options
+            theseOptions.pipelineSteps ||= []
+            if( sample ){
+                theseOptions.pipelineSteps.push({ $sample: { size: sample } })
+            }
+            result = await getDataForImportDB(source, theseOptions );
+        }catch(e){
+            console.log(e)
+            console.log(`>>> Fallback to legacy import handling`)
+        }
+    }else{
+        console.log(`!!!! call legacy`)
+        result = await legacyGetDataForImport(source, cache, forceImport, first);
+    }
+    if( options.sample ){
+        console.log(`--- will sample ${options.sample} records from ${result.length}`)
+        result = pickAtRandom( result, options.sample)
 
-    // Fallback to your legacy implementation
-    return await legacyGetDataForImport(source, cache, forceImport, first);
+    }
+    return result
 }
 export async function legacyGetDataForImport( source, cache = {imports: {}, categories:{}, primitives:{}, query:{}, depth: 0}, forceImport = false, first = true ){
     let fullList = []

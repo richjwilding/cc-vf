@@ -3729,6 +3729,7 @@ export function renderPlaceholder(renderOptions = {}){
         height = 128, 
         type, 
         text, 
+        scale = 1,
         fontFamily = "Poppins", 
         ...options 
     } = { 
@@ -3751,8 +3752,8 @@ export function renderPlaceholder(renderOptions = {}){
     })
     const g = new Konva.Group({
         id: id,
-        x,
-        y,
+        x: 0,
+        y: 0,
         width,
         height,
         opacity: 0.6,
@@ -3770,7 +3771,7 @@ export function renderPlaceholder(renderOptions = {}){
         width: usableWidth,
         height: usableHeight,
         stroke: "#e2e2e2",
-        strokeWidth: 10 * options.scale,
+        strokeWidth: 10 * scale,
         cornerRadius: padding
     })
     g.add(r)
@@ -3778,37 +3779,66 @@ export function renderPlaceholder(renderOptions = {}){
     
 
     switch(options.style){
-        case "text":{
-            const h = usableHeight < 120 ? 10 * options.scale : 30 * options.scale
-            const widths = [0.6, 0.8, 0.4, 0.7, 0.2]
-            const lenW = widths.length
-            const cornerRadius = h * 0.3
-            for( let y = h + (padding * 2), i = 0 ; (y + h) < usableHeight; i++, y += ( h * 2)){
-                const thisWidth = (usableWidth - (2 * padding)) * widths[i % lenW]
-                g.add(new Konva.Rect({
-                    x: padding * 2,
-                    y,
-                    width: thisWidth,
-                    height: h,
-                    cornerRadius, 
-                    fill: "#e2e2e2"
-                }))
+        case "text":
+            {
+                const h = usableHeight < 120 ? 10 * scale : 30 * scale
+                const widths = [0.6, 0.8, 0.4, 0.7, 0.2]
+                const lenW = widths.length
+                const cornerRadius = h * 0.3
+                for( let y = h + (padding * 2), i = 0 ; (y + h) < usableHeight; i++, y += ( h * 2)){
+                    const thisWidth = (usableWidth - (2 * padding)) * widths[i % lenW]
+                    g.add(new Konva.Rect({
+                        x: padding * 2,
+                        y,
+                        width: thisWidth,
+                        height: h,
+                        cornerRadius, 
+                        fill: "#e2e2e2"
+                    }))
+                }
             }
-        }
-        if( options.status?.message ){
-            const t = new Konva.CustomText({
-                text: options.status?.message,
-                fontSize: usableWidth > 150 ? 40 * options.scale : 20 * options.scale ,
-                align: "center",
-                width: usableWidth,
-                maxHeight: usableHeight,
-                wrap: true
-            })
-            t.x( (width - t.width()) / 2)
-            t.y( (height - t.height()) / 2)
-            g.add(t)
-        }
-        break
+            break
+        case "pie_chart":
+            {
+                const r = (Math.min(usableHeight, usableWidth) / 2) * 0.9
+                g.add(new Konva.Circle({
+                        x: padding + r + (usableWidth - r * 2) / 2,
+                        y: padding + r + (usableHeight - r * 2) / 2,
+                        radius: r,
+                        fill: "#f2f2f2",
+                    }))
+                g.add(new Konva.Arc({
+                        x: padding + r + (usableWidth - r * 2) / 2,
+                        y: padding + r + (usableHeight - r * 2) / 2,
+                        angle: 50,
+                        rotation: 270,
+                        outerRadius: r,
+                        fill: "#d2d2d2",
+                    }))
+                g.add(new Konva.Arc({
+                        x: padding + r + (usableWidth - r * 2) / 2,
+                        y: padding + r + (usableHeight - r * 2) / 2,
+                        angle: 90,
+                        rotation: 320,
+                        outerRadius: r,
+                        fill: "#e2e2e2",
+                    }))
+
+            }
+            break
+    }
+    if( options.status?.message ){
+        const t = new Konva.CustomText({
+            text: options.status?.message,
+            fontSize: usableWidth > 150 ? 40 * scale : 20 * scale ,
+            align: "center",
+            width: usableWidth,
+            maxHeight: usableHeight,
+            wrap: true
+        })
+        t.x( (width - t.width()) / 2)
+        t.y( (height - t.height()) / 2)
+        g.add(t)
     }
     
     og.add(g)
@@ -4563,6 +4593,38 @@ registerRenderer( {type: "type", id: "flow", configs: "default"}, (primitive, op
     })
     return g
 })
+function arrowButton({x = 0, y = 0, size = 60, dir = "right", callback}){
+
+    const g = new Konva.Group({
+        x, y, onClick: callback,
+        width: size,
+        height: size,
+        name: "clickable"
+    })
+    if( dir === "left"){
+        g.add( new Konva.Line({
+            name: "hover_target",
+            fill: "black",
+            points: [size,0,
+                0, size / 2,
+                size,size
+            ],
+            closed: true
+        }))
+    }else{
+        g.add( new Konva.Line({
+            name: "hover_target",
+            fill: "black",
+            points: [0,0,
+                size, size / 2,
+                0,size
+            ],
+            closed: true
+        }))
+
+    }
+    return g
+}
 registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, options = {})=>{
     const config = {width: 1920, height: 1080, pageColumns: 6, ...options}
     const g = new Konva.Group({
@@ -4597,6 +4659,120 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
     let maxX = config.width, maxY = config.height
     let pageIdx = options.itemIdx ?? 0
     if( !options.utils?.prepareBoards){
+        if( primitive.slide_state?.data?.slideSpec && !options.getConfig ){
+            let margin = [60, 60 ,60, 60], spacer = [20,20]
+            let mainWidth = 1920  - margin[3] - margin[1]
+            let headerFontSize = 48
+            const skeleton = primitive.slide_state.data?.slideSpec
+            const t = new CustomText({
+                text: skeleton.title,
+                align:"left",
+                fontStyle: "bold",
+                fill: "#777",
+                x: margin[3],
+                y: margin[0],
+                wrap: true,
+                width: mainWidth,
+                lineHeight: 1.05,
+                fontSize: headerFontSize ,
+                refreshCallback: options.imageCallback
+            })
+            g.add(t)
+
+            const sections = skeleton.sections
+            const sectionWidth = (mainWidth - ((sections.length - 1) * spacer[1])) / sections.length
+            sections.forEach((d,i)=>{
+                let x = margin[3] + (i * (sectionWidth + spacer[1]))
+                let y = margin[0] + (headerFontSize * 2 * 1.05) + spacer[1]
+                const sectionHeight = 1080 - margin[2] - y
+
+                const preview = options.data?.sections?.find(d=>d.id === i)
+
+                g.add( new Konva.Rect({
+                    x, 
+                    y,
+                    width: sectionWidth, 
+                    height: sectionHeight,
+                    strokeWidth: 1,
+                    stroke: "#a2a2a2",
+                    cornerRadius: 10,
+                    dashEnabled: true,
+                    dash:[5,3]
+                }))
+                
+                 const t = new Konva.CustomText({
+                    text: d.overview,
+                    fontSize: 26,
+                    align: "center",
+                    x: x + 40,
+                    width: sectionWidth - 80,
+                    wrap: true
+                })
+
+                const previewWidth = sectionWidth / 3 * 2
+                const previewHeight = sectionHeight / 3 * 2
+                const offsetY = (sectionHeight - (previewHeight + spacer[0] + t.height())) / 2
+
+                if( preview ){
+                    const thisRenderOptions = preview.renderOptions
+                    if( thisRenderOptions.size === "size"){
+                        thisRenderOptions.width = previewWidth
+                        thisRenderOptions.height = previewHeight
+                    }
+                    const chart = renderDatatable({
+                        data: preview.data,
+                        viewConfig: preview.viewConfig,
+                        renderOptions: thisRenderOptions,
+                        id: primitive.id,
+                        stageOptions:{
+                            x: x + (sectionWidth - previewWidth) / 2, 
+                            y: y + offsetY,
+                            imageCallback: options.imageCallback
+                        },
+                    })
+                    g.add(chart)
+                    if( preview.renderOptions.size === "scale"){
+                        const scale = Math.min( previewWidth / chart.width(), previewHeight / chart.height() )
+                        chart.scale({x: scale, y: scale})
+                    }
+                }else{
+                    g.add( renderPlaceholder({
+                        x: x + (sectionWidth - previewWidth) / 2, 
+                        y: y + offsetY,
+                        style: d.type === "visualization" ? "pie_chart" : "text", 
+                        scale: 0.5,
+                        width: previewWidth, 
+                        height: previewHeight
+                    }))
+                }
+                t.y( y + offsetY + previewHeight + spacer[0])
+                g.add(t)
+            })
+            const suggestions = primitive.slide_state.suggestions
+            const suggestionCount = primitive.slide_state.suggestions.length
+            const currentSuggestion = (primitive.slide_state.data?.selection ?? 1) 
+
+            function switchSuggestion(suggestion){
+                console.log(`DEPRECATED - DO NOT SET IN RENDERER`)
+                const newData = {
+                    ...primitive.slide_state,
+                    data: {
+                        selection: suggestion,
+                        slideSpec: suggestions[suggestion - 1]
+                    }
+                }
+                
+
+                primitive.setField("slide_state", newData)
+            }
+
+            if( currentSuggestion > 1){
+                g.add( arrowButton( {x: 1840, y: 1040, size: 30, dir: "left", callback: ()=>switchSuggestion( currentSuggestion - 1)}))
+            }
+            if( currentSuggestion < suggestionCount + 1){
+                g.add( arrowButton( {x: 1880, y: 1040, size: 30, dir: "right", callback: ()=>switchSuggestion( currentSuggestion + 1)}))
+            }
+        }
         g.name("inf_track page")
     }else{
         const subpages = options.utils.prepareBoards( primitive )
@@ -5956,7 +6132,7 @@ function renderBarChart( segments, options = {}){
     let mode = false ? "seperate" : "interleave"
     let showAxis = true
     const fontSize = 4
-    let axisFontSize = 6
+    let axisFontSize = config.width > 300 ? 20 : 6
 
     const asPercent = options.showValue === "percent"
     const segmentCount = segments.length
@@ -6771,7 +6947,7 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
     }
 
     const count = cell.count
-    let values = Object.values(cell.allocations ?? {})?.[0]
+    let values = Object.values(cell.allocations ?? {})?.[0] ?? [{count:cell.count, label: "Count"}]
     let sublabels
     if( Object.keys(table.allocations ?? {}).length > 1 ){
         values = sortByOrder(values)
@@ -6786,9 +6962,9 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         values = sortByOrder(values)
     }
     
-    if( !values ){
+    /*if( !values ){
         values = [{count:cell.count, label: "Count"}]
-    }
+    }*/
     if(table.ranges && renderOptions.calcRange){
         if( renderOptions.calcRange === "row"){
             ({min, max} = table.ranges.rows.order[cell.rIdx])

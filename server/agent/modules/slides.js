@@ -1,6 +1,7 @@
 // modules/slides.js
 import { getLogger } from "../../logger.js";
 import { buildCategories } from "../../openai_helper.js";
+import { dispatchControlUpdate } from "../../SharedFunctions.js";
 import { getDataForAgentAction } from "../utils.js";
 const logger = getLogger("agent_module_slides", "debug", 0);
 
@@ -12,21 +13,28 @@ function requireSlideSession(scope) {
   }
   return s;
 }
-function touch(scope) { scope.touchWorkSession?.(); }
+
+export function touchSlideState(scope){
+    const slides = scope.immediateContext?.filter(d=>d.type === "page") ?? []
+    console.log(`Touch slide state`)
+    if( slides[0]){
+        console.log(`Update page data`)
+        dispatchControlUpdate( slides[0].id, "slide_state", requireSlideSession(scope))
+    }
+    scope.touchWorkSession?.()
+}
+
+function touch(scope) { 
+    touchSlideState(scope)
+}
 function nextSectionId(spec) {
   const ids = (spec.sections || []).map(s => s.id || 0);
   return (ids.length ? Math.max(...ids) : 0) + 1;
 }
 function normalizeSections(sections = []) {
   return sections.map((s, i) => ({
-    id: s.id ?? (i + 1),
-    sourceId: s.sourceId,
-    type: s.type, // 'summary' | 'visualization'
-    pre_filter: s.pre_filter ?? null,
-    categorization: s.categorization ?? null,
-    summarization: s.summarization ?? null,
-    visualization: s.visualization ?? null,
-    post_filter: s.post_filter ?? null
+    ...s,
+    id: s.id ?? (i + 1)
   }));
 }
 
@@ -51,12 +59,13 @@ export const design_slide_from_suggestion = {
   },
   implementation: async (params, scope, notify) => {
     const sess = requireSlideSession(scope);
-    const outline = sess?.payload?.suggestions || [];
+    const outline = sess?.suggestions ?? [];
     const picked = outline.find(x => x.id === params.suggestion_id);
     if (!picked) return { error: "Invalid suggestion_id" };
 
     const draft = {
-      title: params.title_override || picked.description,
+        title: params.title_override || picked.description,
+        defs: picked.defs,
       layout: params.layout_override || picked.layout,
       sections: normalizeSections(picked.sections)
     };
@@ -75,6 +84,43 @@ export const design_slide_from_suggestion = {
    2) Global slide tweaks
    =========================== */
 
+export const update_slide_from_suggestion = {
+  definition: {
+    name: "update_slide_from_suggestion",
+    description: "Update the slide spec using a suggested analysis item / option.",
+    parameters: {
+      type: "object",
+      required: ["suggestion_id"],
+      properties: {
+        suggestion_id: { type: "number", description: "ID from suggest_analysis output (1..N)" },
+        title_override: { type: "string" },
+        layout_override: { type: "string", enum: ["full_page","left_summary"] }
+      },
+      additionalProperties: false
+    }
+  },
+  implementation: async (params, scope, notify) => {
+    const sess = requireSlideSession(scope);
+    const outline = sess?.suggestions || [];
+    const picked = outline.find(x => x.id === params.suggestion_id);
+    if (!picked) return { error: "Invalid suggestion_id" };
+
+    const draft = {
+        title: params.title_override || picked.description,
+        defs: picked.defs,
+      layout: params.layout_override || picked.layout,
+      sections: normalizeSections(picked.sections)
+    };
+
+    sess.data.slideSpec = draft;
+    sess.data.selection = params.suggestion_id;
+    sess.state = "preview";
+    touch(scope);
+    notify?.("Draft slide created from suggestion.", true);
+
+    return { preview: draft };
+  }
+};
 export const update_slide_title = {
   definition: {
     name: "update_slide_title",

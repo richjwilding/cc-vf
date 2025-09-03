@@ -2193,19 +2193,6 @@ const PrimitiveConfig = {
                     data = scope.filter(d=>parentIds.includes(d))
                 }else if( resolvedFilterType === "segment_filter"){
                     data = lookups[idx].map(d=>{
-                        /*const imSections = d.referenceParameters?.importConfig?.filter(d=>scope.includes(d.id))
-                        if( imSections){
-
-                            const alignSections = imSections.flatMap(d=>{
-                                return d.filters.flatMap(d=>{
-                                    //if(d.type == "parent" ){
-                                        return d.value
-                                        //}
-                                    }).filter(d=>d)
-                                })
-                                return alignSections
-                        }
-                        return []*/
                         return d.referenceParameters?.importConfig?.flatMap(d=>d.filters).map(d=>{
                             if(d.type === "parameter" || d.type === "title"){
                                 delete d["sourcePrimId"]
@@ -2213,18 +2200,7 @@ const PrimitiveConfig = {
                             return d
                         })
                     })                        
-                    //data = fastUnique(data)
                 }else if( resolvedFilterType === "parent"){
-                    /*
-                    if( filter.sourcePrimId ){
-                        data = fastUnique(lookups[idx].flatMap(d=>fns.parentIds(d)))
-                    }else{
-                        data = fastUnique(lookups[idx].flatMap(d=>d.id))
-                    }
-                    if( scope ){
-                        //data = data.filter(d=>scope.includes(d))
-                        data = data.filter(d=>hScope.has(d))
-                    }*/
                     const seen = new Set();
                     data = []
                     for (const obj of lookups[idx]) {

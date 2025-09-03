@@ -3,6 +3,7 @@ import { getLogger } from "../../logger";
 import { categoryDetailsForAgent, resolveId } from "../utils";
 import { recordUsage } from "../../usage_tracker";
 import { VIEW_OPTIONS } from "./suggest_visualizations";
+import { touchSlideState } from "./slides";
 
 export const ANALYSIS_OPTIONS = `*) The ultimate goal is to prodce a slide which helps the user with their goal
                                   *) Slides can one or more elements with each element being a markdown summarization of data or a chart / graph of data 
@@ -14,6 +15,7 @@ export const ANALYSIS_OPTIONS = `*) The ultimate goal is to prodce a slide which
                                   *) Data can be grouped / categorized by specific paramters of the data schema using AI. 
                                   *) AI can summarize the data based on any of the parameters in the schema - in both short of long form using suitable AI prompts to shape the summarization and the specific outputs
                                   *) Summaries can be created of the full data set, a subset of the data by filtering specific parameters, or a subset of data by grouping on categorizations
+                                  *) Categorizations are expensive so use an existing categorization where suitable before defining a new one (unless the user specifically states a new categorization)
                                   *) Data can be visualzied in graphs and charts
                                   *) Reusability rules (STRICT):**
                                   *) - If a section field (pre_filter, categorization, summarization, visualization, post_filter) is reused across multiple sections in the SAME slide, put the canonical definition in slide-level "defs" and reference it with {"$ref":"<group>.<key>"}.
@@ -31,12 +33,76 @@ export const ANALYSIS_OPTIONS = `*) The ultimate goal is to prodce a slide which
 
 const logger = getLogger('agent_module_suggest_analysis', "debug", 0); // Debug level for moduleA
 
+
+const pass_a_schema = {
+          "name": "analysis_suggestions",
+          schema: {
+                    "type":"object",
+                    "required":["suggestions"],
+                    "additionalProperties":false,
+                    "properties":{
+                      "suggestions":{
+                        "type":"array",
+                        "minItems":3,
+                        "maxItems":5,
+                        "items":{"$ref":"#/$defs/SlideSuggestionOutline"}
+                      }
+                    },
+                    "$defs":{
+                      "SlideSuggestionOutline":{
+                        "type":"object",
+                        "additionalProperties":false,
+                        "required":["description","layout","sections"],
+                        "properties":{
+                          "id":{"type":"integer"},
+                          "description":{"type":"string"},
+                          "layout":{"type":"string","enum":["full_page","left_summary"]},
+                          "sections":{
+                            "type":"array",
+                            "minItems":1,
+                            "maxItems":3,
+                            "items":{"oneOf":[
+                              {"$ref":"#/$defs/SummarySectionOutline"},
+                              {"$ref":"#/$defs/VizSectionOutline"}
+                            ]}
+                          }
+                        }
+                      },
+                      "SummarySectionOutline":{
+                        "type":"object",
+                        "additionalProperties":false,
+                        "required":["type"],
+                        "properties":{
+                          "type":{"type":"string","const":"summary"},
+                          "overview":{"type":"string"}
+                        }
+                      },
+                      "VizSectionOutline":{
+                        "type":"object",
+                        "additionalProperties":false,
+                        "required":["type","chart"],
+                        "properties":{
+                          "type":{"type":"string","const":"visualization"},
+                          "chart":{
+                            "type":"object",
+                            "additionalProperties":false,
+                            "required":["kind"],
+                            "properties":{"kind":{"type":"string","enum":["heatmap","bubble","pie","bar"]}}
+                          },
+                          "overview":{"type":"string"}
+                        }
+                      }
+                    }
+                  }
+                }
+
 export async function implementation(params, scope, notify){
         const {data, categories} = await scope.functionMap["sample_data"]({limit: 20, ...params, forSample: true, withCategory: true}, scope)
+        const {categories: categorizations} = await scope.functionMap["existing_categorizations"]({...params, forSample: true, withCategory: true}, scope)
 
         const output_schema = {
           "name": "analysis_suggestions",
-          schema: {
+          "schema": {
             "type": "object",
             "description": "Container for AI-generated slide suggestions based solely on the specified data source(s).",
             "properties": {
@@ -50,7 +116,17 @@ export async function implementation(params, scope, notify){
             "required": ["suggestions"],
             "additionalProperties": false,
             "$defs": {
-              "CategoryItem": {
+              "MeasureSpec": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["agg"],
+                "properties": {
+                  "field": { "type": "string", "description": "Numeric field to aggregate (ignored for count)." },
+                  "agg": { "type": "string", "enum": ["count", "sum", "avg", "min", "max", "median"] },
+                  "filter": { "$ref": "#/$defs/MaybeRefOrString", "description": "Optional filter applied before aggregation." },
+                  "format": { "type": "string", "description": "Optional numeric format, e.g., '0.0%', '0,0'." }
+                }
+              },"CategoryItem": {
                 "type": "object",
                 "description": "A single explicit category definition.",
                 "properties": {
@@ -77,6 +153,16 @@ export async function implementation(params, scope, notify){
                 "oneOf": [
                   {
                     "type": "object",
+                    "description": "Reference an already-defined categorization by hex id.",
+                    "properties": { 
+                      "categorization_id": { "type": "string", "description": "24 hex id of existing categorization" },
+                      "title": { "type": "string", "description": "title of the existing categorization" } 
+                    },
+                    "required": ["categorization_id", "title"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
                     "description": "Reference an already-defined categorization in defs.",
                     "properties": { "$ref": { "type": "string", "description": "e.g. 'categorizations.intent'" } },
                     "required": ["$ref"],
@@ -92,6 +178,15 @@ export async function implementation(params, scope, notify){
                       "target_count": { "type": "integer", "minimum": 2, "maximum": 20, "description": "Desired number of buckets." }
                     },
                     "required": ["mode", "parameter", "prompt"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "description": "Use a field of the data without any processing - MUST align with the data schema.",
+                    "properties": {
+                      "parameter": { "type": "string", "description": "Source field (e.g., 'overview')." }
+                    },
+                    "required": ["parameter"],
                     "additionalProperties": false
                   },
                   {
@@ -262,44 +357,192 @@ export async function implementation(params, scope, notify){
                     "type": "array",
                     "description": "Ordered content blocks that together make up the slide.",
                     "items": {
-                      "type": "object",
-                      "required": ["sourceId", "type"],
-                      "additionalProperties": false,
-                      "properties": {
-                        "id": {
-                          "type": "integer",
-                          "description": "Section identifier unique within the slide. If omitted by the model, the client may assign sequential ids."
-                        },
-                        "sourceId": {
-                          "type": "string",
-                          "description": "The id of the source data object that this section reads from."
-                        },
-                        "type": {
-                          "type": "string",
-                          "description": "Type of content in this section.",
-                          "enum": ["summary", "visualization"]
-                        },
-                        "pre_filter": {
-                          "$ref": "#/$defs/MaybeRefOrString",
-                          "description": "Optional filter to apply BEFORE categorization/visualization. Must align with the data schema (e.g., include only posts with non-empty Overview)."
-                        },
-                        "categorization": {
-                          "$ref": "#/$defs/CategorizationSpec",
-                          "description": "Optional description of how to categorize/group the data for this section. Must align with the data schema."
-                        },
-                        "summarization": {
-                          "$ref": "#/$defs/MaybeRefOrString",
-                          "description": "Detailed description of how to summarize the data to achieve the user goal (respecting schema, pre_filter, and categorization). Note that if a categorization is in place then a separate summary will be generated for each category. Only include if type = 'summary'. MUST NOT contain instructions to perform maths (including counting)."
-                        },
-                        "visualization": {
-                          "$ref": "#/$defs/MaybeRefOrString",
-                          "description": "Detailed description of how to visualize the data to achieve the user goal (respecting schema, pre_filter, and categorization). Only include if type = 'visualization'."
-                        },
-                        "post_filter": {
-                          "$ref": "#/$defs/MaybeRefOrString",
-                          "description": "Optional filter to apply AFTER categorization/visualization (e.g., remove 'Other' if <5% of total). Must align with the data schema."
+                      "description": "Content block definition.",
+                      "oneOf": [{
+                        "type": "object",
+                        "required": ["sourceId", "type", "overview"],
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "integer",
+                            "description": "Section identifier unique within the slide. If omitted by the model, the client may assign sequential ids."
+                          },
+                          "sourceId": {
+                            "type": "string",
+                            "description": "The id of the source data object that this section reads from."
+                          },
+                          "type": {
+                            "type": "string",
+                            "description": "Type of content in this section.",
+                            "const": "summary"
+                          },
+                          "pre_filter": {
+                            "$ref": "#/$defs/MaybeRefOrString",
+                            "description": "Optional filter to apply BEFORE categorization. Must align with the data schema (e.g., include only posts with non-empty Overview)."
+                          },
+                          "categorization": {
+                            "$ref": "#/$defs/CategorizationSpec",
+                            "description": "Optional description of how to categorize/group the data for this section. Must align with the data schema."
+                          },
+                          "summarization": {
+                            "$ref": "#/$defs/MaybeRefOrString",
+                            "description": "Detailed description of how to summarize the data to achieve the user goal (respecting schema, pre_filter, and categorization). Note that if a categorization is in place then a separate summary will be generated for each category. Only include if type = 'summary'. MUST NOT contain instructions to perform maths (including counting)."
+                          },
+                          "overview": {
+                            "type": "string",
+                            "description": "A 15 - 40 word human readable overview of the summarization in this section, including the type of content (ie sumamry, table, pie chart, timeline, bar chart etc)"
+                          }
                         }
+                      },{
+                        "type": "object",
+                        "required": ["sourceId", "type", "overview", "chart"],
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": { "type": "integer", "description": "Section identifier unique within the slide. If omitted by the model, the client may assign sequential ids." },
+                          "sourceId": { "type": "string", "description": "The id of the source data object that this section reads from." },
+                          "type": { "type": "string", "const": "visualization", "description": "Type of content in this section." },
+
+                          "pre_filter": { "$ref": "#/$defs/MaybeRefOrString", "description": "Optional filter to apply BEFORE categorization/visualization." },
+
+                          "axis_1": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "definition": { "$ref": "#/$defs/CategorizationSpec", "description": "Definition of first axis (if required)" },
+                              "filter": { "$ref": "#/$defs/MaybeRefOrString", "description": "Optional filter to apply to the x axis" }
+                            }
+                          },
+                          "axis_2": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "definition": { "$ref": "#/$defs/CategorizationSpec", "description": "Definition of second axis (if required)" },
+                              "filter": { "$ref": "#/$defs/MaybeRefOrString", "description": "Optional filter to apply to the y axis" }
+                            }
+                          },
+
+                          "series_1": { "$ref": "#/$defs/CategorizationSpec", "description": "Optional description of how to categorize/group series 1 of this visualization" },
+                          "split_by": { "$ref": "#/$defs/CategorizationSpec", "description": "Optional third categorization used to subdivide results (e.g., platform)." },
+
+                          "visualization": { "$ref": "#/$defs/MaybeRefOrString", "description": "Narrative/layout hints for the viz." },
+
+                          "palette": { "type": "string", "enum": ["blue", "green", "heat", "purple"], "description": "Color palette to use for this visualization." },
+
+                          "overview": { "type": "string", "description": "A 15–40 word human readable overview of the visualization." },
+
+                          "chart": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["kind"],
+                            "properties": {
+                              "kind": { "type": "string", "enum": ["heatmap", "bubble", "pie", "bar"] },
+
+                              "value": { "$ref": "#/$defs/MeasureSpec", "description": "Primary quantitative measure (color/height/size)." },
+
+                              "orientation": { "type": "string", "enum": ["vertical", "horizontal"], "description": "Bars only." },
+                              "stack": { "type": "boolean", "default": false, "description": "Bars only: stack categories." },
+                              "normalize": { "type": "boolean", "default": false, "description": "Bars only: 100% stacked normalization." },
+
+                              "size": { "$ref": "#/$defs/MeasureSpec", "description": "Bubble size measure (bubble only)." },
+                              "color_by": { "$ref": "#/$defs/CategorizationSpec", "description": "Optional color grouping/legend." },
+
+                              "donut": { "type": "boolean", "default": false, "description": "Pie only: render as donut." },
+                              "labels": { "type": "boolean", "default": true, "description": "Show labels on marks." },
+
+                              "sort_by": { "type": "string", "enum": ["value_asc", "value_desc", "alpha_asc", "alpha_desc", "none"], "default": "value_desc" },
+                              "top_n": { "type": "integer", "minimum": 1, "description": "Limit to top N categories (others → 'Other')." },
+
+                              "grouping": { "type": "string", "enum": ["grouped", "stacked"], "default": "grouped", "description": "How split_by/series_1 render within a single axes context (non-pie)." },
+
+                              "facet": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "description": "Render small multiples (e.g., one pie per platform).",
+                                "properties": {
+                                  "by": { "type": "string", "enum": ["split_by", "series_1", "axis_1", "axis_2"], "description": "Which categorization to facet on." },
+                                  "layout": { "type": "string", "enum": ["row", "column", "grid"], "default": "grid" },
+                                  "max_cols": { "type": "integer", "minimum": 1 },
+                                  "scale": { "type": "string", "enum": ["none", "area", "radius"], "default": "none", "description": "For pies/bubbles: scale facet size by group total." }
+                                },
+                                "required": ["by"]
+                              }
+                            }
+                          }
+                        },
+
+                        "oneOf": [
+                          {
+                            "title": "Heatmap requirements",
+                            "if": { "properties": { "chart": { "properties": { "kind": { "const": "heatmap" } }, "required": ["kind"] } } },
+                            "then": {
+                              "required": ["axis_1", "axis_2", "chart"],
+                              "properties": {
+                                "axis_1": { "required": ["definition"] },
+                                "axis_2": { "required": ["definition"] },
+                                "chart": {
+                                  "required": ["value"],
+                                  "not": { "anyOf": [ { "required": ["orientation"] }, { "required": ["size"] }, { "required": ["donut"] } ] }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "title": "Bubble requirements",
+                            "if": { "properties": { "chart": { "properties": { "kind": { "const": "bubble" } }, "required": ["kind"] } } },
+                            "then": {
+                              "required": ["axis_1", "axis_2", "chart"],
+                              "properties": {
+                                "axis_1": { "required": ["definition"] },
+                                "axis_2": { "required": ["definition"] },
+                                "chart": {
+                                  "required": ["size"],
+                                  "not": { "anyOf": [ { "required": ["orientation"] }, { "required": ["stack"] }, { "required": ["normalize"] }, { "required": ["donut"] } ] }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "title": "Pie requirements",
+                            "if": { "properties": { "chart": { "properties": { "kind": { "const": "pie" } }, "required": ["kind"] } } },
+                            "then": {
+                              "required": ["axis_1", "chart"],
+                              "properties": {
+                                "axis_1": { "required": ["definition"] },
+                                "chart": {
+                                  "required": ["value"],
+                                  "properties": {
+                                    "facet": {
+                                      "type": "object",
+                                      "properties": {
+                                        "by": { "const": "split_by" },
+                                        "scale": { "enum": ["none", "area", "radius"], "default": "area" }
+                                      },
+                                      "required": ["by"]
+                                    }
+                                  },
+                                  "not": { "anyOf": [ { "required": ["orientation"] }, { "required": ["stack"] }, { "required": ["normalize"] }, { "required": ["size"] } ] }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "title": "Bar requirements",
+                            "if": { "properties": { "chart": { "properties": { "kind": { "const": "bar" } }, "required": ["kind"] } } },
+                            "then": {
+                              "required": ["axis_1", "chart"],
+                              "properties": {
+                                "axis_1": { "required": ["definition"] },
+                                "chart": {
+                                  "required": ["value", "orientation"],
+                                  "properties": { "grouping": { "enum": ["grouped", "stacked"] } },
+                                  "not": { "anyOf": [ { "required": ["size"] }, { "required": ["donut"] } ] }
+                                }
+                              }
+                            }
+                          }
+                        ]
                       }
+                    ]
                     },
                     "minItems": 1
                   }
@@ -335,47 +578,28 @@ export async function implementation(params, scope, notify){
                 },{
                  role: "user",
                  content: `Here is the schema of the data:\n${categoryDataAsString}`,
-                },{
+                },/*{
                 role: "user",
                 content: `here is some sample data:\n${JSON.stringify(data)}`
-                },{
+                },*/
+                categorizations.length > 0 && {
+                  role: "user",
+                  content: `here is a list of existing categorizations of this data:\n${categorizations}`
+                },
+                {
                 role: "user",
                 content: `here is goal of the user:\n${params.goal}`
                },{
                 role: "user",
                 content: `Suggest 3-5 suitable slides using the options available and which are achievable for the data sample, schema and the view options provided.
                         Ensure the options meets the specific goal from the user.  Summaries, categorization and filters must be used on the data to be as specific and precise as possible in meeting the user's goal - do not suggest general ideas. Use the human friendly name of fields rather than the field name in your summary.`
-                        /*Provide your answer in a json object as follows:
-                        {
-                          suggestions:[{
-                            id: number to identify the suggestions - start at 1 and increment,
-                            "description": A title for the slide,
-                            "layout: "The naem of the selected layout",
-                            "sections":[
-                              {
-                                "sourceId": the id of the source data,
-                                "type": the type of content in this sections - one of "summary" or "visualization",
-                                "pre_filter": an optional description of the filter to apply before categorization / visualization ensuring alignment with the data schema,
-                                "categorization": an optional description of how to categorize the data (for visualization or summarization) ensuring alignment with the data schema,
-                                "summarization": a detailed description of how to summarize the data to achieve the goal of the user (taking into account the schema, and pre-filter and any categorzation) - only inlucde if type is "summary. You must NOT include instructions to perform maths (including counting) in here",
-                                "visualization": a detailed description of how to visualize the data to achieve the goal of the user (taking into account the schema, and pre-filter and any categorzation) - only inlucde if type is "visualization",
-                                "post_filter": an optional description of the filter to apply post categorization / visualization ensuring alignment with the data schema (ie allows segments to be removed from the final result),
-                                },
-                            ],
-                            ....remaining sections of the layout
-                          },
-                          ....remaining suggestions
-                        ],
-                      }
-                        
-                      Note that each suggestions must contain all relevant information - do not reference other suggestions`.replaceAll(/\s+/g," ")*/
                }
-   
-            ]
+            ].filter(Boolean)
             console.log( messages)
             const openai = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
             const res = await openai.chat.completions.create({
-              model: "o4-mini",
+              model: "gpt-5-mini",
+              //model: 'gpt-4.1',
               messages,
               response_format: { 
                   type: "json_schema",
@@ -403,22 +627,23 @@ export async function implementation(params, scope, notify){
               let slideSession = null;
 
               if (scope.workSession && scope.workSession.flow === 'slides') {
-                // already in slides mode → refresh payload and state
-                slideSession = scope.workSession;
-                slideSession.payload = { outline: normalized };
+                /*slideSession = scope.workSession;
+                slideSession.payload = { suggestions: normalized };
                 slideSession.state = 'list';                // show the user the list to pick from
                 slideSession.data.selection = null;         // nothing selected yet
-                scope.touchWorkSession?.();
+                scope.touchWorkSession?.();*/
+                throw "Why is this reachable?"
               } else if (typeof scope.beginWorkSession === 'function') {
-                slideSession = scope.beginWorkSession('slides', { outline: normalized });
+                slideSession = scope.beginWorkSession('slides', { suggestions: normalized });
                 slideSession.state = 'list';
+                slideSession.data ||= {} 
                 slideSession.data.selection = null;
-                scope.touchWorkSession?.();
+
+                touchSlideState(scope)
               }
 
-              console.log(suggestions)
               return {
-                forClient: ["suggestions"],
+                //forClient: ["suggestions"],
                 suggestions
               }
             }catch(e){

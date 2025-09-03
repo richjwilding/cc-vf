@@ -969,6 +969,9 @@ export function convertVisualizationToPrimitiveConfig({source, title, layout, fi
 }
 
 function mapParameter( def ){
+  if( !def ){
+    return "title"
+  }
     const field = def.field ?? def.parameter
     if( field === "title"){
       return field

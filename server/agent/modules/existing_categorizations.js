@@ -1,6 +1,8 @@
 import { fetchPrimitives, getDataForImport, multiPrimitiveAtOrginLevel, uniquePrimitives } from "../../SharedFunctions"
 import { resolveId } from "../utils"
 import { getLogger } from "../../logger";
+import { getDataForImportDB } from "../../actions/getDataForImportDB";
+import { pipeline_root_categories } from "../../pipelines/root_categories";
 
 const logger = getLogger('agent_module_existing_categorization', "debug", 2); // Debug level for moduleA
 
@@ -11,12 +13,35 @@ export async function implementation(params, scope, notify){
     const sources = await resolveId( params.id, scope )
     logger.info(`--> Will get data from ${sources.map(d=>d.id).join(", ")}`, {chatId: scope.chatUUID})
 
-    notify(`Fetching data...`,true)
+    notify?.(`Fetching data...`,true)
     let items = []
-    for(const d of sources){
-        items.push(...(await getDataForImport( d )))
+
+    try{
+        const categories = []
+        for(const d of sources){
+            const theseCategories = await getDataForImportDB( d, {
+                pipelineSteps: pipeline_root_categories
+            })
+            console.log(theseCategories)
+            categories.push( theseCategories.map(d=>({
+                categorization_id: d._id,
+                title: d.title,
+                categories: d.children.map(d=>({title: d.title, description: d.description}))
+            })) )
+        }
+        return {
+            categories: JSON.stringify( categories ),
+            forClient: ["categories"]
+        }
+    }catch(e){
+        console.log(`Fast fecth failed - doing legacy`)
+        console.log(e)
     }
-    notify(`Looking for categorization...`,true)
+
+    for(const d of sources){
+        items.push(...(await getDataForImport( d, undefined, {withParentPrimitives: true} )))
+    }
+    notify?.(`Looking for categorization...`,true)
 
     const categories = uniquePrimitives((await multiPrimitiveAtOrginLevel(items, 2, ["ref","origin"])).flat())
     const subCategories = (await fetchPrimitives( undefined, {

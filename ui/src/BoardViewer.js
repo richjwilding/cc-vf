@@ -19,6 +19,7 @@ import { getLogger } from './logger'
 import AgentChat from "./AgentChat";
 import clsx from "clsx";
 import { Tab, Tabs } from "@heroui/react";
+import { ConvertVisualizationSpec } from "./VisualizationToDataTable";
 
 const log = getLogger('BoardViewer', { level: 'debug' })
 
@@ -1377,11 +1378,6 @@ function SharedRenderView(d, primitive, myState) {
             myState[stateId].primitive = basePrimitive
             myState[stateId].config = "page"
             myState[stateId].lastView = d.referenceParameters?.explore?.view
- //           myState[stateId].title = `${basePrimitive.title} - #${basePrimitive.plainId}`
-            myState[stateId].renderData = {
-                icon: <HeroIcon icon='CogIcon'/>,
-                count: primitiveToPrepare.primitives.uniqueAllIds.length
-            }
             if( !myState[stateId].renderSubPages && !RENDERSUB){
                 for(let child of childNodes){
                     myState[child.id] ||= {
@@ -1396,6 +1392,13 @@ function SharedRenderView(d, primitive, myState) {
                     }
                     didChange ||= (childChanged ?? true)
                     myState[child.id].parentRender = stateId
+                }
+                if( basePrimitive.slide_state?.data?.slideSpec ){
+                    const visuals = basePrimitive.slide_state?.data?.slideSpec.sections.filter(d=>d.type == "visualization")
+                    myState[stateId].renderData = {
+                        placeholder: true,
+                        sections: visuals.map(d=>ConvertVisualizationSpec( d,  basePrimitive.slide_state?.data?.slideSpec?.defs))
+                    }
                 }
             }
         }else if( renderType === "flow" ){
@@ -1589,6 +1592,10 @@ export default function BoardViewer({primitive,...props}){
                                             myState[frameId].subpages = {}
                                             resized = true
                                         }
+                                    }else if(info.startsWith('slide_state') ){
+                                        needRefresh = true
+                                        needRebuild = true
+                                        changedRenderConfig  = true
                                     }else if(info.startsWith('renderConfig') ){
                                         needRefresh = true
                                         needRebuild = true

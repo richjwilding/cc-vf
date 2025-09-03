@@ -1079,7 +1079,7 @@ class CollectionUtils{
         return this.createDataTable( items, {columns, rows, viewFilters, config, hideNull, alreadyFiltered: true})
 
     }
-    static createDataTable(items, {columns, rows, viewFilters, alreadyFiltered, hideNull, config= {}}){
+    static createDataTable(items, {columns = {type: "none", filter: []}, rows = {type: "none", filter: []}, viewFilters, alreadyFiltered, hideNull, config= {}}){
         const mainstore = MainStore()
         let {data, extents} = CollectionUtils.mapCollectionByAxis( items, columns, rows, viewFilters, [], undefined )
 
@@ -1462,8 +1462,8 @@ class CollectionUtils{
             }
         }
 
-        orderAxis( finalColumns, columns.order, "columns")
-        orderAxis( finalRows, rows.order, "rows")
+        orderAxis( finalColumns, columns?.order, "columns")
+        orderAxis( finalRows, rows?.order, "rows")
         finalRows.forEach((row,rIdx)=>{
             finalColumns.forEach((column,cIdx)=>{
                 const id = `${cIdx}-${rIdx}`
