@@ -252,9 +252,11 @@ class QueueManager {
                                     throw `Dont have queue ${queue} to forward message to`
                                 }
                                 const jobOptions = {
+                                    // Caller options first; we will ensure sane defaults for retries below
                                     ...options,
                                     removeOnComplete: { age: 180},
-                                    attempts:0,
+                                    // Enable retries by default; caller can override via options.attempts
+                                    attempts: (options && typeof options.attempts === 'number') ? options.attempts : 3,
                                     waitChildren: true,
                                     removeOnFail: true, 
                                     parent: {id: parentJob.id, queue: `bull:${parentJob.queueName}`}
@@ -769,10 +771,11 @@ class QueueManager {
                 removeOnComplete: { age: 180},
                 waitChildren: true,
                 jobId: jobId, 
-                attempts: 0, // Retry up to 3 times
-                backoff: {
+                // Enable retries by default; caller may override via options.attempts/backoff
+                attempts: (options && typeof options.attempts === 'number') ? options.attempts : 3,
+                backoff: options?.backoff ?? {
                     type: 'exponential', // Use exponential backoff
-                    delay: 60 * 1000 * 20, // Initial delay: 5 minutes
+                    delay: 60 * 1000, // Initial delay: 1 minute
                 },
                 ...options 
             });

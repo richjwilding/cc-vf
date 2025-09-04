@@ -268,6 +268,9 @@ export async function fetchPerBucket({workspaceId, buckets, options = {withParen
     return res
   }, undefined, undefined, 5)
   
+  if( !Array.isArray(data.results) ){
+    throw "No data returned"
+  }
   return uniqueLeanPrimitives( data?.results.flat() )
 }
 function uniqueLeanPrimitives(list){
@@ -353,7 +356,7 @@ export async function getDataForImportDB(source, options = { forceImport: false 
     (!options.forceImport && (["query", "summary", "search"].includes(source.type))) ||
     ((["actionrunner", "action"].includes(source.type)) &&
       !Object.keys(source.primitives ?? {}).includes("imports") &&
-      !forceImport)
+      !options.forceImport)
   ) {
     throw "unsupported"
   }

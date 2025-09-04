@@ -144,8 +144,10 @@ async function getQueueObject(type) {
         }
         try {
             logger.info(`\n\nThread running for ${workerData.queueName}`, {  type: workerData.type, attemptsMade: job.attemptsMade, token });
-            if( job.attemptsMade > 1 ){
-                logger.debug(`===> Sending endJob message B ${job.id}`, { type: workerData.type });
+            // If this job previously moved to waiting-children and is now resuming, finalize without redoing work
+            if (job?.data?.awaitingChildren === true) {
+                logger.debug(`===> Sending endJob message B ${job.id} (resumed after children completed)`, { type: workerData.type });
+                try { await job.updateData({ ...(job.data || {}), awaitingChildren: false }); } catch {}
                 await queueObject.default().endJob({ success: true, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token, parent: parentMeta })
                 return
             }
@@ -233,6 +235,8 @@ async function getQueueObject(type) {
                 const shouldWait = await job.moveToWaitingChildren(token);
 
                 if (shouldWait) {
+                    // Mark that we parked in waiting-children so the next pass can finalize quickly
+                    try { await job.updateData({ ...(job.data || {}), awaitingChildren: true }); } catch {}
                     // IMPORTANT: do not call your endJob here — the worker will handle rescheduling.
     logger.debug(`shouldWait -> throwing ${job.id}`)
                     throw new WaitingChildrenError();
@@ -253,6 +257,7 @@ async function getQueueObject(type) {
                 }
                 logger.debug(`===> Sending endJob message A ${job.id}`, { type: workerData.type });
                 await queueObject.default().endJob({ success: true, error: result?.error, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token, parent: parentMeta })
+                try { await job.updateData({ ...(job.data || {}), awaitingChildren: false }); } catch {}
 
 //                parentPort.postMessage({ /*result,*/ success: true, error: result?.error, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
             });
