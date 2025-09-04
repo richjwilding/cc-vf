@@ -890,7 +890,7 @@ class CollectionUtils{
                 return {labels: labels, order: labels, values: labels.map((d,i)=>({idx: d, label: d, bucket_min: mins[i], bucket_max: max[i]}))}
             },
             "date": (field)=>{
-                const mode = "year"//axis.axisData.dateOptions[0]
+                const mode = "month"//"year"//axis.axisData.dateOptions[0]
 
                 function makeConverter(mode) {
                 const pad2 = n => (n < 10 ? "0" : "") + n;
@@ -965,8 +965,6 @@ class CollectionUtils{
                 if( minDate && maxDate){
                     let bucketCount = maxDate.diff( minDate, mode) + 1
                     let buckets = new Array(bucketCount).fill(0).map((_,i)=>convert(minDate.clone().add(i, mode)))
-                    console.log(bucketCount)
-                    console.log(buckets)
                     return {values: buckets.map((d,i)=>({idx: d, label: d}))}
                 }
                 return {values: []}
@@ -1020,7 +1018,14 @@ class CollectionUtils{
         const counts = {}
 
         for(const d of interim){
-            counts[d[field]] = (counts[d[field]]  ?? 0) + 1
+            const vals = d[field]
+            if( Array.isArray(vals)){
+                for(const v of vals){
+                    counts[v] = (counts[v] ?? 0) + 1
+                }
+            }else{
+                counts[vals] = (counts[vals] ?? 0) + 1
+            }
         }
         const preCount = {
             ...out,
@@ -1110,13 +1115,15 @@ class CollectionUtils{
 
          const allocations = viewFilters.map((d,i)=>d.treatment === "allocation" || (d.treatment === undefined && i === 0) ? ({field: `filterGroup${i}`, ...d}) : undefined).filter(Boolean)
         
+        if( allocations.length > 0){
+            defs.allocations = allocations
+        }
         allocations.forEach(d=>{
-            defs.allocations = [d]
             if( otherExtents[d.field] && d.filter){
                 if( Array.isArray(d.filter) ){
                     const filterToCheck = typeof( d.filter[0] ) === "object" ? d.filter.map(d=>d ? d.idx : d) : d.filter
                     otherExtents[d.field]= otherExtents[d.field].filter(f=>{
-                        if( f.idx === "_N_" && (d.filter.includes(undefined) || d.filter.includes(null))){
+                        if( (f.idx === undefined || f.idx === "_N_") && (d.filter.includes(undefined) || d.filter.includes(null))){
                             return false
                         }
                         return !filterToCheck.includes(f.idx)
@@ -1127,6 +1134,7 @@ class CollectionUtils{
 
                 
         let {data: filtered, columns: finalColumns, rows: finalRows} = CollectionUtils.filterCollectionAndAxis( data, filters , {columns: columnExtents, rows: rowExtents, otherExtents, hideNull, skipItemsFilter: alreadyFiltered})
+
         const table = {
             defs,
             columns: finalColumns,
@@ -1136,6 +1144,98 @@ class CollectionUtils{
             cells: [],
             ids: Array.from(new Set(filtered.map(d=>d.primitive.id) ))
         }
+
+        function orderAxis( axis, order, name){
+            let orderMap
+            let finalRows
+            if( order === undefined || order.field == "_label"){
+                const isNumeric = axis.some(d=>typeof(d.label) === "number")
+                if( isNumeric ){
+                    finalRows = axis.sort((a,b)=>(a.label ?? 0) - (b.label ?? 0))
+                }else{
+                    finalRows = axis.sort((a,b)=>(a.label ?? "").localeCompare(b.label ?? {}))
+                }
+            }else if( order.field == "value"){
+                    finalRows = axis.sort((a,b)=>(a.count ?? 0) - (b.count ?? 0))
+            }else if( Array.isArray(order) ){
+                finalRows = order
+            }else{
+
+                const field = order.field
+                let mappedRows
+                if( field === "count"){
+                    const totals = table.totals[name]?.idx ?? []
+                    mappedRows = axis.map((d,i)=>[d.idx, totals[d.idx]])
+                    console.log(mappedRows)
+                    mappedRows = mappedRows.sort((a,b)=>a[1] - b[1])
+                }else{
+                    const orth = name === "column" ? "rows" : "columns"
+                    const thisIdx = name === "column" ? "columnIdx" : "rowIdx"
+                    const orthIdx = name === "column" ? "rowIdx" : "columnIdx"
+                    let inScopeIdx = field.orthogonal
+
+                    const mapped = {}
+
+                    table.cells.forEach(cell=>{
+                        if( inScopeIdx && !inScopeIdx.includes(cell[orthIdx]) ){
+                            return
+                        }
+                        mapped[cell[thisIdx]] ||= 0
+                        if( field.allocation && cell.allocations ){
+                            let items = cell.allocations[field.allocation] ?? [] 
+                            if(field.values){
+                                items = items.filter(d=>field.values.includes(d.idx))
+                            }
+                            for(const d of items){
+                                mapped[cell[thisIdx]] += d.count
+                            }
+                        }else{
+                            mapped[cell[thisIdx]] += cell.count
+                        }
+                    })
+                    mappedRows = Object.entries(mapped).sort((a,b)=>a[1] - b[1])
+
+                }
+                if( mappedRows ){
+                    finalRows = mappedRows.map(d=>d[0])
+                }
+            }
+            if( finalRows ){
+                if( order?.descend){
+                    finalRows = finalRows.reverse()
+                }
+                orderMap = new Map(finalRows.map((d,i)=>[d, i]))
+            }
+            if( orderMap ){
+                return axis.sort((a, b) => {
+                    const ia = orderMap.has(a.idx) ? orderMap.get(a.idx) : Infinity;
+                    const ib = orderMap.has(b.idx) ? orderMap.get(b.idx) : Infinity;
+                    return ia - ib;
+                });
+            }
+        }
+
+        // Apply limits
+        function applyLimits( set, {limit = 200, sort = "value_asc"}){
+            if( limit !== undefined){
+                if( set.length > limit){
+                    if( set.sort ){
+                        const [mode, dir] = sort.split("_")
+                        orderAxis(set, {field: mode === "value" ? "value" : "_label", descend: dir === "desc"})
+                    }
+                    set.length = limit
+                }
+            }
+        }
+        applyLimits( finalColumns, columns)
+        applyLimits( finalRows, rows)
+        Object.entries(otherExtents).forEach(([k, v])=>{
+            const id = parseInt(k.slice(11))
+            applyLimits( v, viewFilters[id] )
+        })
+
+
+        
         if( config.timeseries ){
             table.ranges.timeseries = {
                 time: {rows: {idx: {}, order: []}, columns: {idx: {}, order: []}, table: {min: Infinity, max: -Infinity}, table: {min: Infinity, max: -Infinity}},
@@ -1224,8 +1324,6 @@ class CollectionUtils{
                                         if( idx < maxAllocationIdx ){
                                             target[d.field][pos[part]].collection.push( item )
                                         }
-                                    }else{
-                                        console.warn(`Couldnt find ${part}`)
                                     }
                                 }
                             }
@@ -1395,72 +1493,6 @@ class CollectionUtils{
         })
         
 
-        function orderAxis( axis, order, name){
-
-            let orderMap
-            if( order === undefined){
-                const isNUmeric = axis.some(d=>typeof(d.label) === "number")
-                if( isNUmeric ){
-                    orderMap = new Map(axis.sort((a,b)=>(a.label ?? 0) - (b.label ?? 0)).map((d,i)=>[d,i]))
-                }else{
-                    orderMap = new Map(axis.sort((a,b)=>(a.label ?? "").localeCompare(b.label ?? {})).map((d,i)=>[d,i]))
-                }
-            }else if( Array.isArray(order) ){
-                orderMap = new Map(
-                    order.map((idx, position) => [idx, position])
-                )
-            }else{
-
-                const field = order.field
-                let mappedRows
-                if( field === "count"){
-                    const totals = table.totals[name]?.idx
-                    mappedRows = axis.map((d,i)=>[d.idx, totals[d.idx]])
-                    console.log(mappedRows)
-                    mappedRows = mappedRows.sort((a,b)=>a[1] - b[1])
-                }else{
-                    const orth = name === "column" ? "rows" : "columns"
-                    const thisIdx = name === "column" ? "columnIdx" : "rowIdx"
-                    const orthIdx = name === "column" ? "rowIdx" : "columnIdx"
-                    let inScopeIdx = field.orthogonal
-
-                    const mapped = {}
-
-                    table.cells.forEach(cell=>{
-                        if( inScopeIdx && !inScopeIdx.includes(cell[orthIdx]) ){
-                            return
-                        }
-                        mapped[cell[thisIdx]] ||= 0
-                        if( field.allocation && cell.allocations ){
-                            let items = cell.allocations[field.allocation] ?? [] 
-                            if(field.values){
-                                items = items.filter(d=>field.values.includes(d.idx))
-                            }
-                            for(const d of items){
-                                mapped[cell[thisIdx]] += d.count
-                            }
-                        }else{
-                            mapped[cell[thisIdx]] += cell.count
-                        }
-                    })
-                    mappedRows = Object.entries(mapped).sort((a,b)=>a[1] - b[1])
-
-                }
-                if( mappedRows ){
-                    if( order.descend){
-                        mappedRows = mappedRows.reverse()
-                    }
-                    orderMap = new Map(mappedRows.map((d,i)=>[d[0], i]))
-                }
-            }
-            if( orderMap ){
-                return axis.sort((a, b) => {
-                    const ia = orderMap.has(a.idx) ? orderMap.get(a.idx) : Infinity;
-                    const ib = orderMap.has(b.idx) ? orderMap.get(b.idx) : Infinity;
-                    return ia - ib;
-                });
-            }
-        }
 
         orderAxis( finalColumns, columns?.order, "columns")
         orderAxis( finalRows, rows?.order, "rows")

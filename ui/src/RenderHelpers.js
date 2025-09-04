@@ -4686,7 +4686,7 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                 let y = margin[0] + (headerFontSize * 2 * 1.05) + spacer[1]
                 const sectionHeight = 1080 - margin[2] - y
 
-                const preview = options.data?.sections?.find(d=>d.id === i)
+                const sectionData = options.data?.sections[i]
 
                 g.add( new Konva.Rect({
                     x, 
@@ -4712,6 +4712,8 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                 const previewWidth = sectionWidth / 3 * 2
                 const previewHeight = sectionHeight / 3 * 2
                 const offsetY = (sectionHeight - (previewHeight + spacer[0] + t.height())) / 2
+
+                const preview = sectionData?.visualization
 
                 if( preview ){
                     const thisRenderOptions = preview.renderOptions
@@ -4769,7 +4771,7 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
             if( currentSuggestion > 1){
                 g.add( arrowButton( {x: 1840, y: 1040, size: 30, dir: "left", callback: ()=>switchSuggestion( currentSuggestion - 1)}))
             }
-            if( currentSuggestion < suggestionCount + 1){
+            if( currentSuggestion < suggestionCount ){
                 g.add( arrowButton( {x: 1880, y: 1040, size: 30, dir: "right", callback: ()=>switchSuggestion( currentSuggestion + 1)}))
             }
         }
@@ -6116,7 +6118,45 @@ export function renderMatrix( primitive, list, options ){
 
 }
 
-function renderBarChart( segments, options = {}){
+function generateAxisTicks([minVal, maxVal], tickCount = 5) {
+  // Ensure zero baseline for positive-only data
+  const dataMin = minVal > 0 ? 0 : minVal;
+  const dataMax = maxVal;
+
+  const rawStep = (dataMax - dataMin) / (tickCount - 1);
+
+  // Round step to a "nice" number (1, 2, 5 * power of 10)
+  function niceNumber(x, round) {
+    const exp = Math.floor(Math.log10(x));
+    const f = x / Math.pow(10, exp);
+    let nf;
+    if (round) {
+      if (f < 1.5) nf = 1;
+      else if (f < 3) nf = 2;
+      else if (f < 7) nf = 5;
+      else nf = 10;
+    } else {
+      if (f <= 1) nf = 1;
+      else if (f <= 2) nf = 2;
+      else if (f <= 5) nf = 5;
+      else nf = 10;
+    }
+    return nf * Math.pow(10, exp);
+  }
+
+  const step = niceNumber(rawStep, true);
+  const niceMin = Math.floor(dataMin / step) * step;
+  const niceMax = Math.ceil(dataMax / step) * step;
+
+  const ticks = [];
+  for (let v = niceMin; v <= niceMax; v += step) {
+    ticks.push(v);
+  }
+
+  return ticks;
+}
+
+function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValue, ...options}){
     const config = {size: 20, ...options}
     const width = config.width ?? config.size
     const height = config.height ?? config.barHeght ?? config.size
@@ -6128,65 +6168,146 @@ function renderBarChart( segments, options = {}){
         width,
         height
     })
-    let showValue = options.showValue
     let mode = false ? "seperate" : "interleave"
-    let showAxis = true
     const fontSize = 4
     let axisFontSize = config.width > 300 ? 20 : 6
 
     const asPercent = options.showValue === "percent"
     const segmentCount = segments.length
     const subSegments = options.sublabels?.items?.length ?? 1
-    const subSegmentGap = subSegments === 1 ? 0 : (mode === "interleave" ? 0.2 : 0.05)
-    const widthToUse = width * (1 - subSegmentGap)
-    const barWidth = options.stack ? width : widthToUse / (segmentCount * subSegments)
-    const segmentGap = (width * subSegmentGap) / (segmentCount - 1)
 
+    // Accumulate series totals and maxima
     const totals = [];
-    let maxValues = []
-    for (const { count } of segments) {
+    const perSeriesMax = [];
+    const perSegmentTotals = [];
+    let globalMaxCount = 0
+    for (let sIdx = 0; sIdx < segments.length; sIdx++){
+        const { count } = segments[sIdx]
         if (Array.isArray(count)) {
+            let segSum = 0
             for (let i = 0; i < count.length; i++) {
                 const v = count[i] ?? 0
-                totals[i] = (totals[i] ?? 0) + v;
-                if( options.stack ){
-                    maxValues[i] += v
-                }else{
-                    if( !maxValues[i] || v > maxValues[i]){
-                        maxValues[i] = v
-                    }
-                }
+                segSum += v
+                totals[i] = (totals[i] ?? 0) + v
+                perSeriesMax[i] = Math.max(perSeriesMax[i] ?? 0, v)
+                if (v > globalMaxCount) globalMaxCount = v
             }
+            perSegmentTotals[sIdx] = segSum
         } else {
             const v = (count ?? 0)
-            totals[0] = (totals[0] ?? 0) + v;
-            if( options.stack ){
-                maxValues[0] += v
-            }else{
-                if( !maxValues[0] || v > maxValues[0]){
-                    maxValues[0] = v
-                }
-            }
+            totals[0] = (totals[0] ?? 0) + v
+            perSeriesMax[0] = Math.max(perSeriesMax[0] ?? 0, v)
+            perSegmentTotals[sIdx] = v
+            if (v > globalMaxCount) globalMaxCount = v
         }
     }
-    if( !options.stack && asPercent ){
-        maxValues = maxValues.map((d,i)=>d * 100 / totals[i])
 
+    // Determine scaling maxima
+    let singleYAxis = true
+    let maxValue
+    if (asPercent) {
+        maxValue = 100
+    } else if (options.stack) {
+        // Stacked: scale by the largest stacked height among segments
+        const stackedMax = Math.max(0, ...perSegmentTotals)
+        maxValue = stackedMax || 1
+    } else {
+        // Grouped bars: use a single global max across all bars
+        maxValue = globalMaxCount
     }
     let colors = options.colors ?? categoryColors
     
-    const axisWidth = barWidth * (mode === "interleave" ? subSegments : 1)
     let axisList = []
+    let yAxisList = []
+
+    const barBase = height - (showAxis ? axisFontSize * 3 : 0.2)
+    const barSize = barBase
+    let baseLine 
+    let ox = 0
+
 
     if( showAxis ){
         let rescaleAxis = false
+        const yTicks = generateAxisTicks(  [0, maxValue] )
+        const scaleY = barSize / maxValue
+        let yAxisGap = 0
+        if( showLines && showAxisValue ){
+            const maxAxisValueHeight = barSize / yTicks.length * 0.3
+            yTicks.forEach((y, i)=>{
+                const yp = barBase - (y * scaleY)
+                if( yp > 0){
+                    const r = prepareAxisText( formatNumber(y), {
+                        fontSize: axisFontSize, 
+                        maxHeight: maxAxisValueHeight,
+                        textPadding: [0,0,0,0],
+                        minFontSize: 1,
+                        refreshCallback: options.imageCallback
+                    } )
+                    r.rendered.x(0)
+                    r.rendered.y(yp)
+                    g.add( r.rendered)
+                    yAxisList.push(r.rendered)
+                    if( r.rescaled ){
+                        if( !rescaleAxis || r.fontSize < rescaleAxis ){
+                            rescaleAxis = r.fontSize
+                        }
+                    }
+                }
+            })
+            if( rescaleAxis ){
+                axisFontSize = rescaleAxis
+                for(const d of yAxisList ){
+                    d.fontSize( rescaleAxis )
+                }
+            }
+            const yAxisWidth = Math.max( ...yAxisList.map(d=>d.width() ?? 0))
+            for(const d of yAxisList ){
+                d.width( yAxisWidth )
+                d.align("right")
+                const trueHeight = (d.textArr[0].ascent +d.textArr[0].descent)
+                d.y( d.y() - trueHeight / 2 )
+            }
+            const ydelta = Math.max(10, yAxisWidth * 0.1)
+            yAxisGap = yAxisWidth + ydelta
+            ox = yAxisGap + ydelta
+        }
+        if( showLines){
+            const dash = [5,3]
+            yTicks.forEach((y, i)=>{
+                const yp = barBase - (y * scaleY)
+                if( yp > 0){
+                    const line = new Konva.Line( {
+                        points: [yAxisGap, yp, width, yp],
+                        stroke: i === 0 ? "black" : "#d2d2d2",
+                        dashEnabled: i > 0,
+                        dash: i > 0 ? dash : undefined,
+                        strokeWidth: 1
+                    })
+                    if( i === 0){
+                        baseLine = line
+                    }else{
+                        g.add( line )
+                    }
+                }
+            })
+        }
+    }
+    const plotWidth = width - ox
+    const subSegmentGap = (subSegments === 1 || segmentCount === 1) ? 0 : (mode === "interleave" ? 0.2 : 0.05)
+    const widthToUse = plotWidth * (1 - subSegmentGap)
+    const barWidth = options.stack ? plotWidth : widthToUse / (segmentCount * subSegments)
+    const segmentGap = segmentCount > 1 ? (plotWidth * subSegmentGap) / (segmentCount - 1) : 0
+    const axisWidth = barWidth * (mode === "interleave" ? subSegments : 1)
+    if( showAxis ){
+        let rescaleAxis = false
+
         segments.forEach((s, idx)=>{
             [s.count].flat().forEach((ss, iIdx)=>{
                 let x
                 if( mode === "interleave"){
-                    x = (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
+                    x = ox + (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
                 }else{
-                    x = (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
+                    x = ox + (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
                 }
                 if( mode !== "interleave" || iIdx === 0){
                     const r = prepareAxisText( s, {
@@ -6197,6 +6318,7 @@ function renderBarChart( segments, options = {}){
                         refreshCallback: options.imageCallback
                     } )
                     r.rendered.x(x)
+                    r.rendered.y(0)
                     g.add( r.rendered)
                     axisList.push(r.rendered)
                     if( r.rescaled ){
@@ -6205,41 +6327,47 @@ function renderBarChart( segments, options = {}){
                         }
                     }
                 }
-                if( rescaleAxis ){
-                    axisFontSize = rescaleAxis
-                    for(const d of axisList ){
-                        d.fontSize( rescaleAxis )
-                    }
-                }
             })
         })
-    }
-
-    const barBase = height - (showAxis ? axisFontSize * 3 : 0.2)
-    const barSize = barBase
-    let y = barBase, idx = 0 
-    
-    if( showAxis){
-        for(const d of axisList ){
-            d.y( y + (axisFontSize * 0.5) )
+        if( rescaleAxis ){
+            for(const d of axisList ){
+                d.fontSize( rescaleAxis )
+            }
         }
     }
 
+    let idx = 0 
+    
+    if( showAxis){
+        for(const d of axisList ){
+            d.y( barBase + (axisFontSize * 0.5) )
+        }
+    }
+
+    
+    const colorBySubSegment = options.colorBySecondary ?? segmentCount  === 1
+    const whiteMixFactor = 0.8 / (colorBySubSegment ? segmentCount : subSegments)
+
     for( const s of  segments){
+        // Reset stack position per segment
+        let y = barBase;
         [s.count].flat().forEach((ss, iIdx)=>{
             let x
             if( mode === "interleave"){
-                x = (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
+                x = ox + (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
             }else{
-                x = (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
+                x = ox + (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
             }
-            const scale = barSize / maxValues[iIdx] 
-            const count = asPercent ? 100 * ss / totals[iIdx] : ss
+            const scale = barSize / maxValue
+            const denom = asPercent ? (perSegmentTotals[idx] || 0) : 1
+            const count = asPercent ? (denom ? (100 * (ss ?? 0) / denom) : 0) : (ss ?? 0)
             const h = count * scale
             if( h > 0){
-                let color = s.color ?? colors[idx % colors.length]
-                if( iIdx > 0 ){
-                    color = mixHexWithWhite(color, (iIdx * 0.3))
+                const majorIdx = colorBySubSegment ? iIdx : idx
+                const minorIdx = colorBySubSegment ? idx : iIdx
+                let color = s.color ?? colors[majorIdx % colors.length]
+                if( iIdx > 0 && !colorBySubSegment){
+                    color = mixHexWithWhite(color, (minorIdx * whiteMixFactor))
                 }
                 
                 var bar = new Konva.Rect({
@@ -6273,6 +6401,9 @@ function renderBarChart( segments, options = {}){
             }
         })
         idx++
+    }
+    if( baseLine ){
+        g.add(baseLine)
     }
     return g
 }
@@ -6430,7 +6561,8 @@ function renderSubCategoryChart( title, data, options = {}){
     let minH = innerPadding[2] + innerPadding[0]
     if( showLegend ){
         const maxLegendWidth = usableWidth * 0.5
-        legend = renderLegend( data,{
+        const legendData = options.colorBySecondary ? (options.sublabels?.items ?? []) : data
+        legend = renderLegend( legendData,{
                             ...options,
                             fontSize: options.legendSize ?? (config.fontSize * 0.8),
                             x: 0,
@@ -6484,7 +6616,11 @@ function renderSubCategoryChart( title, data, options = {}){
             barHeght: options.scale ? usableHeight * options.scale : undefined, 
             y: innerPadding[0], 
             colors: colors, 
+            colorBySecondary: options.colorBySecondary,
             showValue: options.showValue, 
+            showAxis: true,
+            showLines: true,
+            showAxisValue: true,
             stack: options.style === "stacked_bar",
             sublabels: options.sublabels
         }
@@ -6977,6 +7113,8 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
     }
 
     
+    const allocValues = Object.values(table.defs?.allocations ?? {})
+    const colorBySecondary = allocValues[0]?.type !== "category" && allocValues[1]?.type === "category"
     
 
     let g = new Konva.Group({
@@ -6996,6 +7134,7 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         style: renderOptions.style, 
         hideTitle: true, 
         paletteName: renderOptions.colors,
+        colorBySecondary,
         sublabels,
         scale,
         max,
@@ -8729,7 +8868,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
     const subColumnTracker = new Array(maxColIdx + 1).fill(undefined)
 
     for(const cell of data.cells){
-        if( cell.cIdx > maxColIdx || cell.rId > maxRowIdx){
+        if( cell.cIdx > maxColIdx || cell.rIdx > maxRowIdx){
             continue
         }
         const x = ox + columnX[cell.cIdx]
@@ -8829,9 +8968,9 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
     return g
 }
 function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, refreshCallback, longestPair, minFontSize = 6}){
-    const d = header
+    const d = header.label ?? header ?? ""
     let longestFrag
-    const words = `${(d.label  ?? "")}`.split(" ")
+    const words = `${d}`.split(" ")
     if( longestPair && words.length > 5){
         const coupleLength = [words, words.map((d,i,a)=> i > 0 ? a[i-1] + " " + d : undefined ).filter(d=>d)].flat()
         longestFrag = coupleLength.reduce((a,c)=>c.length > a.length ? c : a, "" )
@@ -8849,6 +8988,7 @@ function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, re
         bgFill:"#f3f4f6",
         x: textPadding[3],
         y: textPadding[0],
+        withMarkdown: true,
         width: maxWidth ?? "auto",
         height: "auto",
         refreshCallback
@@ -8862,7 +9002,7 @@ function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, re
             rescaled = true
         } 
     }
-    text.text( d.label ?? "" )  
+    text.text( d )  
     if( maxHeight ){
         while( text.height() > maxHeight && fontSize > minFontSize){
             fontSize = fontSize > 50 ? fontSize -= (fontSize * 0.1) : fontSize - 0.25

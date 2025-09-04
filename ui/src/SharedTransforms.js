@@ -143,14 +143,24 @@ export function formatNumber(number){
     if( isNaN(number)){
         return "-"
     }
+    const sign = number < 0 ? "-" : ""
+    const absVal = Math.abs(number)
+
+    // Small numbers: show as plain decimals without suffix
+    if( absVal < 1 ){
+        // show up to 2 decimals, trim trailing zeros and dot
+        return sign + (absVal.toFixed(2).replace(/\.0+$/,'').replace(/\.$/,''))
+    }
+
     const suffixes = ["", "K", "M","B","T"];
-    const suffixIndex = Math.floor(Math.log10(Math.abs(number)) / 3);
+    const rawIndex = Math.floor(Math.log10(absVal) / 3)
+    const suffixIndex = Math.max(0, Math.min(suffixes.length - 1, rawIndex))
 
-    const scaledNumber = number / Math.pow(10, suffixIndex * 3);
+    const scaledNumber = absVal / Math.pow(10, suffixIndex * 3);
     let formattedNumber = scaledNumber.toFixed( suffixIndex > 1 ? 1 : 2);
-    formattedNumber = formattedNumber.replace(/\.0+$/, '');
+    formattedNumber = formattedNumber.replace(/\.0+$/, '').replace(/\.00$/, '').replace(/\.$/,'');
 
-    return formattedNumber.replace(/\.00$/, '') + (suffixes[suffixIndex] ?? "");
+    return sign + formattedNumber + (suffixes[suffixIndex] ?? "");
 }
 export function markdownToSlate(markdownContent = "") {
   const lines = markdownContent.split(/\r?\n/);

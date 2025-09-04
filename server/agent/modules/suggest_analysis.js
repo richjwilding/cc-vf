@@ -25,81 +25,426 @@ export const ANALYSIS_OPTIONS = `*) The ultimate goal is to prodce a slide which
                                   *) - At least once per slide, each reused field must have a concrete definition (string or {$ref}). Do not produce two sections that both use {"same_as"} for the same field with no anchor.
                     	            *) If any section in a slide uses a categorization, every section in that slide that references the same concept MUST either:
                     	            *) - include the same {"$ref":"categorizations.<key>"}, or
-                    	            *) - explicitly declare why it’s not categorized (rare).
-                                  *) If you define defs.categorizations.<name>, you MUST reference it at least once via {"$ref":"categorizations.<name>"} in a section’s categorization or list it in a filter’s requires.
+                    	            *) - explicitly declare why it's not categorized (rare).
+                                  *) If you define defs.categorizations.<name>, you MUST reference it at least once via {"$ref":"categorizations.<name>"} in a section's categorization or list it in a filter's requires.
                                   *) If a filter mentions a field that is only available via a slide-defined categorization, you MUST also attach that categorization to every section that uses the filter.
-	                    	          *) Never instruct counting or math inside summarization. If counts are needed, they belong in the visualization; the summary should interpret the (already computed) results (e.g., “Hydration and Skin & Beauty dominate, with notable lift over others”).
+	                    	          *) Never instruct counting or math inside summarization. If counts are needed, they belong in the visualization; the summary should interpret the (already computed) results (e.g., "Hydration and Skin & Beauty dominate, with notable lift over others").
                     	            *) Prefer slide-level defs + $ref over same_as. Use same_as only when a one-off reuse is clearly tied to a single section and not worth a defs entry.`
+
 
 const logger = getLogger('agent_module_suggest_analysis', "debug", 0); // Debug level for moduleA
 
 
+// Pass A: outline schema establishes slide-level definitions (defs) and lightweight sections that reference them.
 const pass_a_schema = {
-          "name": "analysis_suggestions",
-          schema: {
-                    "type":"object",
-                    "required":["suggestions"],
-                    "additionalProperties":false,
-                    "properties":{
-                      "suggestions":{
-                        "type":"array",
-                        "minItems":3,
-                        "maxItems":5,
-                        "items":{"$ref":"#/$defs/SlideSuggestionOutline"}
-                      }
-                    },
-                    "$defs":{
-                      "SlideSuggestionOutline":{
-                        "type":"object",
-                        "additionalProperties":false,
-                        "required":["description","layout","sections"],
-                        "properties":{
-                          "id":{"type":"integer"},
-                          "description":{"type":"string"},
-                          "layout":{"type":"string","enum":["full_page","left_summary"]},
-                          "sections":{
-                            "type":"array",
-                            "minItems":1,
-                            "maxItems":3,
-                            "items":{"oneOf":[
-                              {"$ref":"#/$defs/SummarySectionOutline"},
-                              {"$ref":"#/$defs/VizSectionOutline"}
-                            ]}
-                          }
-                        }
-                      },
-                      "SummarySectionOutline":{
-                        "type":"object",
-                        "additionalProperties":false,
-                        "required":["type"],
-                        "properties":{
-                          "type":{"type":"string","const":"summary"},
-                          "overview":{"type":"string"}
-                        }
-                      },
-                      "VizSectionOutline":{
-                        "type":"object",
-                        "additionalProperties":false,
-                        "required":["type","chart"],
-                        "properties":{
-                          "type":{"type":"string","const":"visualization"},
-                          "chart":{
-                            "type":"object",
-                            "additionalProperties":false,
-                            "required":["kind"],
-                            "properties":{"kind":{"type":"string","enum":["heatmap","bubble","pie","bar"]}}
-                          },
-                          "overview":{"type":"string"}
-                        }
-                      }
-                    }
-                  }
+  name: "analysis_suggestions",
+  schema: {
+    type: "object",
+    required: ["suggestions"],
+    additionalProperties: false,
+    properties: {
+      suggestions: {
+        type: "array",
+        minItems: 3,
+        maxItems: 5,
+        items: { $ref: "#/$defs/SlideSuggestionOutline" }
+      }
+    },
+    $defs: {
+      // Reuse core building blocks so Pass A speaks the same language as Pass B
+      MeasureSpec: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agg"],
+        properties: {
+          field: { type: "string", description: "Numeric field to aggregate (ignored for count)." },
+          agg: { type: "string", enum: ["count", "sum", "avg", "min", "max", "median"] },
+          filter: { $ref: "#/$defs/MaybeRefOrString", description: "Optional filter applied before aggregation." },
+          format: { type: "string", description: "Optional numeric format, e.g., '0.0%', '0,0'." }
+        }
+      },
+      CategoryItem: {
+        type: "object",
+        description: "A single explicit category definition.",
+        properties: {
+          title: { type: "string", description: "Human-friendly name shown on slides, 1–4 words." },
+          description: { type: "string", description: "Up to ~20 words describing what belongs in this category." },
+          examples: { type: "array", items: { type: "string" }, description: "Optional 1–5 short example phrases to anchor the category." }
+        },
+        required: ["title"],
+        additionalProperties: false
+      },
+      CategorizationSpec: {
+        description: "How to obtain/use a categorization.",
+        oneOf: [
+          {
+            type: "object",
+            description: "Reference an already-defined categorization by hex id.",
+            properties: {
+              categorization_id: { type: "string", description: "24 hex id of existing categorization" },
+              title: { type: "string", description: "title of the existing categorization" }
+            },
+            required: ["categorization_id", "title"],
+            additionalProperties: false
+          },
+          {
+            type: "object",
+            description: "Define a prompt to be materialized at slide creation time.",
+            properties: {
+              mode: { type: "string", const: "inline_prompt", description: "Create at slide creation time." },
+              parameter: { type: "string", description: "Source field to categorize (e.g., 'Overview')." },
+              prompt: { type: "string", description: "LLM prompt describing buckets to generate." },
+              target_count: { type: "integer", minimum: 2, maximum: 20, description: "Desired number of buckets." }
+            },
+            required: ["mode", "parameter", "prompt"],
+            additionalProperties: false
+          },
+          {
+            type: "object",
+            description: "Use a field of the data without any processing - MUST align with the data schema.",
+            properties: { parameter: { type: "string", description: "Source field (e.g., 'overview')." } },
+            required: ["parameter"],
+            additionalProperties: false
+          },
+          {
+            type: "object",
+            description: "Requires a separate preprocessing task before slide can render.",
+            properties: {
+              mode: { type: "string", const: "needs_task", description: "Run a separate task first." },
+              task: { type: "string", enum: ["categorize_data"], description: "Task name." },
+              parameter: { type: "string", description: "Source field to categorize." },
+              task_args: { type: "object", description: "Inputs for the task", additionalProperties: true },
+              produces_ref: { type: "string", description: "Where the resulting definition will be placed, e.g. 'categorizations.intent'." }
+            },
+            required: ["mode", "task", "parameter", "produces_ref"],
+            additionalProperties: false
+          },
+          {
+            type: "object",
+            description: "Inline explicit categories (fully specified; no task needed).",
+            properties: {
+              mode: { type: "string", const: "inline_explicit", description: "Use these categories as-is." },
+              parameter: { type: "string", description: "Source field to categorize." },
+              items: { type: "array", minItems: 2, maxItems: 20, items: { $ref: "#/$defs/CategoryItem" } }
+            },
+            required: ["mode", "parameter", "items"],
+            additionalProperties: false
+          }
+        ]
+      },
+      DefsRef: {
+        type: "object",
+        required: ["$ref"],
+        properties: {
+          $ref: {
+            type: "string",
+            description: "Reference path into slide-level defs. Format: '<group>.<key>'.",
+            pattern: "^(filters|categorizations)\\.[A-Za-z0-9_-]+$"
+          }
+        },
+        additionalProperties: false
+      },
+      MaybeRefOrString: {
+        oneOf: [
+          { type: "string" },
+          { $ref: "#/$defs/DefsRef" }
+        ]
+      },
+      SlideSuggestionOutline: {
+        type: "object",
+        additionalProperties: false,
+        required: ["description", "layout", "sections"],
+        properties: {
+          id: { type: "integer" },
+          description: { type: "string" },
+          layout: { type: "string", enum: ["full_page", "left_summary"] },
+          // Pass A owns all canonical definitions
+          defs: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              filters: {
+                type: "object",
+                description: "Named filter definitions to be applied to the data (pre or post where relevant).",
+                additionalProperties: { type: "string" }
+              },
+              categorizations: {
+                type: "object",
+                description: "Named categorization prompts/specs (materialized later).",
+                additionalProperties: {
+                  oneOf: [
+                    { type: "string" },
+                    { $ref: "#/$defs/CategorizationSpec" }
+                  ]
                 }
+              }
+            }
+          },
+          sections: {
+            type: "array",
+            minItems: 1,
+            maxItems: 3,
+            items: {
+              oneOf: [
+                { $ref: "#/$defs/SummarySectionOutline" },
+                { $ref: "#/$defs/VizSectionOutline" }
+              ]
+            }
+          }
+        }
+      },
+      SummarySectionOutline: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type"],
+        properties: {
+          type: { type: "string", const: "summary" },
+          overview: { type: "string" },
+          pre_filter: { $ref: "#/$defs/MaybeRefOrString" },
+          categorization: { $ref: "#/$defs/DefsRef" }
+        }
+      },
+      VizSectionOutline: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type"],
+        properties: {
+          type: { type: "string", const: "visualization" },
+          overview: { type: "string", description: "Describe what to visualize and why (no config) including any filters, grouping and axis / splits." },
+          chart_kind: { type: "string", enum: ["heatmap", "bubble", "pie", "bar" ] },
+          //pre_filter: { $ref: "#/$defs/MaybeRefOrString" },
+          //axis_1: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/DefsRef" } } },
+          //axis_2: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/DefsRef" } } },
+          //split_by: { $ref: "#/$defs/DefsRef" }
+        }
+      }
+    }
+  }
+}
+
+// Concrete per-section JSON schemas used in Pass B
+function buildSectionBaseDefs() {
+  return {
+    FilterRef: {
+      type: "object",
+      required: ["$ref"],
+      properties: {
+        $ref: { type: "string", pattern: "^filters\\.[A-Za-z0-9_-]+$" }
+      },
+      additionalProperties: false
+    },
+    CatRef: {
+      type: "object",
+      required: ["$ref"],
+      properties: {
+        $ref: { type: "string", pattern: "^categorizations\\.[A-Za-z0-9_-]+$" }
+      },
+      additionalProperties: false
+    },
+    // Allow directly using a raw field from the source schema (no categorization)
+    FieldParam: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        parameter: { type: "string", description: "Name of a field in the source schema" }
+      },
+      required: ["parameter"]
+    },
+    // Axis/group definitions can be either a categorization ref or a plain field parameter
+    AxisDef: {
+      oneOf: [ { $ref: "#/$defs/CatRef" }, { $ref: "#/$defs/FieldParam" } ]
+    },
+    MaybeFilter: {
+      oneOf: [ { type: "string" }, { $ref: "#/$defs/FilterRef" } ]
+    },
+    MeasureSpec: {
+      type: "object",
+      additionalProperties: false,
+      required: ["agg"],
+      properties: {
+        field: { type: "string" },
+        agg: { type: "string", enum: ["count","sum","avg","min","max","median"] },
+        filter: { $ref: "#/$defs/MaybeFilter" },
+        format: { type: "string" }
+      }
+    }
+  }
+}
+
+const SECTION_SCHEMAS = {
+  summary: () => ({
+    name: "section_summary",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "integer" },
+        sourceId: { type: "string" },
+        type: { type: "string", const: "summary" },
+        pre_filter: { $ref: "#/$defs/MaybeFilter" },
+        categorization: { $ref: "#/$defs/AxisDef" },
+        summarization: { type: "string" },
+        overview: { type: "string" }
+      },
+      required: ["sourceId","type","overview"],
+      $defs: buildSectionBaseDefs()
+    }
+  }),
+  visualization: {
+    bar: () => ({
+      name: "section_visualization_bar",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "integer" },
+          sourceId: { type: "string" },
+          type: { type: "string", const: "visualization" },
+          pre_filter: { $ref: "#/$defs/MaybeFilter" },
+          axis_1: {
+            type: "object", additionalProperties: false,
+            properties: {
+              definition: { $ref: "#/$defs/AxisDef" },
+              filter: { $ref: "#/$defs/MaybeFilter" }
+            },
+            required: ["definition"]
+          },
+          split_by: { $ref: "#/$defs/AxisDef" },
+          overview: { type: "string" },
+          chart: {
+            type: "object", additionalProperties: false,
+            properties: {
+              kind: { type: "string", const: "bar" },
+              value: { $ref: "#/$defs/MeasureSpec" },
+              orientation: { type: "string", enum: ["vertical","horizontal"] },
+              grouping: { type: "string", enum: ["grouped","stacked"], default: "grouped" },
+              labels: { type: "boolean", default: true },
+              sort_by: { type: "string", enum: ["value_asc","value_desc","alpha_asc","alpha_desc","none"], default: "value_desc" },
+              top_n: { type: "integer", minimum: 1 },
+              facet: {
+                type: "object", additionalProperties: false,
+                properties: { by: { type: "string", enum: ["split_by","axis_1"] }, layout: { type: "string", enum: ["row","column","grid"], default: "grid" }, max_cols: { type: "integer", minimum: 1 } },
+                required: ["by"]
+              }
+            },
+            required: ["kind","value","orientation"]
+          }
+        },
+        required: ["sourceId","type","overview","axis_1","chart"],
+        $defs: buildSectionBaseDefs()
+      }
+    }),
+    pie: () => ({
+      name: "section_visualization_pie",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "integer" },
+          sourceId: { type: "string" },
+          type: { type: "string", const: "visualization" },
+          pre_filter: { $ref: "#/$defs/MaybeFilter" },
+          axis_1: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/AxisDef" }, filter: { $ref: "#/$defs/MaybeFilter" } }, required: ["definition"] },
+          split_by: { $ref: "#/$defs/AxisDef" },
+          overview: { type: "string" },
+          chart: {
+            type: "object", additionalProperties: false,
+            properties: {
+              kind: { type: "string", const: "pie" },
+              value: { $ref: "#/$defs/MeasureSpec" },
+              donut: { type: "boolean", default: false },
+              labels: { type: "boolean", default: true },
+              sort_by: { type: "string", enum: ["value_asc","value_desc","alpha_asc","alpha_desc","none"], default: "value_desc" },
+              top_n: { type: "integer", minimum: 1 },
+              facet: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  by: { type: "string", const: "split_by" },
+                  scale: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      mode: { type: "string", enum: ["radius","area"], default: "radius" },
+                      measure: { $ref: "#/$defs/MeasureSpec" }
+                    },
+                    required: ["measure"]
+                  }
+                },
+                required: ["by"]
+              }
+            },
+            required: ["kind","value"]
+          }
+        },
+        required: ["sourceId","type","overview","axis_1","chart"],
+        $defs: buildSectionBaseDefs()
+      }
+    }),
+    bubble: () => ({
+      name: "section_visualization_bubble",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "integer" },
+          sourceId: { type: "string" },
+          type: { type: "string", const: "visualization" },
+          pre_filter: { $ref: "#/$defs/MaybeFilter" },
+          axis_1: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/AxisDef" }, filter: { $ref: "#/$defs/MaybeFilter" } }, required: ["definition"] },
+          axis_2: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/AxisDef" }, filter: { $ref: "#/$defs/MaybeFilter" } }, required: ["definition"] },
+          overview: { type: "string" },
+          chart: {
+            type: "object", additionalProperties: false,
+            properties: {
+              kind: { type: "string", const: "bubble" },
+              size: { $ref: "#/$defs/MeasureSpec" },
+              color_by: { $ref: "#/$defs/AxisDef" },
+              labels: { type: "boolean", default: true }
+            },
+            required: ["kind","size"]
+          }
+        },
+        required: ["sourceId","type","overview","axis_1","axis_2","chart"],
+        $defs: buildSectionBaseDefs()
+      }
+    }),
+    heatmap: () => ({
+      name: "section_visualization_heatmap",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "integer" },
+          sourceId: { type: "string" },
+          type: { type: "string", const: "visualization" },
+          pre_filter: { $ref: "#/$defs/MaybeFilter" },
+          axis_1: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/AxisDef" }, filter: { $ref: "#/$defs/MaybeFilter" } }, required: ["definition"] },
+          axis_2: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/AxisDef" }, filter: { $ref: "#/$defs/MaybeFilter" } }, required: ["definition"] },
+          overview: { type: "string" },
+          chart: {
+            type: "object", additionalProperties: false,
+            properties: {
+              kind: { type: "string", const: "heatmap" },
+              value: { $ref: "#/$defs/MeasureSpec" },
+              labels: { type: "boolean", default: false },
+              facet: { type: "object", additionalProperties: false, properties: { by: { type: "string", enum: ["axis_1","axis_2"] } } }
+            },
+            required: ["kind","value"]
+          }
+        },
+        required: ["sourceId","type","overview","axis_1","axis_2","chart"],
+        $defs: buildSectionBaseDefs()
+      }
+    })
+  }
+}
 
 export async function implementation(params, scope, notify){
         const {data, categories} = await scope.functionMap["sample_data"]({limit: 20, ...params, forSample: true, withCategory: true}, scope)
         const {categories: categorizations} = await scope.functionMap["existing_categorizations"]({...params, forSample: true, withCategory: true}, scope)
 
+        // Pass B: full detailed schema (existing structure preserved)
         const output_schema = {
           "name": "analysis_suggestions",
           "schema": {
@@ -260,7 +605,7 @@ export async function implementation(params, scope, notify){
                   "$ref": {
                     "type": "string",
                     "description": "A reference path into the slide-level defs. Format: '<group>.<key>'. Valid groups: filters, categorizations, summaries, visuals.",
-                    "pattern": "^(filters|categorizations|summaries|visuals)\\.[A-Za-z0-9_-]+$"
+                    "pattern": "^(filters|categorizations)\\.[A-Za-z0-9_-]+$"
                   }
                 },
                 "additionalProperties": false
@@ -559,7 +904,6 @@ export async function implementation(params, scope, notify){
 
         if( data && categories){
             const categoryDefs = categories.map(d=>categoryDetailsForAgent( d )).filter(d=>d)
-
             const categoryDataAsString = JSON.stringify(categoryDefs)
             
             const messages = [
@@ -578,10 +922,10 @@ export async function implementation(params, scope, notify){
                 },{
                  role: "user",
                  content: `Here is the schema of the data:\n${categoryDataAsString}`,
-                },/*{
+                },{
                 role: "user",
-                content: `here is some sample data:\n${JSON.stringify(data)}`
-                },*/
+                content: `Here is some sample data:\n${JSON.stringify(data)}`
+                },
                 categorizations.length > 0 && {
                   role: "user",
                   content: `here is a list of existing categorizations of this data:\n${categorizations}`
@@ -592,9 +936,9 @@ export async function implementation(params, scope, notify){
                },{
                 role: "user",
                 content: `Suggest 3-5 suitable slides using the options available and which are achievable for the data sample, schema and the view options provided.
-                        Ensure the options meets the specific goal from the user.  Summaries, categorization and filters must be used on the data to be as specific and precise as possible in meeting the user's goal - do not suggest general ideas. Use the human friendly name of fields rather than the field name in your summary.`
-               }
-            ].filter(Boolean)
+                        Ensure the options meets the specific goal from the user. In Pass A, define slide-level defs ONLY for filters and categorizations. Categorizations MUST use the CategorizationSpec schema: either an existing id {categorization_id,title}, an inline_prompt {mode:'inline_prompt',parameter,prompt,target_count?}, a direct field {parameter}, a needs_task {mode:'needs_task',task:'categorize_data',parameter,task_args?,produces_ref}, or inline_explicit {mode:'inline_explicit',parameter,items:[CategoryItem...]}. Avoid $ref or same_as inside defs. Sections must reference these defs using {$ref: 'filters.<key>'} or {$ref: 'categorizations.<key>'}. Keep sections lightweight (type, chart.kind, overview, and minimal refs). Use human-friendly field names in text.`
+                }
+             ].filter(Boolean)
             console.log( messages)
             const openai = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
             const res = await openai.chat.completions.create({
@@ -603,53 +947,122 @@ export async function implementation(params, scope, notify){
               messages,
               response_format: { 
                   type: "json_schema",
-                  json_schema: output_schema
+                  json_schema: pass_a_schema
               }
             });
-        
             const msg = res.choices[0].message;
-            recordUsage( {
-              workspace: scope.workspaceId, 
-              functionName: "agent_module_suggest_analysis", 
-              usageId: "agent_module_suggest_analysis", 
-              api: "open_ai", 
+            recordUsage({
+              workspace: scope.workspaceId,
+              functionName: "agent_module_suggest_analysis",
+              usageId: "agent_module_suggest_analysis_pass_a",
+              api: "open_ai",
               data: res
             })
-            try{
-              const suggestions = JSON.parse(msg?.content)?.suggestions
 
-              const normalized = (suggestions || []).map((s, i) => ({
-                  id: (typeof s.id === 'number' ? s.id : i + 1),
-                  ...s
-              }));
+            // Parse Pass A outlines
+            const outlines = (() => {
+              try {
+                return JSON.parse(msg?.content)?.suggestions || []
+              } catch (_) { return [] }
+            })();
 
-              // Create or refresh a 'slides' subflow session and seed it with the outline
-              let slideSession = null;
+            // Normalize ids and keep only minimal outline fields, preserving defs from Pass A
+            const normalizedOutlines = outlines.map((s, i) => ({
+              id: (typeof s.id === 'number' ? s.id : i + 1),
+              description: s.description,
+              layout: s.layout,
+              defs: s.defs || undefined,
+              sections: Array.isArray(s.sections) ? s.sections : []
+            }));
 
-              if (scope.workSession && scope.workSession.flow === 'slides') {
-                /*slideSession = scope.workSession;
-                slideSession.payload = { suggestions: normalized };
-                slideSession.state = 'list';                // show the user the list to pick from
-                slideSession.data.selection = null;         // nothing selected yet
-                scope.touchWorkSession?.();*/
-                throw "Why is this reachable?"
-              } else if (typeof scope.beginWorkSession === 'function') {
-                slideSession = scope.beginWorkSession('slides', { suggestions: normalized });
-                slideSession.state = 'list';
-                slideSession.data ||= {} 
-                slideSession.data.selection = null;
-
-                touchSlideState(scope)
-              }
-
-              return {
-                //forClient: ["suggestions"],
-                suggestions
-              }
-            }catch(e){
-              logger.error(`Error in suggest_analysis`, e)
-              return {error: "problem"}
+            // Pass B: refine each section independently using concrete section schemas
+            function inferChartKindFromText(text = ""){
+              const t = (text||"").toLowerCase();
+              if (t.includes("heatmap") || t.includes("matrix") || t.includes("grid")) return "heatmap";
+              if (t.includes("bubble")) return "bubble";
+              if (t.includes("pie") || t.includes("share") || t.includes("proportion")) return "pie";
+              if (t.includes("bar") || t.includes("rank") || t.includes("top")) return "bar";
+              return "bar";
             }
+
+            // Build one promise per outline so outlines run in parallel
+            const outlinePromises = normalizedOutlines.map(async (outline) => {
+              const sectionPromises = (outline.sections || []).map(async (sec) => {
+                let sectionSchema;
+                let chartKind = undefined;
+                if (sec.type === 'summary') {
+                  sectionSchema = SECTION_SCHEMAS.summary();
+                } else if (sec.type === 'visualization') {
+                  chartKind = sec.chart_kind || inferChartKindFromText(sec.overview);
+                  const builder = SECTION_SCHEMAS.visualization?.[chartKind];
+                  sectionSchema = builder ? builder() : SECTION_SCHEMAS.visualization.bar();
+                } else {
+                  return null;
+                }
+
+                const messagesB = [
+                  { role: "system", content: `You are a data analysis agent. Produce a single section config only (no slide/defs).` },
+                  { role: "user", content: `Follow these analysis constraints strictly:\n${ANALYSIS_OPTIONS.replaceAll(/\s+/g, " ")}` },
+                  //{ role: "user", content: `Available view options:\n${VIEW_OPTIONS.replaceAll(/\s+/g, " ")}` },
+                  //{ role: "user", content: `Data from source ${params.id} is available; always set sourceId to '${params.id}'.` },
+                  { role: "user", content: `Here is the schema of the data:\n${categoryDataAsString}` },
+                  //{ role: "user", content: `Here is some sample data:\n${JSON.stringify(data)}` },
+                  //categorizations?.length > 0 && { role: "user", content: `Existing categorizations for this data (db):\n${categorizations}` },
+                  outline?.defs && { role: "user", content: `Slide-level defs defined in Pass A (use ONLY these via $ref):\n${JSON.stringify(outline.defs)}` },
+                  { role: "user", content: `User goal:\n${params.goal}` },
+                  { role: "user", content: `Here is the section outline to refine:\n${JSON.stringify(sec)}` },
+                  chartKind && { role: "user", content: `Use chart kind: ${chartKind}` },
+                  { role: "user", content: `Constraints: Output a SINGLE JSON object for the section only. Do not include defs. Do not include sourceId (the server will inject it). Use only {$ref:'filters.*'} and {$ref:'categorizations.*'} present in defs when referencing filters/categorizations. For axes/split/color_by you may either reference a categorization via {$ref:'categorizations.*'} or select a direct schema field via {parameter:'<field>'}. Always include type and overview.` }
+                ].filter(Boolean);
+
+                console.log(`----- Doing section expansion`)
+                console.log(messagesB)
+                const resB = await openai.chat.completions.create({
+                  model: "gpt-5-mini",
+                  messages: messagesB,
+                  response_format: { type: "json_schema", json_schema: sectionSchema }
+                });
+
+                recordUsage({ workspace: scope.workspaceId, functionName: "agent_module_suggest_analysis", usageId: "agent_module_suggest_analysis_pass_b_section", api: "open_ai", data: resB })
+
+                const msgB = resB.choices?.[0]?.message;
+                try {
+                  const obj = JSON.parse(msgB?.content);
+                  if (obj && typeof obj === 'object') {
+                    obj.sourceId = params.id; // inject server-side
+                    return obj;
+                  }
+                } catch(e) {
+                  logger.error(`Pass B section JSON parse error`, e);
+                }
+                return null;
+              });
+
+              const settled = await Promise.allSettled(sectionPromises);
+              const refinedSections = settled.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean);
+
+              return { id: outline.id, description: outline.description, layout: outline.layout, defs: outline.defs, sections: refinedSections };
+            });
+
+            const outlineResults = await Promise.allSettled(outlinePromises);
+            const expandedSuggestions = outlineResults.map(r => r.status === 'fulfilled' ? r.value : null).filter(Boolean);
+
+            // Fallback: if no expanded suggestions, surface outlines so the user sees something
+            const finalSuggestions = expandedSuggestions.length ? expandedSuggestions : normalizedOutlines;
+
+            // Create or refresh a 'slides' subflow session and seed it with the output
+            let slideSession = null;
+            if (scope.workSession && scope.workSession.flow === 'slides') {
+              throw "Why is this reachable?";
+            } else if (typeof scope.beginWorkSession === 'function') {
+              slideSession = scope.beginWorkSession('slides', { suggestions: finalSuggestions });
+              slideSession.state = 'list';
+              slideSession.data ||= {};
+              slideSession.data.selection = null;
+              touchSlideState(scope)
+            }
+
+            return { suggestions: finalSuggestions }
         }
         return {
             data_missing: data === undefined,

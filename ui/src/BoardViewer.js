@@ -1394,10 +1394,16 @@ function SharedRenderView(d, primitive, myState) {
                     myState[child.id].parentRender = stateId
                 }
                 if( basePrimitive.slide_state?.data?.slideSpec ){
-                    const visuals = basePrimitive.slide_state?.data?.slideSpec.sections.filter(d=>d.type == "visualization")
+                    const visuals = basePrimitive.slide_state?.data?.slideSpec.sections//.filter(d=>d.type == "visualization")
                     myState[stateId].renderData = {
                         placeholder: true,
-                        sections: visuals.map(d=>ConvertVisualizationSpec( d,  basePrimitive.slide_state?.data?.slideSpec?.defs))
+                        sections: visuals.map(d=>{
+                            if( d.type == "visualization"){
+                                return {
+                                    visualization: ConvertVisualizationSpec( d,  basePrimitive.slide_state?.data?.slideSpec?.defs)
+                                }
+                            }
+                        })
                     }
                 }
             }

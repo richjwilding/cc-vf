@@ -1,5 +1,6 @@
 import CollectionUtils from "./CollectionHelper"
 import MainStore from "./MainStore"
+import { deepEqualIgnoreOrder } from "./SharedTransforms"
 
 
 function mapChart( chart ){
@@ -13,14 +14,31 @@ function mapChart( chart ){
         "bar": {
             type: "distribution",
             style: "bar",
+            show_legend: true,
             size: "size"
         },
         "heatmap": {
             type: "heatmap",
             size: "scale"
         },
+        "bubble": {
+            type: "heatmap",
+            size: "scale",
+            bubble: true
+        },
     }
-    const config = KIND_MAP[chart?.kind ?? "bar"]
+    const kind = chart?.kind ?? "bar"
+    const config = KIND_MAP[kind]
+
+    config.primary_axis = {}
+
+    if( chart.top_n){
+        config.primary_axis.limit = chart.top_n
+    }       
+    if( chart.sort_by){
+        config.primary_axis.sort = chart.sort_by
+    }       
+
     return config
 
 }
@@ -86,15 +104,38 @@ export function ConvertVisualizationSpecToView( spec, defs ){
                         filter
                     }
                 }
+            }else if( baseDef.parameter){
+
+                const pC = {
+                    type: "parameter",
+                    parameter: baseDef.parameter,
+                    filter
+                }
+
+                const match = meta.find(d=>d.parameters?.[baseDef.parameter]?.axisType)
+                if( match){
+                        pC.passType = match.parameters[baseDef.parameter].axisType
+                        pC.axisData = match.parameters[baseDef.parameter].axisData
+                }
+                return pC
             }
         }
     }
     
-    const {type, ...renderOptions} = mapChart( spec.chart )
+    const {type, primary_axis, ...renderOptions} = mapChart( spec.chart )
+    const mainstore = MainStore()
+    
+    const items = mainstore.primitive( spec.sourceId ).itemsForProcessing
+    const meta = Array.from(new Set(items.map(d=>d.referenceId))).map(d=>mainstore.category(d))
+
+    const ignore_axis_1 = !spec.axis_1 || deepEqualIgnoreOrder(spec.axis_1?.definition,  spec.series_1) || deepEqualIgnoreOrder(spec.axis_1,  spec.series_1) || deepEqualIgnoreOrder(spec.axis_1?.definition,  spec.split_by)|| deepEqualIgnoreOrder(spec.axis_1,  spec.split_by)
+    const ignore_axis_2 = !spec.axis_2 || deepEqualIgnoreOrder(spec.axis_2?.definition,  spec.series_1) || deepEqualIgnoreOrder(spec.axis_2,  spec.series_1) || deepEqualIgnoreOrder(spec.axis_2?.definition,  spec.split_by)|| deepEqualIgnoreOrder(spec.axis_2,  spec.split_by)
+    
+
     
     const axis = [
-        spec.axis_1 && convertAxis(spec.axis_1),
-        spec.axis_2 && convertAxis(spec.axis_2),
+        !ignore_axis_1 && convertAxis(spec.axis_1),
+        !ignore_axis_2 && convertAxis(spec.axis_2),
         spec.series_1 && convertAxis(spec.series_1),
         spec.split_by && convertAxis(spec.split_by),
     ].filter(Boolean)
@@ -102,9 +143,19 @@ export function ConvertVisualizationSpecToView( spec, defs ){
         axis.push( convertAxis(spec.chart?.color_by) )
     }
 
+    if( primary_axis ){
+        axis[0] = {
+            ...axis[0],
+            ...primary_axis
+        }
+    }
+    
+
     let columns = axis[0]
     let rows = axis[1]
     let viewFilters = axis.slice(2)
+
+
 
     if( type === "distribution"){
         if( axis.length === 1){
@@ -132,7 +183,6 @@ export function ConvertVisualizationSpecToView( spec, defs ){
         }
     }
 
-    const items = MainStore().primitive( spec.sourceId ).itemsForProcessing
     const alreadyFiltered = false
     const hideNull = true
 
@@ -144,7 +194,12 @@ export function ConvertVisualizationSpecToView( spec, defs ){
         id: spec.id - 1,
         viewConfig: {matrixType: type},
         renderOptions,
-        data: table
+        data: table,
+        config: {
+            columns,
+            rows,
+            viewFilters
+        }
     }
 
     
