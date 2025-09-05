@@ -253,7 +253,7 @@ export async function fetchPerBucket({workspaceId, buckets, options = {withParen
       ]
     if( options.pipelineSteps ){
       pipeline.push(...options.pipelineSteps)
-      if( options.pipelineSteps.at(-1).$project){
+      if( options.pipelineSteps.at(-1)?.$project){
         console.log(`Last step is custom projection`)
         projection = []
       }

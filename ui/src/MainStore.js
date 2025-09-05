@@ -1106,6 +1106,16 @@ const actions = {
         if( d._ppIdCache ){
             return d._ppIdCache
         }
+        if( d.parentPrimitives){
+            for(const [p, v] of Object.entries(d.parentPrimitives)){
+                if( Array.isArray(v) ){
+                    if( v.some(d=>!d)){
+                        console.warn(`parentPrimtives of ${d.id} / ${d.plainId} has empty nodes`)
+                        console.log(d.parentPrimitives)
+                    }
+                }
+            }
+        }
 
         d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports") && !d.parentPrimitives[p].find(d=>d.startsWith("primitives.inputs."))) : []
         return d._ppIdCache
@@ -1407,25 +1417,37 @@ function MainStore (prims){
         processServerActions( list ){
             list.forEach((entry)=>{
                 if(entry.type === "new_primitives"){
+                    const new_prims = []
+                    const new_child = {}
+                    const rel_updates = new Set()
                     for(const rData of entry.data){
                         obj.addPrimitive( rData )
                         const newObj = obj.primitive(rData.id)
-                        const list = [newObj]
-                        
+                        new_prims.push( newObj )
+                        rel_updates.add(newObj)
+                    }
+                    for(const rData of entry.data){
+                        const newObj = obj.primitive(rData.id)
+                        if( newObj.origin ){
+                            new_child[newObj.origin.id] ||= []
+                            new_child[newObj.origin.id].push(newObj)
+                        }
                         for(const parentId of Object.keys(rData.parentPrimitives || {})){
-                            const paths = rData.parentPrimitives[parentId].map((d)=>d.replace('primitives.',''))
+                            const paths = (rData.parentPrimitives?.[parentId] ?? []).map(d =>d.startsWith('primitives.') ? d.slice('primitives.'.length) : d)
                             const parent = obj.primitive( parentId )
                             if( parent ){
-                                list.push(parent)
+                                rel_updates.add(parent)
                                 paths.forEach((p)=>{
                                     parent.addRelationship( newObj, p, true)
                                 })
                             }
                         }
-                        obj.triggerCallback("new_primitive", [newObj], undefined, true )
-                        obj.triggerCallback("relationship_update", list, undefined, true)
-                        if( newObj.origin ){
-                            obj.triggerCallback("new_child", [newObj.origin.id],{child: newObj}, true )
+                    }
+                    obj.triggerCallback("new_primitive", new_prims, undefined, true )
+                    obj.triggerCallback("relationship_update", Array.from( rel_updates ), undefined, true)
+                    for(const [parentId, childList] of Object.entries( new_child )){
+                        for(const child of childList ){
+                            obj.triggerCallback("new_child", [parentId],{child}, true )
                         }
                     }
                 }else if(entry.type === "add_relationship"){
