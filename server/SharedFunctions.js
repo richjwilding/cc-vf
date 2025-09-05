@@ -1074,11 +1074,15 @@ export async function addRelationship(receiver, target, paths, skipParent = fals
   
           break; // success
         } catch (err) {
-          attempt++;
-          if (attempt >= maxRetries) {
-            throw err;
-          }
-          console.warn(`addRelationship retry ${attempt} failed:`, err);
+            const isTransient = err?.hasErrorLabel?.('TransientTransactionError') || err?.hasErrorLabel?.('UnknownTransactionCommitResult');
+
+            if (!isTransient || attempt >= maxRetries) {
+                logger.error(`addRelationship txn failed (attempt ${attempt + 1}) for ${receiver} -> ${target}:`, err);
+                throw err;
+            }
+
+            attempt += 1;
+            await new Promise(r => setTimeout(r, 50 * Math.pow(2, attempt)));
         }
       }
   
@@ -1167,6 +1171,124 @@ export async function __addRelationship(receiver, target, path, skipParent = fal
     }
 }
 
+// Compute instance-to-target links for a given relationship path.
+// This is a mostly in-memory mapper; it may use relevantInstanceForFlowChain for ancestry alignment.
+export async function computeInstanceLinks({
+    receiverDef,
+    targetDef,
+    relationship,
+    receiverInstances,
+    targetInstances,
+}){
+    relationship = relationship.startsWith("primitives.") ? relationship : `primitives.${relationship}`
+    const mappings = [] // { receiverId, targetId }
+
+    function flowInstanceId(p){
+        return p.type === "flowinstance" ? p.id : primitiveOrigin(p)
+    }
+    function parentHasFI(p, fiId){
+        return Object.keys(p.parentPrimitives ?? {}).includes(fiId)
+    }
+
+    // Early direct map: single receiver + single target (simple in-flow case)
+    // Avoid ancestry work when not a flow special-case
+    const isFlowSpecial = (receiverDef.type === "flow" && (relationship.startsWith("primitives.inputs") || relationship.startsWith("primitives.outputs"))) || (relationship === "primitives.imports" && targetDef.type === "flow")
+    if(!isFlowSpecial && receiverInstances?.length === 1 && targetInstances?.length === 1){
+        const ie = receiverInstances[0]
+        const it = targetInstances[0]
+        if( relationship.includes(".axis.") && it.type == "categorizer"){
+            const useTarget = it.primitives?.origin?.[0]
+            if( useTarget ){
+                return { mappings: [{receiverId: ie.id, targetId: useTarget}] }
+            }
+        }
+        return { mappings: [{receiverId: ie.id, targetId: it.id}] }
+    }
+
+    // FLOW inputs: wire subflow instances to target instances on the input path
+    if( receiverDef.type === "flow" && relationship.startsWith("primitives.inputs")){
+        for(const it of targetInstances){
+            const tFi = flowInstanceId(it)
+            const theseSubFIs = receiverInstances.filter(d=>d.type === "flowinstance" && parentHasFI(d, tFi))
+            for(const subFlow of theseSubFIs){
+                mappings.push({receiverId: subFlow.id, targetId: it.id})
+            }
+        }
+        return { mappings }
+    }
+
+    const instanceFlowInstances = receiverInstances.map(flowInstanceId)
+
+    // Imports from flow
+    if( relationship === "primitives.imports" && targetDef.type === "flow"){
+        receiverInstances.forEach((ie, idx)=>{
+            const fiId = instanceFlowInstances[idx]
+            const fis = targetInstances.filter(d=>d.id === fiId || parentHasFI(d, fiId))
+            for(const d of fis){
+                mappings.push({receiverId: ie.id, targetId: d.id})
+            }
+        })
+        return { mappings }
+    }
+
+    // Flow outputs special-case
+    if( relationship.startsWith("primitives.outputs") && receiverDef.type === "flow"){
+        const targetOrigin = primitiveOrigin( targetDef )
+        for(const ie of receiverInstances){
+            if( targetOrigin === receiverDef.id ){
+                const t = targetInstances.find(d=>d.parentPrimitives?.[ie.id]?.includes('primitives.origin'))
+                if( t ){
+                    mappings.push({receiverId: ie.id, targetId: t.id})
+                }
+            }else{
+                for(const t of targetInstances){
+                    const instanceOriginId = primitiveOrigin(t)
+                    if( parentHasFI(ie, instanceOriginId) ){
+                        mappings.push({receiverId: ie.id, targetId: t.id})
+                    }
+                }
+            }
+        }
+        return { mappings }
+    }
+
+    // Default: align target instance to each receiver instance via flow-instance chain
+    const alignedTargets = await relevantInstanceForFlowChain( targetInstances, instanceFlowInstances)
+    receiverInstances.forEach((ie, idx)=>{
+        const it = alignedTargets[idx]
+        if( it ){
+            if( relationship.includes(".axis.") && it.type == "categorizer"){
+                const useTarget = it.primitives?.origin?.[0]
+                if( useTarget ){
+                    mappings.push({receiverId: ie.id, targetId: useTarget})
+                }
+            }else{
+                mappings.push({receiverId: ie.id, targetId: it.id})
+            }
+        }
+    })
+
+    return { mappings }
+}
+
+// Remap importConfig entries from a definition target id (oldId)
+// to the mapped instance target id (newId). Only remaps entries
+// whose id matches oldId, and rewrites parent filters' value.
+export function remapImportFilters(originalImportConfig, oldId, newId){
+    if(!originalImportConfig || !oldId || !newId){ return [] }
+    const source = originalImportConfig.filter(d=>d?.id === oldId)
+    if(source.length === 0){ return [] }
+    return source.map(d=>({
+        id: newId,
+        filters: d.filters === undefined ? undefined : d.filters.map(f=>{
+            if( f?.type === "parent" && f?.value === oldId ){
+                return { ...f, value: newId }
+            }
+            return f
+        })
+    }))
+}
+
 async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, relationship, mode){
     if( !rObject ){
         logger.error(`!!!! Got undefined rObject for ${relationship} ${mode}`)
@@ -1185,116 +1307,44 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
         }
         return 
     }
-    if( rObject.type === "flow" && relationship.startsWith("primitives.inputs")){
-        const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [], undefined, DONT_LOAD)
-        logger.debug(`Found ${instancesOfTarget.length} instances of target - linking to subflow input on ${relationship}`)
-
-        const subFlowInstances = await primitivePrimitives(rObject, 'primitives.config', "flowinstance" )
-
-        for( const it of instancesOfTarget ){
-            const flowInstanceIdOfTarget = primitiveOrigin( it )
-            const theseSubFIs = subFlowInstances.filter(d=>Object.keys(d.parentPrimitives ?? {}).includes( flowInstanceIdOfTarget ))
-            logger.debug(`-- Have ${theseSubFIs.length} sub flowinstances to link`)
-            for(const subFlow of theseSubFIs){
-                console.log(`${subFlow.id} -> ${it.id} ${relationship} ${mode}`)
-                if( mode == "add"){
-                    await addRelationship( subFlow.id, it.id, relationship)
-                }else if( mode == "remove"){
-                    await removeRelationship( subFlow.id, it.id, relationship)
-                }
-            }
-        }
-
-    }else{
-
-        const instancesOfElement = await fetchPrimitives( rObject.primitives?.config ?? [], undefined, DONT_LOAD)
-        logger.debug(`Relationship update on flowElement - got ${instancesOfElement.length} instances to update`)
-        const instancesOfTarget =  await fetchPrimitives( tObject.primitives?.config ?? [], undefined, DONT_LOAD)        
-        logger.debug(`Found ${instancesOfTarget.length} instances of target`)
-        const instanceFlowInstances = instancesOfElement.map(d=>d.type === "flowinstance" ? d.id : primitiveOrigin(d))
-        let relevantTargetInstanceForElementInstance
-        
-        let idx = -1
-        for(const ie of instancesOfElement){
-            idx++
-            let useTarget
-            if( relationship === "primitives.imports" && tObject.type === "flow"){
-                //useTarget = tObject.id
-                const fis = instancesOfTarget.filter(d=>(d.id === instanceFlowInstances[idx]) || Object.keys(d.parentPrimitives ?? {}).includes(instanceFlowInstances[idx]))
-                console.log(`--- got ${fis.length} flowinstances to ${mode} as import`)
-                for(const d of fis){
-                    logger.debug(`--- linking ${ie.id} => ${d.id} ${relationship}`)
-                    if( mode == "add"){
-                        await addRelationship( ie.id, d.id, relationship)
-                    }else if( mode == "remove"){
-                        await removeRelationship( ie.id, d.id, relationship)
-                    }
-                }
-                continue
-            }else if( relationship.startsWith("primitives.outputs") && rObject.type === "flow"){
-                if( primitiveOrigin( tObject ) === rObject.id){
-                    let t = instancesOfTarget.find(d=>d.parentPrimitives[ie.id]?.includes('primitives.origin'))
-                    if( t ){
-                        console.log(`--- flowinstances to ${mode} as output`)
-                        if( mode == "add"){
-                            await addRelationship( ie.id, t.id, relationship)
-                        }else if( mode == "remove"){
-                            await removeRelationship( ie.id, t.id, relationship)
-                        }
-                    }
-                }else{
-                    // Receiver is peer of flow (flow is a subflow)
-                    for(const t of instancesOfTarget){
-                        const instanceOriginId = primitiveOrigin(t)
-                        if( Object.keys(ie.parentPrimitives ?? {}).includes(instanceOriginId) ){
-                            console.log(`--- flowinstances to ${mode} as output`)
-                            if( mode == "add"){
-                                await addRelationship( ie.id, t.id, relationship)
-                            }else if( mode == "remove"){
-                                await removeRelationship( ie.id, t.id, relationship)
-                            }
-                        }
-                    }
-                }
-                continue
-            }else{
-                //const flowInstanceId = primitiveOrigin( ie )
-                //const it = await relevantInstanceForFlowChain( instancesOfTarget, flowInstanceId)
-                if( !relevantTargetInstanceForElementInstance ){
-                    relevantTargetInstanceForElementInstance = await relevantInstanceForFlowChain( instancesOfTarget, instanceFlowInstances)
-                    console.log(`Done flow instance matching`)
-                    //console.log(relevantTargetInstanceForElementInstance)
-                }
-                const it = relevantTargetInstanceForElementInstance[idx]
-                if( it ){
-                    if( relationship.includes(".axis.") && it.type == "categorizer"){
-                        logger.debug(` - Instance target is categorizer - redirecting to nested primitive`)
-                        useTarget = it.primitives?.origin?.[0]
-                    }else{
-                        useTarget = it.id
-                    }
-                    logger.debug(` - Instance ${ie.id} / ${ie.plainId} match to ${it.id} / ${it.plainId} > ${useTarget} for ${relationship}`)
-                }
-            }
-            if( useTarget){
-                if( mode == "add"){
-                    await addRelationship( ie.id, useTarget, relationship)
-                }else if( mode == "remove"){
-                    await removeRelationship( ie.id, useTarget, relationship)
-                }
-            }
+    // Prepare instances for mapping (DB fetch happens here; mapper stays in-memory except ancestry alignment)
+    let receiverInstances = []
+    let targetInstances = []
+    if( rObject?.primitives?.config?.length > 0 ){
+        receiverInstances = await fetchPrimitives( rObject.primitives?.config ?? [], undefined, DONT_LOAD)
+    }
+    if( tObject?.primitives?.config?.length > 0 ){
+        targetInstances = await fetchPrimitives( tObject.primitives?.config ?? [], undefined, DONT_LOAD)
+    }
+    const { mappings } = await computeInstanceLinks({
+        receiverDef: rObject,
+        targetDef: tObject,
+        relationship,
+        receiverInstances,
+        targetInstances,
+    })
+    for(const {receiverId, targetId} of mappings){
+        logger.debug(`--- linking ${receiverId} => ${targetId} ${relationship}`)
+        if( mode == "add"){
+            await addRelationship( receiverId, targetId, relationship)
+        }else if( mode == "remove"){
+            await removeRelationship( receiverId, targetId, relationship)
         }
     }
 
 }
 export async function relevantInstanceForFlowChain(instancesOfTarget, flowInstanceIds){
+    if( instancesOfTarget.length === 0 || flowInstanceIds.length === 0){
+        return []
+    }
+
     const results = flowInstanceIds.map(flowInstanceId=>instancesOfTarget.find(d=>d.id === flowInstanceId || d.parentPrimitives[flowInstanceId]?.includes("primitives.origin")))
 
     if( results.filter(d=>d).length === flowInstanceIds.length){
         return results
     }
 
-    logger.debug(` - cant find instance in current flowinstance - checking subflow ancestors`)
+    logger.debug(` - cant find instance ${instancesOfTarget.map(d=>d.id).join(", ")} in current flowinstance - checking subflow ancestors`)
     const instancesOfTargetFIs = await fetchPrimitives( instancesOfTarget.map((d,i)=>results[i] ? undefined : primitiveOrigin(d)), undefined, DONT_LOAD)
     console.log(instancesOfTargetFIs.map(d=>d.id).join(", "))
     let instanceChain = instancesOfTargetFIs.map(d=>d?.primitives?.subfi)
@@ -2044,7 +2094,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         forceImport = options
         options = {}
     }
-    let result = []
+    let result = [], doLegacy = true
     if (first && process.env.USE_DB_IMPORTS === "true") {
         try{
             const {sample, forceImport, ...theseOptions} = options
@@ -2052,13 +2102,16 @@ export async function getDataForImport( source, cache = {imports: {}, categories
             if( sample ){
                 theseOptions.pipelineSteps.push({ $sample: { size: sample } })
             }
+            doLegacy = false
             result = await getDataForImportDB(source, theseOptions );
         }catch(e){
             console.log(e)
             console.log(`>>> Fallback to legacy import handling`)
+            doLegacy = true
         }
-    }else{
-        console.log(`!!!! call legacy`)
+    }
+    if(doLegacy){
+        console.log(`!!!! calling legacy getDataForImport - force = ${forceImport}`)
         result = await legacyGetDataForImport(source, cache, forceImport, first);
     }
     if( options.sample ){

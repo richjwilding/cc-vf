@@ -1004,7 +1004,6 @@ async function executeAI(messages, options = {}){
         response_format = undefined
         output = 1536
     }else if( options.model === "gpt-5-mini"){
-        defaultTokens = 115000
         model = options.engine
         sleepBase = 20000
         output = 80000
@@ -1018,7 +1017,6 @@ async function executeAI(messages, options = {}){
             }
         })
     }else if( options.engine === "o3-mini" || options.engine === "o4-mini" || options.engine === "o3" ){
-        defaultTokens = 115000
         model = options.engine
         sleepBase = 20000
         output = 80000
