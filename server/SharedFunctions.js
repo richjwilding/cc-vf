@@ -37,6 +37,7 @@ import Workspace from './model/Workspace.js';
 import User from './model/User.js';
 import Organization from './model/Organization.js';
 import { getDataForImportDB } from './actions/getDataForImportDB.js';
+import { getConfigFromDB } from './actions/getConfigFromDB.js';
 
 const logger = getLogger('sharedfn', "debug"); // Debug level for moduleA
 
@@ -203,14 +204,30 @@ export async function getConfigParentForTerm(primitive, term){
         return await getConfigParentForTerm(configParent, term)
     }
 }
-export async function getConfig(primitive, cache = {imports: {}, categories:{}, primitives:{}, query:{}}, skipInputs = false, requiredFields) {
+
+export async function getConfigCompare(primitive, cache = {imports: {}, categories:{}, primitives:{}, query:{}, config: {}}, skipInputs = false, requiredFields) {
+
+    /*console.time("Revised")
+    const configInfo = await getConfigFromDB( primitive, {skipInputs}, cache)
+    console.log(configInfo)
+    console.timeEnd("Revised")
+*/
+    
+    console.time("Legacy")
+    const legacy = await getConfig(primitive, cache, skipInputs, requiredFields)
+    console.timeEnd("Legacy")
+
+    console.log(legacy)
+
+    return legacy
+
+}
+
+export async function getConfig(primitive, cache = {imports: {}, categories:{}, primitives:{}, query:{}, config: {}}, skipInputs = false, requiredFields) {
+    //return await getConfigFromDB( primitive, {skipInputs}, cache)
+
     const { referenceId, referenceParameters } = primitive;
     const parentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
-
-    /*if( cache ){
-        cache.primitives ||= {}
-        cache.categories ||= {}
-    }*/
 
     if (!cache.categories[referenceId]) {
         cache.categories[referenceId] = await Category.findOne({id:referenceId});
@@ -291,92 +308,6 @@ export async function getConfig(primitive, cache = {imports: {}, categories:{}, 
 }
 
 
-export async function _getConfig(primitive, cache = {}, skipInputs = false){
-    let category
-    let out = {}
-    if( cache ){
-        cache.primitives ||= {}
-        cache.categories ||= {}
-    }
-    if( !category ){
-        if( cache ){
-            if( cache.categories[primitive.referenceId]){
-                category = cache.categories[primitive.referenceId]
-            }
-        }
-        if( !category ){
-            category = await Category.findOne({id: primitive.referenceId})
-            if( cache ){
-                 cache.categories[primitive.referenceId] = category
-            }
-        }
-    }
-    if( category ){
-        for(const p of Object.keys(category.parameters)){
-            if( category.parameters[p].default ){
-                out[p] = category.parameters[p].default
-            }
-        }
-    }
-    const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
-    if( configParentId ){
-        let configParent
-        if( cache ){
-            if( cache.primitives[configParentId] ){
-                configParent = cache.primitives[configParentId]
-                //console.log(`+++ CACHE HIT PRIMITIVE cache for ${configParentId}`)
-            }
-        }
-        if( !configParent ){
-            configParent = await fetchPrimitive( configParentId )
-            if( cache ){
-                //console.log(`--- CACHE MISS PRIMITIVE cache for ${configParentId}`)
-                cache.primitives[configParentId] = configParent
-            }
-        }
-        if( configParent ){
-            out = {
-                ...out,
-                ...((await getConfig(configParent, cache)) ?? {})
-            }
-        }
-    }
-
-    const overrides = {}
-
-    if( category && !skipInputs){
-        const ovrInputs = []
-        if( category.pins?.input ){
-            for(const inpName of Object.keys(category.pins.input) ){
-                const inp = category.pins.input[inpName]
-                if( inp.override){
-                    ovrInputs.push({input: inpName, param: inp.override})
-                }
-            }
-        }
-        if( ovrInputs.length > 0){
-            //console.log(`Checking for input overrides for ${primitive.plainId} ${ovrInputs.length}: ${ovrInputs.join(", ")}`)
-            const inputs = await fetchPrimitiveInputs( primitive, undefined, undefined, undefined, cache )
-            for(const ovr of ovrInputs ){
-                if( inputs[ovr.input] && inputs[ovr.input]?.data !== undefined){
-                    if( typeof( inputs[ovr.input].data) !== "string" || inputs[ovr.input].data.trim().length > 0){
-                        //console.log(`Override ${ovr.param} with ${ovr.input}`)
-                        overrides[ovr.param] = inputs[ovr.input]?.data
-                    }
-                }
-            }
-
-        }
-    }
-
-
-    return {
-        ...out,
-        ...overrides,
-        ...(primitive.referenceParameters ?? {})
-    }    
-
-}
 export async function removePrimitiveById( primitiveId, removedIds = [], start = true ){
     try{
         const removed = //await Primitive.findOneAndDelete({"_id": new ObjectId(data.id)})
@@ -3133,7 +3064,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         return await buildContext( primitive )
     }
     if( actionKey === "config_test"){
-        return await getConfig( primitive )
+        return await getConfigCompare( primitive )
     }
     if( actionKey === "pin_test"){
         let items
