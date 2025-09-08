@@ -1,13 +1,12 @@
 import mongoose from 'mongoose';
-import { fetchPrimitiveInputs } from '../SharedFunctions';
 import Primitive from '../model/Primitive';
+import { fetchPrimitiveInputs } from '../InputHandler';
 
 var ObjectId = mongoose.Types.ObjectId;
 const PrimitiveConfigView = mongoose.connection.collection("primitives_for_config");
 
 export async function getConfigFromDB(primitive, { skipInputs = false, skipDynamicPins = true }, cache = {}) {
     const key = `${primitive.id}-${skipInputs}-${skipDynamicPins}`
-    console.log(`Fast getConfig ${key}`)
     if( cache?.config ){
         if( cache.config[key]){
             return cache.config[key]
