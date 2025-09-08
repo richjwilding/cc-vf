@@ -9,6 +9,7 @@ import PrimitiveConfig from "./PrimitiveConfig";
 const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, inputPrimitives, steps,...props},ref){
     const myState = useRef({})
     const canvas = useRef({})
+    const [flowStatus, setFlowStatus] = useState()
 
 
 
@@ -86,16 +87,27 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
 
 
     const renderedSet = useMemo(()=>{
-
+        console.log(`Fetching renderstate`)
+        if( !flowStatus ){
+            console.log(`Fetch status`)
+            primitive.instanceStatus.then(d=>setFlowStatus(d))
+            return []
+        }
         return Object.keys(outputs ?? {}).map(pin=>(outputs[pin]?.items ?? []).map(d=>{
             if( !d ){return}
+
+            const statusInFlow = flowStatus[d.id]
+            if( statusInFlow?.skip ){
+                return 
+            }                
+            
             myState[d.id] = {id: d.id, renderSubPages: true}
             const renderConfig = BoardViewer.prepareBoard(d, myState)
             const inputPin = pin.split("_")[1]
             myState[d.id].title = flow.referenceParameters?.outputPins?.[inputPin]?.name ??  `Output for ${pin}`
             return BoardViewer.renderBoardView(d, primitive, myState)
         })).flat().filter(Boolean)
-    }, [primitive?.id])
+    }, [primitive?.id, flowStatus])
 
     if( !primitive ){
         return <></>
@@ -108,6 +120,10 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
             mainstore.sidebarSelect(...args)
         }
     }
+
+    if( renderedSet.length == 0){
+        return <></>
+    }        
     
     //return  <div className="flex h-full w-full relative border rounded-lg border-gray-200 overflow-hidden mb-2 bg-white">
     return  <div className="@container flex h-full w-full relative overflow-hidden bg-white">
