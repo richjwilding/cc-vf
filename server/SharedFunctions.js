@@ -1823,7 +1823,7 @@ export async function getDataForImport( source, cache = {imports: {}, categories
         options = {}
     }
     let result = [], doLegacy = true
-    if (first && process.env.USE_DB_IMPORTS === "true") {
+    if (false && first && process.env.USE_DB_IMPORTS === "true") {
         try{
             const {sample, forceImport, ...theseOptions} = options
             theseOptions.pipelineSteps ||= []
@@ -1874,7 +1874,7 @@ export async function legacyGetDataForImport( source, cache = {imports: {}, cate
                 list = await fetchPrimitives(undefined, {
                     workspaceId: nestedSearch[0].workspaceId,
                     type: "result",
-                    $or: nestedSearch.map(c => ({[`parentPrimitives.${c.id}`]: "primitives.origin"}))
+                    $or: nestedSearch.map(c => ({[`parentPrimitives.${c.id}`]: {$in: ["primitives.origin", "primitives.alt_origin"]}}) )
                   },
                   DONT_LOAD
                 );
@@ -2846,7 +2846,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
     }
     if( actionKey === "itp_test"){
         console.time("item_test")
-        let items = await getDataForImport( primitive )
+        let items = await getDataForImport( primitive, undefined, {forceImport: options.forceImport} )
         console.timeEnd("item_test")
         return items
     }
