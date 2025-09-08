@@ -106,7 +106,7 @@ export const SIO = {
     }
 
     if (isMainThread) {
-      io.to(room).emit("message", data);
+      io?.to(room).emit("message", data);
     } else {
       if (!parentPort) {
         console.error(

@@ -87,7 +87,14 @@ export async function recordUsage(options = {}){
 let aiBufferSet = [{}, {}]
 let activeAIBuffer =0
 
-setInterval(()=>{
+
+export function shutdownUsageTracker(){
+    if( usageTrackerHandle ){
+        clearInterval( usageTrackerHandle )
+    }
+}
+
+const usageTrackerHandle = setInterval(()=>{
     try{
 
         const currentBuffer = activeAIBuffer

@@ -37,6 +37,8 @@ import Workspace from './model/Workspace.js';
 import User from './model/User.js';
 import Organization from './model/Organization.js';
 import { getDataForImportDB } from './actions/getDataForImportDB.js';
+import { getConfigFromDB } from './actions/getConfigFromDB.js';
+import { fetchPrimitiveInputs } from './InputHandler.js';
 
 const logger = getLogger('sharedfn', "debug"); // Debug level for moduleA
 
@@ -203,14 +205,30 @@ export async function getConfigParentForTerm(primitive, term){
         return await getConfigParentForTerm(configParent, term)
     }
 }
-export async function getConfig(primitive, cache = {imports: {}, categories:{}, primitives:{}, query:{}}, skipInputs = false, requiredFields) {
+
+export async function getConfigCompare(primitive, cache = {imports: {}, categories:{}, primitives:{}, query:{}, config: {}}, skipInputs = false, requiredFields) {
+
+    /*console.time("Revised")
+    const configInfo = await getConfigFromDB( primitive, {skipInputs}, cache)
+    console.log(configInfo)
+    console.timeEnd("Revised")
+*/
+    
+    console.time("Legacy")
+    const legacy = await getConfig(primitive, cache, skipInputs, requiredFields)
+    console.timeEnd("Legacy")
+
+    console.log(legacy)
+
+    return legacy
+
+}
+
+export async function getConfig(primitive, cache = {imports: {}, categories:{}, primitives:{}, query:{}, config: {}}, skipInputs = false, requiredFields) {
+    return await getConfigFromDB( primitive, {skipInputs}, cache)
+
     const { referenceId, referenceParameters } = primitive;
     const parentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
-
-    /*if( cache ){
-        cache.primitives ||= {}
-        cache.categories ||= {}
-    }*/
 
     if (!cache.categories[referenceId]) {
         cache.categories[referenceId] = await Category.findOne({id:referenceId});
@@ -258,6 +276,7 @@ export async function getConfig(primitive, cache = {imports: {}, categories:{}, 
 
         if( ovrInputs.length > 0){
             const inputs = await fetchPrimitiveInputs( primitive, undefined, undefined, undefined, cache )
+            console.log(inputs)
             for(const ovr of ovrInputs ){
                 if( inputs[ovr.input] && inputs[ovr.input]?.data !== undefined){
                     if( typeof( inputs[ovr.input].data) !== "string" || inputs[ovr.input].data.trim().length > 0){
@@ -291,92 +310,6 @@ export async function getConfig(primitive, cache = {imports: {}, categories:{}, 
 }
 
 
-export async function _getConfig(primitive, cache = {}, skipInputs = false){
-    let category
-    let out = {}
-    if( cache ){
-        cache.primitives ||= {}
-        cache.categories ||= {}
-    }
-    if( !category ){
-        if( cache ){
-            if( cache.categories[primitive.referenceId]){
-                category = cache.categories[primitive.referenceId]
-            }
-        }
-        if( !category ){
-            category = await Category.findOne({id: primitive.referenceId})
-            if( cache ){
-                 cache.categories[primitive.referenceId] = category
-            }
-        }
-    }
-    if( category ){
-        for(const p of Object.keys(category.parameters)){
-            if( category.parameters[p].default ){
-                out[p] = category.parameters[p].default
-            }
-        }
-    }
-    const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
-    if( configParentId ){
-        let configParent
-        if( cache ){
-            if( cache.primitives[configParentId] ){
-                configParent = cache.primitives[configParentId]
-                //console.log(`+++ CACHE HIT PRIMITIVE cache for ${configParentId}`)
-            }
-        }
-        if( !configParent ){
-            configParent = await fetchPrimitive( configParentId )
-            if( cache ){
-                //console.log(`--- CACHE MISS PRIMITIVE cache for ${configParentId}`)
-                cache.primitives[configParentId] = configParent
-            }
-        }
-        if( configParent ){
-            out = {
-                ...out,
-                ...((await getConfig(configParent, cache)) ?? {})
-            }
-        }
-    }
-
-    const overrides = {}
-
-    if( category && !skipInputs){
-        const ovrInputs = []
-        if( category.pins?.input ){
-            for(const inpName of Object.keys(category.pins.input) ){
-                const inp = category.pins.input[inpName]
-                if( inp.override){
-                    ovrInputs.push({input: inpName, param: inp.override})
-                }
-            }
-        }
-        if( ovrInputs.length > 0){
-            //console.log(`Checking for input overrides for ${primitive.plainId} ${ovrInputs.length}: ${ovrInputs.join(", ")}`)
-            const inputs = await fetchPrimitiveInputs( primitive, undefined, undefined, undefined, cache )
-            for(const ovr of ovrInputs ){
-                if( inputs[ovr.input] && inputs[ovr.input]?.data !== undefined){
-                    if( typeof( inputs[ovr.input].data) !== "string" || inputs[ovr.input].data.trim().length > 0){
-                        //console.log(`Override ${ovr.param} with ${ovr.input}`)
-                        overrides[ovr.param] = inputs[ovr.input]?.data
-                    }
-                }
-            }
-
-        }
-    }
-
-
-    return {
-        ...out,
-        ...overrides,
-        ...(primitive.referenceParameters ?? {})
-    }    
-
-}
 export async function removePrimitiveById( primitiveId, removedIds = [], start = true ){
     try{
         const removed = //await Primitive.findOneAndDelete({"_id": new ObjectId(data.id)})
@@ -672,211 +605,6 @@ export async function expandPrimitiveLiterals(primitive_or_call, text, inputs){
         text = expandStringLiterals( text, inputs)
     }
     return {text: text, inputs}
-}
-export async function fetchPrimitiveInputs(primitive, sourceId, mode = "inputs", pinMode = "input", cache){
-    let inputMap = PrimitiveConfig.getInputMap(primitive, mode)
-
-    if( sourceId ){
-        inputMap = inputMap.filter(d=>d.sourceId === sourceId)
-    }
-
-    let sourceIds = inputMap.map(d=>d.sourceId).filter((d,i,a)=>a.indexOf(d)===i) 
-
-    const sourcePrimitives = await fetchPrimitives( sourceIds, undefined, DONT_LOAD )
-    let categoryIds = [130,primitive.referenceId, ...sourcePrimitives.map(d=>d.referenceId)].filter((d,i,a)=>a.indexOf(d)===i) 
-    const categories = await Category.find({id: {$in: categoryIds}})
-
-    let thisCategory
-    let inputFlowParentForInstance
-    if( primitive.type === "flowinstance" ){
-        inputFlowParentForInstance = (await findParentPrimitivesOfType(primitive, "flow"))[0]
-        thisCategory = categories.find(d=>d.id === 130)
-    }else{
-        thisCategory = categories.find(d=>d.id === primitive.referenceId)
-    }
-
-
-    const out = []
-
-    for(const d of inputMap){
-        let sourcePrimitive = sourcePrimitives.find(d2=>d2.id === d.sourceId)
-        const sourceCategory = categories.find(d=>d.id === sourcePrimitive.referenceId)
-        let sourcePinConfig = sourceCategory?.pins?.output?.[d.sourcePin]
-
-        
-
-        if( sourcePrimitive.type === "flow" || sourcePrimitive.type === "flowinstance"){
-            const flow = sourcePrimitive.type === "flow" ? sourcePrimitive : (await findParentPrimitivesOfType(sourcePrimitive, "flow"))[0]
-            if( flow.referenceParameters?.controlPins?.[d.sourcePin]){
-                sourcePrimitive = flow
-                sourcePinConfig = {
-                    ...flow.referenceParameters?.controlPins?.[d.sourcePin],
-                    source: `param.${d.sourcePin}`
-
-                }                                        
-            }else if( flow.referenceParameters?.inputPins?.[d.sourcePin]){
-                sourcePinConfig = {
-                    ...flow.referenceParameters?.inputPins?.[d.sourcePin],
-                    source: `param.${d.sourcePin}`
-                }                                        
-            }else if( flow.referenceParameters?.outputPins?.[d.sourcePin]){
-                sourcePinConfig = {
-                    ...flow.referenceParameters?.outputPins?.[d.sourcePin],
-                    source: `param.${d.sourcePin}`
-                }                                        
-            }
-        }
-
-        let inputMapConfig = thisCategory?.pins?.[pinMode]?.[d.inputPin]
-        if( inputMapConfig?.hasConfig ){
-            const inputMapSource = primitive.type === "flowinstance" ? inputFlowParentForInstance : primitive
-            const localConfig = (await getConfig(inputMapSource, cache, true)).pins?.[d.inputPin] ?? {}
-            console.log(localConfig)
-            inputMapConfig = {
-                ...inputMapConfig,
-                ...localConfig
-            }
-        }
-
-        out.push({
-        ...d,
-        sourcePrimitive,
-        inputMapConfig,
-        sourcePinConfig})
-    }
-    inputMap = out
-
-    let configForPins
-
-    let dynamicPinSource = primitive
-    if(primitive.type === "flowinstance"){
-        dynamicPinSource = inputFlowParentForInstance
-    }else if( !primitive.flowElement ){
-        // should get config parent??
-        //dynamicPinSource = receiver.configParent ?? receiver
-        
-    }
-
-    if( dynamicPinSource.type === "categorizer" || dynamicPinSource.type === "query" || dynamicPinSource.type === "flow" || dynamicPinSource.type === "summary" || dynamicPinSource.type === "action" || dynamicPinSource.type === "actionrunner"){
-        configForPins = await getConfig(dynamicPinSource, cache, true)
-    }
-
-    let dynamicPins = PrimitiveConfig.getDynamicPins(dynamicPinSource,  configForPins)
-
-    if( (primitive.type === "flow" || primitive.type === "flowinstance") && mode === "outputs"){
-        if( !configForPins ){
-            configForPins = await getConfig(dynamicPinSource, cache, true)
-        }
-        dynamicPins = {
-            ...dynamicPins,
-            ...PrimitiveConfig.getDynamicPins(dynamicPinSource, configForPins, "outputs")
-        }
-    }
-
-
-    let generatorPins = {}
-    if( primitive.type === "actionrunner"){
-        if( configForPins.generator){
-            const generateTarget = await Category.find( {id:configForPins.generator})
-            generatorPins = generateTarget[0]?.ai?.generate?.inputs ?? {}
-        }else{
-            const targetCategory = await Category.findOne( {id: configForPins.referenceId})
-            generatorPins = PrimitiveConfig.getPinsForAction( targetCategory, configForPins.action)
-        }
-
-            dynamicPins = {
-                ...dynamicPins,
-                ...generatorPins
-            }        
-    }
-
-
-    let interim = PrimitiveConfig.alignInputAndSource(inputMap,  dynamicPins)
-
-    async function resolveAxis( segment){
-        const fetchTitleList = segment.filters.filter(d=>d.type === "parent")
-        if( fetchTitleList.length > 0){
-            const ids = fetchTitleList.map(d=>d.value)
-            const resolved = await fetchPrimitives(ids, undefined, DONT_LOAD)
-            let i = 0
-            for(const d of resolved){
-                if( fetchTitleList[i].value === d.id){
-                    fetchTitleList[i].orignalValue = fetchTitleList[i].value
-                    fetchTitleList[i].value = d.type === "segment" ? await getFilterName( d ) : d.title
-                    
-                }else{
-                    console.log(`MISMATCH`)
-                }
-                i++
-            }
-        }
-    }
-
-
-    for(const d of interim){
-        if( d.sourceTransform === "imports"){
-            d.sources = await getDataForImport( d.sourcePrimitive, cache )
-        }else if( d.sourceTransform === "pin_relay"){
-            if( d.useConfig === "primitive"){
-                if( primitive.type === "flowinstance"){
-                    const fis = (await primitivePrimitives(primitive, 'primitives.subfi', "flowinstance" )).filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d.sourcePrimitive.id))
-                    console.log(`GOT ${fis.length} instances to get from`)
-                    d.sources = []
-                    for(const fi of fis){
-                        const outputs = await getPrimitiveOutputs(fi, cache)
-                        if(outputs && outputs[d.sourcePin]){
-                            d.sources.push( ...(outputs[d.sourcePin].data ?? []) )
-                        }
-                    }
-                }else{
-                    const po = await fetchPrimitive( primitiveOrigin(primitive))
-                    if( po.type === "flowinstance"){
-                        d.sources = (await getPrimitiveInputs(po, cache))[d.sourcePin]?.data
-                    }
-                }
-            }else if( d.useConfig === "string"){
-                const sourceInputs = await getPrimitiveInputs(d.sourcePrimitive, cache)
-                if( sourceInputs[d.sourcePin] ){
-                    d.pass_through = sourceInputs[d.sourcePin]?.data
-                    d.passThroughCoonfig = "string"
-                    d.useConfig = "pass_through"
-                }
-            }
-        }else if( d.sourceTransform === "filter_imports"){
-            const sourceConfig = await getConfig( d.sourcePrimitive )
-            const defs = await getSegemntDefinitions( d.sourcePrimitive, undefined, sourceConfig, true)
-            d.sourceBySegment = {}
-            for(const segment of defs){
-                await resolveAxis(segment)
-                const label = segment.filters.map(d=>d.value).join(" - ")
-                d.sourceBySegment[label] ||= []
-                d.sourceBySegment[label] = d.sourceBySegment[label].concat( segment.items)
-
-            }
-        }else if( d.sourceTransform === "get_axis"){
-            const sourceConfig = await getConfig( d.sourcePrimitive )
-            const axis = sourceConfig?.explore?.axis[d.axis]
-            if( axis ){
-                const customAxis = {sourcePrimId: d.sourcePrimitive.primitives?.axis?.row?.[0], ...axis} 
-                const defs = await getSegemntDefinitions( d.sourcePrimitive, [customAxis], sourceConfig)
-                if( customAxis.type === "primitive"){
-                    d.pass_through = defs.flatMap(d=>d.filters.map(d=>d.value))
-                }else{
-                    for(const segment of defs){
-                        await resolveAxis(segment)
-                    }
-                    d.pass_through = defs.flatMap(d=>d.filters.map(d=>d.value))
-                }
-            }
-            //d.pass_through = extents.map(d=>d.label)
-        }else if( d.sourceTransform === "child_list_to_string"){
-            d.sources = await getDataForImport( d.sourcePrimitive, cache)
-        }
-    }
-
-
-    let output =  PrimitiveConfig.translateInputMap(interim)
-    return output
 }
 
 export async function addRelationshipToMultiple(receiver, targetIds, path, workspaceId){
@@ -3133,7 +2861,7 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
         return await buildContext( primitive )
     }
     if( actionKey === "config_test"){
-        return await getConfig( primitive )
+        return await getConfigCompare( primitive )
     }
     if( actionKey === "pin_test"){
         let items
@@ -5468,11 +5196,11 @@ export async function createPrimitive( data, skipActions, req, options={} ){
         }
         if( config?.createAtWorkspace){
             data.paths = data.paths.filter((p)=>p !== 'origin')
-            console.log(data.paths)
         }
         
         data.data.parentPrimitives = {}
         const paths = data.paths.map((p)=>flattenPath( p ))
+
         if( data.parent ){
             data.data.parentPrimitives = {[parentPrimitive.id]: paths}
         }
@@ -5498,10 +5226,9 @@ export async function createPrimitive( data, skipActions, req, options={} ){
         
         const newId = newPrimitive._id.toString()
 
-        /*for( const path of paths){
-            await addRelationship(parentPrimitive.id, newId, path, true)
-        }*/
-        await addRelationship(parentPrimitive.id, newId, paths, true)
+       if( parentPrimitive && paths.length > 0){
+           await addRelationship(parentPrimitive.id, newId, paths, true)
+        }
 
         if( !skipActions && category && category.actions){
             let changed = false

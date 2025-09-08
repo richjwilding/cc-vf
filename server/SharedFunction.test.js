@@ -10,7 +10,7 @@ dotenv.config()
 let firstWorkspace 
 beforeAll(async ()=>{
     mongoose.set('strictQuery', false);
-    mongoose.connect(process.env.MONGOOSE_TEST_URL)
+   await mongoose.connect(process.env.MONGOOSE_URL, { serverSelectionTimeoutMS: 5000 });
 
     firstWorkspace = await Workspace.findOne({})
 })
