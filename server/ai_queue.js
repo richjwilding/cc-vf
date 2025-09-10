@@ -855,7 +855,7 @@ export default function QueueAI(){
 
 class AIQueueClass extends BaseQueue{
     constructor() {
-        super('ai', undefined, 2)
+        super('ai', undefined, 5)
     }
 
 

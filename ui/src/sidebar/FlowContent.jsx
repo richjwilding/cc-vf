@@ -11,6 +11,7 @@ import StringListEditor from '../@components/StringListEditor';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import { IconButton } from '../@components/IconButton';
 import { FlowInstanceOverview } from '../@components/FlowInstanceOverview';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
   const colorMap = {
     "error": "bg-red-100/50 border-red-700 text-red-700",
@@ -220,6 +221,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
                             <p>Search for {d.searchFor?.title}</p>
                             <div className='space-x-2 flex place-items-center p-1'>
                               {(d.processing.query.status === "complete") && <Button variant="light" size="xs" isIconOnly  onPress={()=>d.setFlow("rerun")}><ArrowPathIcon className='size-4 text-gray-400 hover:text-gray-600'/></Button>}
+                              {(d.processing.query.status === "running") && <FontAwesomeIcon icon='spinner' className="animate-spin mr-1"/>}
                               {(d.processing.query.status === "rerun" ) && <Button variant="flat" size="sm" onPress={()=>d.setFlow("complete")}>Marked for rerun</Button>}
                               {d.processing?.query?.status === "pending" ? <p className='mr-2'>Queued</p>: <p className='mr-2'>{d.progressStats?.totalCount ?? 0} items</p>}
                             </div>

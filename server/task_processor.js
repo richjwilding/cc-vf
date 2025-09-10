@@ -2068,7 +2068,7 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                 },
                 merge: false,
                 debug: true, 
-                debug_content:true
+                debug_content:false
             })
 
 

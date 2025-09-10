@@ -877,11 +877,11 @@ const actions = {
             }
             if( receiver.type === "query" || receiver.type === "view"){
                 if( mode === "output"){
-                    base["rowAxis"] =  {name: "Axis (row)", types: ["primitive", "string"]}
-                    base["colAxis"] =  {name: "Axis (col)", types: ["primitive", "string"]}
+                    base["rowAxis"] =  {name: "Axis (row)", axis: true, types: ["primitive", "string"]}
+                    base["colAxis"] =  {name: "Axis (col)", axis: true, types: ["primitive", "string"]}
                 }else{
-                    base["rowAxis"] =  {name: "Axis (row)", types: ["primitive","string"]}
-                    base["colAxis"] =  {name: "Axis (col)", types: ["primitive", "string"]}
+                    base["rowAxis"] =  {name: "Axis (row)", axis: true, types: ["primitive","string"]}
+                    base["colAxis"] =  {name: "Axis (col)", axis: true, types: ["primitive", "string"]}
                 }
             }
             if( mode === "output" && receiver.type === "flow"){

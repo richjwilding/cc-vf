@@ -753,26 +753,27 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                         switch( viewConfig.config[d].type ){
                                             case "option_list":
                                                 return <UIHelper key={d} {...viewConfig.config[d]} value={frame.renderConfig?.[d]} zIndex={50} onChange={onValueChange}/>
-                                            case "boolean":
-                                                return <Switch size="sm" key={d} isSelected={currentValue} onValueChange={onValueChange}>{viewConfig.config[d].title}</Switch>
-                                            case "column_count":
-                                                return <DebouncedNumberInput
-                                                    label="Columns"
-                                                    variant="bordered" 
-                                                    labelPlacement="outside"
-                                                    minValue={viewConfig.config[d].min ?? 1}
-                                                    maxValue={viewConfig.config[d].max ?? 10}
-                                                    value={currentValue}
-                                                    onValueChange={onValueChange}
-                                                    startContent={
-                                                        <div className="pointer-events-none flex items-center">
+                                                case "boolean":
+                                                    return <Switch size="sm" key={d} isSelected={currentValue} onValueChange={onValueChange}>{viewConfig.config[d].title}</Switch>
+                                                    case "column_count":
+                                                        return <DebouncedNumberInput
+                                                        label="Columns"
+                                                        variant="bordered" 
+                                                        labelPlacement="outside"
+                                                        minValue={viewConfig.config[d].min ?? 1}
+                                                        maxValue={viewConfig.config[d].max ?? 10}
+                                                        value={currentValue}
+                                                        onValueChange={onValueChange}
+                                                        startContent={
+                                                            <div className="pointer-events-none flex items-center">
                                                             <Icon icon='material-symbols:view-column-outline' className="w-6 h-6"/>
                                                         </div>
                                                     }
-                                                />
-                                        }
-                                    })}
+                                                    />
+                                                }
+                                            })}
                                 </div>
+                                {(frame.type === "query" || frame.type === "view") && <Switch size="sm" key="show_axis_pins" isSelected={frame.renderConfig?.showAxisPin}  onValueChange={(v)=>{frame.setField('renderConfig.showAxisPin', v); updateFrame()}}>Show axis pins</Switch>}
                             </div>
                         </UIHelper.Panel>
                     </div>

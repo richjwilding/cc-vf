@@ -146,16 +146,6 @@ export async function processQueue(job, cancelCheck, extendJob){
                         return
                     }
                     console.log(config)
-                    /*
-                    if( parentSearch ){
-                        const asTitle = !parentSearch.referenceParameters?.useTerms && !parentSearch?.referenceParameters.hasOwnProperty("terms") && parentSearch.title
-                        baseTerms = asTitle ? parentSearch.title : parentSearch.referenceParameters?.terms
-                        //baseTerms = parentSearch.title
-                        console.log(`OVERRIDE WITH PARENT SEARCH TERMS`)
-                    }
-                    if( !baseTerms){
-                        baseTerms = inputsForSearch.terms.data.join(",")
-                    }*/
                    
                     if( Array.isArray(baseTerms) ){
                         if( baseTerms.length > 1 ){
@@ -240,15 +230,31 @@ export async function processQueue(job, cancelCheck, extendJob){
                         resetCache = true
                     }
                     if( resetCache){
-                        cache = {topic: topic, keywords: baseTerms, items: []}
+                        const termsCompleted = job.data.force ? [] : cache?.termsCompleted ?? []
+                        cache = {topic: topic, keywords: baseTerms, items: [], termsCompleted }
                         await Primitive.updateOne(
                             {
                                 "_id": primitive.id,
                             },
                             {
                                 queryCount: 0,
-                                checkCache: cache
+                                checkCache: cache                     
                             })
+                        
+                            
+                    }
+
+                    baseTerms ||= ""
+
+                    if( cache.termsCompleted?.length > 0){
+                        const terms = baseTerms.split(",")
+                        const newTerms = terms.filter(d=>!cache.termsCompleted.map(d=>d.toLowerCase().trim()).includes(d.toLowerCase().trim()))
+                        logger.info(`Serach terms filtered to remove those already done ${terms.length} > ${newTerms.length}`)
+                        baseTerms = newTerms.join(",")
+                        if( terms.length > 0 && newTerms.length === 0){
+                            logger.info(`No new terms to search for - existing`)
+                            return
+                        }
                     }
 
                     for( const source of config.sources.filter((d,i,a)=>a.indexOf(d) === i) ){
@@ -609,6 +615,12 @@ export async function processQueue(job, cancelCheck, extendJob){
                             }
                         }
                     }
+                    await Primitive.updateOne({
+                            "_id": primitive.id,
+                        },
+                        {
+                            $push: {"checkCache.termsCompleted": baseTerms.split(",")}
+                        })
 
                     const updatedPrimitive = await fetchPrimitive( primitive.id )
                     const totalCount = Object.values(updatedPrimitive.primitives?.origin ?? []).length
@@ -667,7 +679,7 @@ export default function QueryQueue(){
 
 class QueryQueueClass extends BaseQueue{
     constructor() {
-        super('query', undefined, 2)
+        super('query', undefined, 5)
     }
 
     async doQuery(primitive, options = {}){

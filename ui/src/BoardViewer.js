@@ -31,7 +31,9 @@ function preparePins(primitiveToPrepare, basePrimitive, stateId, myState){
     let pinIdx = 1
 
     function processPins(source){
-        return Object.keys(source ?? {}).map((d,i)=>({
+        const sourcePins = Object.keys(source  ?? {})
+        const fitleredPins = basePrimitive.renderConfig?.showAxisPin ? sourcePins : sourcePins.filter(d=>!source[d].axis)
+        return fitleredPins.map((d,i)=>({
                 name: d,
                 label: source[d].name,
                 rIdx: i
@@ -295,9 +297,9 @@ function renderSubBoard(d, stageOptions){
         const output = SharedRenderView( d.primitive, {}, d.state)
         if( output?.items ){
             const rendered = output.items(stageOptions)
-            rendered.scale({x: d.s, y: d.s})
-            rendered.attrs.id = d.primitive.id
             if( rendered){
+                rendered.scale({x: d.s, y: d.s})
+                rendered.attrs.id = d.primitive.id
                 return {
                     x: d.x,
                     y: d.y,
@@ -1860,8 +1862,22 @@ export default function BoardViewer({primitive,...props}){
                         }
                         if( left.type === "flow" ){
                             if(right.primitives.imports.allIds.includes(left.id)){
-                                const leftPin = myState[left.id].outputPins.impin?.idx
                                 const rightPin = myState[right.id].inputPins.impin?.idx
+
+                                const outputPinCheck = Object.entries(left.primitives.outputs).filter(d=>d[1].includes(right.id))
+                                if( outputPinCheck ){
+                                    const matchingPins = outputPinCheck.map(d=>d[0].split("_")[0])
+                                    return matchingPins.map(d=>{
+                                        const leftPin = myState[left.id].outputPins[d]?.idx
+                                        if( leftPin ){
+                                            return {left: left.id, right: right.id, leftPin, rightPin, mode: 1 }
+                                        }
+
+                                    }).filter(Boolean)
+
+                                }
+
+                                const leftPin = myState[left.id].outputPins.impin?.idx
                                 return {left: left.id, right: right.id, leftPin, rightPin, mode: 1 }
                             }                       
                             if(right.primitives.inputs.allIds.includes(left.id)){

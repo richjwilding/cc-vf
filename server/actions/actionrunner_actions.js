@@ -303,6 +303,7 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
             if( searchSet ){
                 for(const d of list ){
                     try{
+                        let force
                         logger.info(` - Checking search node for ${d.id} / ${d.plainId}`)
                         
                         const currentSearches = childSearches.filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(d.id))
@@ -321,6 +322,7 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                                     logger.info("--- Skipping")
                                     continue
                                 }
+                                force = true
                             }
                         }else{
                             logger.info(` --- No child search found for ${d.id} / ${d.plainId}`)
@@ -335,6 +337,7 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                             })
                             if( childSearch ){
                                 await addRelationship(d.id, childSearch.id, `link`)
+                                await addRelationship(d.id, childSearch.id, `auto`)
                                 await addRelationship(d.id, childSearch.id, `primitives.search.${searchSet.id}`)
                                 
                                 logger.info(` --- Created child search ${childSearch.id} / ${childSearch.plainId} found for ${d.id} / ${d.plainId}`)
@@ -342,7 +345,7 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                             }
                         }
                         if( childSearch ){
-                            await QueryQueue().doQuery(childSearch, {flow: true})
+                            await QueryQueue().doQuery(childSearch, {flow: true, force})
                             console.log(`do_search dispatched for ${childSearch.id}`)
                         }
                         

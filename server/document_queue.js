@@ -1267,7 +1267,7 @@ export default function QueueDocument(){
 
 class DocumentQueueClass extends BaseQueue{
     constructor() {
-        super('document', undefined, 2)
+        super('document', undefined, 5)
     }
     async doDataQuery( primitive, options ){
         const workspaceId = primitive.workspaceId
