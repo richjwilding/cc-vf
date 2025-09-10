@@ -292,9 +292,9 @@ function preparePageElements( d, pageState ){
     })
 }
 
-function renderSubBoard(d, stageOptions){
+function renderSubBoard(d, stageOptions = {}){
     if( d.primitive){
-        const output = SharedRenderView( d.primitive, {}, d.state)
+        const output = SharedRenderView( d.primitive, {}, d.state, stageOptions)
         if( output?.items ){
             const rendered = output.items(stageOptions)
             if( rendered){
@@ -313,17 +313,20 @@ function renderSubBoard(d, stageOptions){
 }
 
 let mainstore = MainStore()
-function SharedRenderView(d, primitive, myState) {
+function SharedRenderView(d, primitive, myState, stageOptions = {}) {
     const view = myState[d.id];
     const primitiveToRender = view.primitive.type === "element" ? view.primitive: (view.underlying ?? view.primitive);
     // Base view and options
-    const renderOptions = { 
+    const renderOptions = {
         ...(view.underlying?.renderConfig ?? {}),
         ...(view.primitive?.renderConfig ?? {}),
         ...view.renderConfigOverride
     };
     if (view.widgetConfig) {
       renderOptions.widgetConfig = view.widgetConfig;
+    }
+    if(stageOptions.theme){
+      renderOptions.theme = stageOptions.theme;
     }
   
     // Merge size options if available
@@ -442,14 +445,16 @@ function SharedRenderView(d, primitive, myState) {
           items: stageOptions => {
             const data = myState[d.id].data;
             const viewConfig = myState[d.id].viewConfig;
-            return renderDatatable({ 
-                id: d.id, 
-                primitive: d, 
-                data, 
-                stageOptions, 
+            return renderDatatable({
+                id: d.id,
+                primitive: d,
+                data,
+                stageOptions,
                 expand: Object.keys(primitive.frames?.[d.id]?.expand ?? {}),
-                renderOptions, 
-                viewConfig });
+                renderOptions,
+                viewConfig,
+                theme: stageOptions.theme
+            });
           }
         };
         break;
@@ -2487,8 +2492,8 @@ export default function BoardViewer({primitive,...props}){
     window.removeActiveBoard = removeBoard
 
 
-    function renderView(d){
-        return SharedRenderView(d, primitive, myState)
+    function renderView(d, options = {}){
+        return SharedRenderView(d, primitive, myState, options)
     }
     async function addBlankView(cat_or_id = 38, importId, filter, full_options = {}){
         const category = typeof(cat_or_id) === "number" ? mainstore.category(cat_or_id) : cat_or_id
