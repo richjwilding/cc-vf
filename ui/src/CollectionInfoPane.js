@@ -20,7 +20,7 @@ import SearchSet from "./SearchSet"
 import { QueryPane } from "./QueryPane"
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list"
 import { CheckboxField, Checkbox as LegacyCheckbox } from "./@components/checkbox"
-import { AdjustmentsVerticalIcon, BackwardIcon, CloudArrowDownIcon, PlayCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
+import { AdjustmentsVerticalIcon, BackwardIcon, CloudArrowDownIcon, PlayCircleIcon, StopCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
 import { Button, Input, NumberInput, Select, SelectItem, Switch } from "@heroui/react"
@@ -433,9 +433,10 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                         {renderType: 'title_with_error', title: "Title", width:200},
                                         {field: 'count', title: "Results"},
                                         {renderType: "actions", title: "Actions", width: 70, actions: [
-                                            {title: "Run", icon: PlayCircleIcon, action: (d)=>nestedCallback(d.id)},
-                                            {title: "Refetch", icon: CloudArrowDownIcon, action: (d)=>fetchResults(d.id)},
-                                            (d)=>d.error ? {title: "Reset", icon: BackwardIcon, action: (d)=>mainstore.primitive(d.id)?.setField("processing.query.status", "rerun")} : undefined,
+                                            (d)=>!d.isRunning ? {title: "Run", icon: <PlayCircleIcon/>, action: (d)=>nestedCallback(d.id)} : undefined,
+                                            (d)=>!d.isRunning ? {title: "Refetch", icon: <CloudArrowDownIcon/>, action: (d)=>fetchResults(d.id)} : undefined,
+                                            (d)=>d.isRunning ? {title: "Cancel", icon: <StopCircleIcon/>, action: (d)=>fetchResults(d.id)} : undefined,
+                                            (d)=>d.error ? {title: "Reset", icon: <BackwardIcon/>, action: (d)=>mainstore.primitive(d.id)?.setField("processing.query.status", "rerun")} : undefined,
                                         ]},
                                     ]}
                                     data={nestedSearch.map(target=>{
@@ -446,6 +447,7 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                                                 id: target.id,
                                                 plainId: target.plainId,
                                                 error: target.processing?.query?.error,
+                                                isRunning: target.isRunning,
                                                 title: linkedItem ? `Search for ${linkedItem.title}` : target.title,
                                                 count: target.primitives.origin.allUniqueIds.length,
                                                 data:{

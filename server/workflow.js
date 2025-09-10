@@ -134,7 +134,7 @@ async function postWorkflowInstanceActions( flowInstance, details = {} ){
         if( !flow.inFlow ){
             logger.info( `Checking allocations` )
             const organizationToChargeTo = await findOrganizationForWorkflowAllocation( flowInstance, {userInstantiated}  )
-            const credits = flow.referenceParameters?.credits
+            const credits = flow.referenceParameters?.credits ?? 0
             const audit = flowInstance.processing?.flow?.audit
             const flowFinished = details.outstanding.length === 0
             const shouldCharge = flowFinished && (audit?.completed_steps > 0) 
@@ -150,7 +150,7 @@ async function postWorkflowInstanceActions( flowInstance, details = {} ){
             }
         }
     }catch(e){
-        logger.error(`Error in postWorkflowInstanceActions`, r)
+        logger.error(`Error in postWorkflowInstanceActions`, e)
     }
 }
 
@@ -928,6 +928,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
                 d.parentPrimitives[configParentId] ||= []
                 d.parentPrimitives[configParentId].push("primitives.config")
             }
+            d.referenceParameters = {}
             
             delete d["_nested"]
             delete d["_oldId"]

@@ -2292,7 +2292,7 @@ export default function BoardViewer({primitive,...props}){
     }
 
     function updateMenuPosition(boardScreenPosition){
-        if(myState.activeBoard){
+        if(myState.activeBoard && menu.current){
             const vSize = canvas.current.size()
             const buffer = 80
             const offset = 10

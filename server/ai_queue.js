@@ -8,7 +8,7 @@ import PrimitiveParser from "./PrimitivesParser";
 import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
 import { BaseQueue } from './base_queue';
-import { comapreToPeers, getItemsForQuery, oneShotQuery, summarizeWithQuery } from "./task_processor";
+import { comapreToPeers, getItemsForQuery, hasMeaningfulContent, oneShotQuery, summarizeWithQuery } from "./task_processor";
 import { reviseUserRequest } from "./prompt_helper";
 import { getLogger } from './logger.js';
 
@@ -1310,6 +1310,9 @@ export async function processQueue(job){
                                     await addRelationshipToMultiple( primitive.id, toAdd, "source", primitive.workspaceId)
                                 }
                                 dispatchControlUpdate( primitive.id, "referenceParameters.summary", result.plain)
+                                if( !hasMeaningfulContent(result.structured) ){
+                                    dispatchControlUpdate( primitive.id, "referenceParameters.contentNotRelevant", true)
+                                }
                                 return
                             }
                         }
@@ -1393,6 +1396,10 @@ export async function processQueue(job){
                                                 await addRelationshipToMultiple( primitive.id, toAdd, "source", primitive.workspaceId)
                                             }
                                             dispatchControlUpdate( primitive.id, "referenceParameters.summary", result.plain)
+
+                                            if( !hasMeaningfulContent(result.structured) ){
+                                                dispatchControlUpdate( primitive.id, "referenceParameters.contentNotRelevant", true)
+                                            }
                                             return
                                         }
                                     }

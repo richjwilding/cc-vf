@@ -273,12 +273,18 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
     let list = await getDataForImport( primitive, undefined, true ) 
     logger.info(`Search runner ${primitive.id} / ${primitive.plainId} got ${list.length} items`)
 
+    function buildSearchKey(terms){
+        return (terms ?? []).map(d=>d.toLowerCase()).sort().join("-")
+    }
+
     if( list.length > 0){
         const candidateChildSearches = Object.values(primitive?.primitives?.config ?? {})
         const childSearches = await fetchPrimitives( candidateChildSearches, {type: "search"} )
         
         logger.info(`Got ${childSearches.length} existing searches`)
         if( list.length > 0){
+            const searchConfig = await getConfig( primitive )
+            const searchKey = buildSearchKey(searchConfig.terms)
             
             const searchCategory = await Category.findOne({id: primitive.referenceId})
             let itemCategoryId = searchCategory?.actingOn
@@ -307,9 +313,14 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
                         if( childSearch ){
                             const status = childSearch.processing?.query?.status
                             logger.info(` --- Found child search ${childSearch.id} / ${childSearch.plainId} for ${d.id} / ${d.plainId} = ${status}`)
-                            if(  status !== "rerun"){
-                                logger.info("--- Skipping")
-                                continue
+                            
+                            const childKey =  buildSearchKey((childSearch.checkCache?.keywords ?? "").split(","))
+                            if( searchKey && (childKey === searchKey)){
+                                logger.info(` - Search terms not changed since last run`)
+                                if(  status !== "rerun"){
+                                    logger.info("--- Skipping")
+                                    continue
+                                }
                             }
                         }else{
                             logger.info(` --- No child search found for ${d.id} / ${d.plainId}`)

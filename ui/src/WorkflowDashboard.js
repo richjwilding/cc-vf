@@ -169,10 +169,9 @@ export default function WorkflowDashboard(props){
                     {field: "type", title: "Template", width: 200},
                     {renderType: "react", title: "Status", field: "progressSection", width: 200},
                     {renderType: "actions", title: "Actions", width: 120, actions: [
-                        {title: "View", icon: EyeIcon, action: (d)=>navigate(`/item/${d.id}`)},
-                        {title: "Run", icon: PlayIcon, action: (d)=>MainStore().doPrimitiveAction( d, "continue_flow_instance")},
-                        {title: "Run", icon: Cog8ToothIcon, action: (d)=>setEditFlowInstance(MainStore().primitive(d.id))},
-                      //  {title: "Download", icon: ArrowDownTrayIcon, action: (d)=>alert(d)}
+                        {title: "View", icon: <EyeIcon/>, action: (d)=>navigate(`/item/${d.id}`)},
+                        {title: "Run", icon: <PlayIcon/>, action: (d)=>MainStore().doPrimitiveAction( d, "continue_flow_instance")},
+                        {title: "Run", icon: <Cog8ToothIcon/>, action: (d)=>setEditFlowInstance(MainStore().primitive(d.id))},
                     ]},
                 ]}
                 data={flowInstanceInfo} 

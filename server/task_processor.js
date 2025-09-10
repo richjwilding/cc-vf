@@ -320,6 +320,19 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
 
             }else{
                 targetSegmentConfig = (primitive.primitives?.imports ?? []).map(d=>({id: d}))
+                /*if( primitive.primitives?.imports.length === 1){
+                    targetSegmentConfig = [
+                        {
+                            id: primitive.primitives.imports[0]
+                        }
+                    ]
+                }else{
+                    targetSegmentConfig = [
+                        {
+                            id: primitive.id
+                        }
+                    ]
+                }*/
             }
         }else{
             if( options.legacySegments){
@@ -1993,80 +2006,35 @@ export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], 
     })
     return fragmentList
 }
-export async function summarizeWithQuery( primitive ){
-        const primitiveConfig = await getConfig(primitive)
-        const [items, toSummarize] = await getDataForProcessing(primitive, {...primitiveConfig}, undefined, {forceImport: true})
-        if( items.length > 0){
-            //const queryData = await getRevisedQueryWithLocalMods( primitive, primitiveConfig)
-            logger.warn(`-------------------\nUse DRY functions here\n----------------------`)
+export async function summarizeWithQuery( primitive, options = {} ){
+    const primitiveConfig = await getConfig(primitive)
+    const [items, toSummarize] = await getDataForProcessing(primitive, {...primitiveConfig}, undefined, {forceImport: true})
+
+    if( items.length === 0 ){
+        return {error: "no input data"}
+    }
+
+    // Fallback: if no prompt configured, try category-level summarize template
+    let overridePrompt
+    if( !(primitiveConfig?.prompt ?? primitiveConfig?.query) ){
+        try{
             const evidenceCategory = await Category.findOne({id: items[0].referenceId})
-            let config = evidenceCategory?.ai?.summarize?.[ config?.summary_type ?? "summary"] ?? {}
-            let segmentName
-            if( primitiveConfig.prompt?.trim && primitiveConfig.prompt.trim().length > 0){
-                config.prompt = primitiveConfig.prompt
-                
-                const segmentSource = primitive.primitives?.imports?.[0]
-                if( segmentSource ){
-                    console.log(`getting ${segmentSource}`)
-                    const segment = primitive.type === "segment" ? primitive : (await fetchPrimitive( segmentSource ))
-                    if( segment ){
-                        segmentName = (await getFilterName(segment)) ?? segment.title
-                        config.prompt = config.prompt.replaceAll('{focus}', segmentName)
-                        config.prompt = config.prompt.replaceAll('{segment}', segmentName)
-                    }
-                }
-            }
-            
-            
-            let revised
-            if( primitiveConfig.revised_query ){
-                console.log(`--- Checking revised structure from config`)
-                revised = primitiveConfig.revised_query.structure
-
-                if( revised.task.includes("{focus}") || revised.task.includes("{segment}") || revised.output.includes("{focus}") || revised.output.includes("{segment}") ||((primitiveConfig.revised_query.cache !== config.prompt) && (primitiveConfig.revised_query.cache === primitiveConfig.prompt))){
-                    console.log(`--- Revised structure has local mods - reapplying`)
-                    revised.task = revised.task.replaceAll(/\{focus\}/gi, segmentName);
-                    revised.task = revised.task.replaceAll(/\{segment\}/gi, segmentName);
-                    
-                    revised.output = revised.output.replaceAll(/\{focus\}/gi, segmentName);
-                    revised.output = revised.output.replaceAll(/\{segment\}/gi, segmentName);
-                }
-            }
-            if(!revised){
-                console.log(`--- Revised structure not present - building`)
-                revised = await reviseUserRequest(config.prompt, primitiveConfig)
-            }
-            
-
-            let parentInputs = {}
-            const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
-            if( configParentId ){
-                const configParent = await fetchPrimitive( configParentId )
-                parentInputs = await getPrimitiveInputs( configParent )
-            }
-
-            const primitiveInputs = await getPrimitiveInputs( primitive )
-            const mergedInputs = {
-                ...parentInputs,
-                ...primitiveInputs
-            }
-
-            if( mergedInputs ){
-                for(const inp of Object.keys(mergedInputs)){
-                    if( segmentName && mergedInputs[inp].dataBySegment){
-                        if( mergedInputs[inp].dataBySegment[segmentName]){
-                            console.log(`---- WILL USE SEGMENT ${segmentName} portion of input ${inp}`)
-                            revised.task = revised.task.replaceAll(`{${inp}}`, mergedInputs[inp].dataBySegment[segmentName])
-                        }
-                    }else if( mergedInputs[inp].data){
-                        revised.task = revised.task.replaceAll(`{${inp}}`, mergedInputs[inp].data)
-                    }
-                }
-            }
-            return await buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig)
-        }else{
-            return {error: "no input data"}
+            const summaryType = primitiveConfig?.summary_type ?? "summary"
+            overridePrompt = evidenceCategory?.ai?.summarize?.[summaryType]?.prompt
+        }catch(err){
+            logger.warn("Could not resolve category prompt fallback", err)
         }
+    }
+
+    const revised = await getRevisedQueryWithLocalMods(primitive, primitiveConfig, {
+        overridePrompt: options.overridePrompt ?? overridePrompt
+    })
+
+    if( !revised ){
+        return {error: "could not build revised query"}
+    }
+
+    return await buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig)
 }
 
 export async function buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig, refetchFragments = false, progressCallback ){
@@ -2325,29 +2293,11 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                 }
 
                 for( const {heading, nodeResult} of asList){
-
                     let out = flattenStructuredResponse( nodeResult, nodeStruct, primitiveConfig.heading !== false)
                     const allIds = inlineMapResponseIdsToInputs( nodeResult, items)
-                    
-/*                    modiftyEntries( nodeResult, "ids", entry=>{
-                        const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>parseInt(d)) : entry.ids
-                        const remapped = ids.map(d=>{
-                            const primitive = items[d]
-                            if( primitive){
-                                return primitive.id
-                            }else{
-                                logger.error(`--- Referenced item out of bounds:`)
-                                logger.error(entry.ids)
-                            }
-                        }).filter(d=>d)
-                        return remapped
-                    } )
-                    const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
-                    const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)*/
-                    
-                    
                     outputList.push({plain:out, heading: heading, structured: nodeResult, sourceIds: allIds})
                 }
+
                 return outputList
             }
             
@@ -2392,17 +2342,30 @@ function removeOmittedItemsFromStructure(nodeResult){
 export function extractFlatNodes(nodeResult, types = ["markdown formatted string"], out){
     out ||= []
     for(const d of nodeResult){
-        //if( types.includes(d.type) ){
-        if( d.content || d.ids ){
-            out.push({
-                content: d.content,
-                ids: d.ids,
-                node: d
-            })
-        }
-        if( d.subsections){
-            extractFlatNodes(d.subsections, types, out)
-        }
+        if( d ){
+
+            //if( types.includes(d.type) ){
+                if( d.content || d.ids ){
+                    out.push({
+                        content: d.content,
+                        ids: d.ids,
+                        node: d
+                    })
+                }
+                if( d.subsections){
+                    extractFlatNodes(d.subsections, types, out)
+                }
+            }
     }
     return out
+}
+
+export function hasMeaningfulContent( sections ){
+    const contentSections = extractFlatNodes(sections).map(d=>d.content).filter(Boolean)
+    console.log(contentSections)
+    if( contentSections === 0 || contentSections.every(d=>d.match(/No relevant data/i)) ){
+        console.log(`RESULT HAS NO USEFUL CONTENT`)
+        return false
+    }
+    return true
 }

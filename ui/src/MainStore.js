@@ -93,6 +93,15 @@ const actions = {
         const linkedItemId = Object.entries(receiver._parentPrimitives ?? {}).find(d=>d[1].find(d=>d.startsWith("primitives.search.")))?.[0]
         return obj.primitive(linkedItemId) 
     },
+    isRunning(d, receiver, obj){
+        switch(d.type){
+            case "search":
+                if( d.processing?.query?.status === "running" ){
+                    return true
+                }
+                return false
+            }
+    },
     progressStats(d, receiver, obj){
         switch(d.type){
             case "search":
@@ -354,21 +363,24 @@ const actions = {
                         if( filter.sourcePrimId ){
                             let filterSourcePrimitive = obj.primitive(filter.sourcePrimId)
                             const isMongoId = (str) => /^[a-fA-F0-9]{24}$/.test(str);
-                            if( filter.value && Array.isArray(filter.value) && filter.value.find(d=>!isMongoId(d))){
-                                if( filterSourcePrimitive.referenceId === PrimitiveConfig.Constants.EVAL_CATEGORIZER){
-                                    const relevantInstance = filterSourcePrimitive.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes(receiver.originId))
-                                    if( relevantInstance ){
-                                        const embedded = relevantInstance.primitives.origin.allCategory[0]
-                                        if( embedded ){
-                                            const children = embedded.primitives.allItems
-                                            scope = embedded.primitives.allIds
-                                            check = check.map(d=>children.find(d2=>d2.title === d)?.id ?? d)
-                                        }
+                            if( filterSourcePrimitive ){
 
+                                if( filter.value && Array.isArray(filter.value) && filter.value.find(d=>!isMongoId(d))){
+                                    if( filterSourcePrimitive.referenceId === PrimitiveConfig.Constants.EVAL_CATEGORIZER){
+                                        const relevantInstance = filterSourcePrimitive.primitives.config.allItems.find(d=>d.parentPrimitiveIds.includes(receiver.originId))
+                                        if( relevantInstance ){
+                                            const embedded = relevantInstance.primitives.origin.allCategory[0]
+                                            if( embedded ){
+                                                const children = embedded.primitives.allItems
+                                                scope = embedded.primitives.allIds
+                                                check = check.map(d=>children.find(d2=>d2.title === d)?.id ?? d)
+                                            }
+                                            
+                                        }
                                     }
+                                }else{
+                                    scope = filterSourcePrimitive?.primitives.allIds ?? []
                                 }
-                            }else{
-                                scope = filterSourcePrimitive?.primitives.allIds ?? []
                             }
                         }
                     }else if( filter.subtype === "question"){

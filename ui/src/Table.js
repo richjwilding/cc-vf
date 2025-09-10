@@ -27,6 +27,7 @@ import { Temporal } from "@js-temporal/polyfill";
 import clsx from "clsx";
 import { Button, Chip, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger, Select, SelectItem } from "@heroui/react";
 import {Icon} from "@iconify/react"  
+import { IconButton } from "./@components/IconButton";
 
 
 function copyToClipboard( table ){
@@ -192,7 +193,7 @@ export function Table(props) {
                                                 }
                                                 d = res
                                             }
-                                            return <UIHelper.IconButton  icon={d.icon} action={()=>d.action(data)}/>
+                                            return <IconButton onPress={()=>d.action(data)}>{d.icon}</IconButton>
                                         })
                                     }</div>
                                 },

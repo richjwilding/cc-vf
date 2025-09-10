@@ -30,6 +30,7 @@ export function QueuePage({intervalSeconds = 5, ...props}){
                             jobs: []
                         }
                         const jobs = item.jobs ?? []
+                        console.log(jobs)
                         jobs.forEach( d =>{
                             const fullId = `bull:${item.queue}:${d.id}`
                             const out = {

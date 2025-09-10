@@ -1003,7 +1003,7 @@ async function executeAI(messages, options = {}){
         sleepBase = 2000
         response_format = undefined
         output = 1536
-    }else if( options.model === "gpt-5-mini"){
+    }else if( options.engine === "gpt-5-mini"){
         model = options.engine
         sleepBase = 20000
         output = 80000

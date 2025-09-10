@@ -8,6 +8,9 @@ import { Accordion, AccordionItem, Button, Tab, Tabs } from '@heroui/react';
 import {Icon} from "@iconify/react";
 import clsx from 'clsx';
 import StringListEditor from '../@components/StringListEditor';
+import { ArrowPathIcon } from '@heroicons/react/24/outline';
+import { IconButton } from '../@components/IconButton';
+import { FlowInstanceOverview } from '../@components/FlowInstanceOverview';
 
   const colorMap = {
     "error": "bg-red-100/50 border-red-700 text-red-700",
@@ -46,6 +49,10 @@ export function FlowContent({ primitives, axisData, ...props }) {
       }
 
     },[props.showExecution])
+
+    if( primitives.length > 0){
+      primitives = primitives.filter(d=>d.type !== "flow")
+    }
     
     for( const primitive of primitives){
       const srcPrimitive = primitive.configParent ?? primitive
@@ -138,7 +145,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
               base: "px-3 my-3 border border-slate-300 bg-white shadow-sm rounded-md w-full [&>section]:[will-change:auto!important]"
             }}
             title={<>
-              <p className="text-sm font-semibold text-gray-500">{srcPrimitive.title}</p>
+              <p className="text-sm font-semibold text-gray-500">{srcPrimitive.title}{primitive.type === "flowinstance" ? ` (${primitive.title})` : ""}</p>
               {srcPrimitive.referenceParameters?.stepDescription && <p className="text-md text-gray-500">{srcPrimitive.referenceParameters.stepDescription}</p>}
             </>
             }
@@ -178,7 +185,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
       if(statusCounts[name]){
         let details = <div className='flex flex-col space-y-2'>
           {itemsByState[name].map(d=>{
-              const primitive = d.primitive.configParent ?? d.primitive
+              const primitive = d.primitive.type === "flowinstance" ? d.primitive : d.primitive.configParent ?? d.primitive
               const showRetry = name === "child_error" || name === "error"
               let innerContent
               const progress = d.primitive.progress
@@ -212,7 +219,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
                           <span className={clsx('flex w-full place-items-center justify-between', overrideTextColor ? "text-slate-500" : "")}>
                             <p>Search for {d.searchFor?.title}</p>
                             <div className='space-x-2 flex place-items-center p-1'>
-                              {(d.processing.query.status === "complete" && d.primitives.origin.allIds.length === 0) && <Button variant="bordered" size="sm" className="p-0.5" onPress={()=>d.setFlow("rerun")}>Rerun</Button>}
+                              {(d.processing.query.status === "complete") && <Button variant="light" size="xs" isIconOnly  onPress={()=>d.setFlow("rerun")}><ArrowPathIcon className='size-4 text-gray-400 hover:text-gray-600'/></Button>}
                               {(d.processing.query.status === "rerun" ) && <Button variant="flat" size="sm" onPress={()=>d.setFlow("complete")}>Marked for rerun</Button>}
                               {d.processing?.query?.status === "pending" ? <p className='mr-2'>Queued</p>: <p className='mr-2'>{d.progressStats?.totalCount ?? 0} items</p>}
                             </div>
@@ -222,7 +229,11 @@ export function FlowContent({ primitives, axisData, ...props }) {
                   </ul>
                 </div>
               }else{
-                innerContent = <>
+                if( d.primitive.type === "flowinstance"){
+                  innerContent = <FlowInstanceOverview primitive={d.primitive} status={title}/>
+                }else{
+
+                  innerContent = <>
                   <div className='flex flex-col'>
                     <span className='text-sm font-semibold'>{primitive.title}{progress ? ` - ${progress}` : ""}</span>
                     <span className='text-md'>{d.childErrors?.map(d=>d.error).filter((d,i,a)=>a.indexOf(d)===i).join(", ")}</span>
@@ -232,7 +243,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
                     <Button 
                       onPress={()=>{
                         const flowInstance = d.primitive.findParentPrimitives({type: ["flowinstance"]})[0]
-
+                        
                         MainStore().doPrimitiveAction(flowInstance, "run_flowinstance_from_step", {from: d.primitive?.id, force: true})
                       }}
                       variant="bordered" 
@@ -241,6 +252,7 @@ export function FlowContent({ primitives, axisData, ...props }) {
                   </div>
                   {!showRetry && <p className='text-sm'>{title}</p>}
                 </>
+                }
               }
               return <div className='flex flex-col ml-8'>
                 <div className={clsx(colorMap[name], "rounded-lg border p-3 flex place-content-between")}>

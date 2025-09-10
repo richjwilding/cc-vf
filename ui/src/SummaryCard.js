@@ -125,7 +125,9 @@ export default function SummaryCard({primitive, ...props}){
             } )
             const out = flattenStructuredResponse( data, data)
             modiftyEntries( data, "content", entry=>{
-                return entry._content
+                const c = entry._content
+                delete entry["_content"]
+                return c
             })
 
             summary = <MarkdownEditor ref={summaryRef} initialMarkdown={out}/>
