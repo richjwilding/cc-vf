@@ -454,7 +454,91 @@ _setTextData() {
         baseLineHeightPx = baseLineHeightPx * fontScaleForTable
         const rowSpacing = baseLineHeightPx * 0.2
         const colSpacing = baseLineHeightPx * 0.1
-        const columnSize = new Array(columnCount).fill( width / columnCount )
+        // Allow developers to pin column widths. section.columnWidths can be
+        // an array or object mapping column index to width. Unspecified columns
+        // will be sized based on their content, similar to browser table layout.
+        const specifiedWidths = section.columnWidths || {}
+        const columnMin = new Array(columnCount).fill(0)
+        const columnMax = new Array(columnCount).fill(0)
+
+        const extractText = (node) => {
+          if (typeof node.text === 'string') return node.text
+          if (Array.isArray(node.children)) {
+            return node.children.map(extractText).join('')
+          }
+          return ''
+        }
+
+        const measurementFont = this._getContextFont({size: this.fontSize() * fontScaleForTable})
+        getDummyContext().font = measurementFont
+        const spaceWidth = this._getTextStats(' ').width
+        const measureCell = (cell) => {
+          const text = extractText(cell) || ''
+          const run = text.replace(/\s+/g, ' ').trim()
+          if (!run) return {min: colSpacing * 2, max: colSpacing * 2}
+          const parts = run.split(' ')
+          let minW = 0
+          let maxW = 0
+          parts.forEach((part, i) => {
+            const w = this._getTextStats(part).width
+            maxW += w
+            if (i < parts.length - 1) maxW += spaceWidth
+            if (w > minW) minW = w
+          })
+          minW += colSpacing * 2
+          maxW += colSpacing * 2
+          return {min: minW, max: maxW}
+        }
+
+        for (const row of rows) {
+          row.children.forEach((col, idx) => {
+            const defined = specifiedWidths[idx]
+            if (defined == null) {
+              const {min, max} = measureCell(col)
+              if (min > columnMin[idx]) columnMin[idx] = min
+              if (max > columnMax[idx]) columnMax[idx] = max
+            }
+          })
+        }
+
+        const columnSize = new Array(columnCount).fill(0)
+        let fixedTotal = 0
+        const autoIdx = []
+        for (let i = 0; i < columnCount; i++) {
+          const w = specifiedWidths[i]
+          if (w != null) {
+            columnSize[i] = w
+            fixedTotal += w
+          } else {
+            autoIdx.push(i)
+          }
+        }
+
+        const tableWidth = maxWidth - startX
+        let available = Math.max(0, tableWidth - fixedTotal)
+        const totalMin = autoIdx.reduce((sum, i) => sum + columnMin[i], 0)
+        const totalMax = autoIdx.reduce((sum, i) => sum + columnMax[i], 0)
+
+        if (autoIdx.length) {
+          if (available <= totalMin) {
+            autoIdx.forEach(i => { columnSize[i] = columnMin[i] })
+          } else if (available >= totalMax) {
+            autoIdx.forEach(i => { columnSize[i] = columnMax[i] })
+            const extra = (available - totalMax) / autoIdx.length
+            if (extra > 0) {
+              autoIdx.forEach(i => { columnSize[i] += extra })
+            }
+          } else {
+            const remaining = available - totalMin
+            const flexTotal = autoIdx.reduce((sum, i) => sum + (columnMax[i] - columnMin[i]), 0)
+            autoIdx.forEach(i => {
+              const flex = columnMax[i] - columnMin[i]
+              const add = flexTotal > 0 ? remaining * (flex / flexTotal) : remaining / autoIdx.length
+              columnSize[i] = columnMin[i] + add
+            })
+          }
+        }
+
         let maxForRow = 0
         let startRow = currentHeightPx 
         let rIdx = 0
