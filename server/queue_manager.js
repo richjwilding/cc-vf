@@ -6,6 +6,10 @@ import { SIO } from './socket';
 import { parentPort, workerData, isMainThread} from 'worker_threads';
 import { getLogger } from './logger';
 import { getQueueObjectByName } from './queue_register';
+import { getRedisBase } from './redis';
+
+// Channel for cross-service worker control messages
+const CONTROL_CHANNEL = 'queue:control';
 
 /*
 import FlowQueue from './flow_queue';
@@ -49,10 +53,11 @@ class QueueManager {
         this.isWorkerThread = !isMainThread
         this.requestIdCounter = 0;
         this.pendingRequests = new Map();
+        this.controlSource = process.env.GAE_SERVICE || process.env.ROLE || (this.isWorkerThread ? 'worker' : 'app');
 
-        this.redis = createClient({socket: {host: redisOptions.host, port: redisOptions.port}});
-
-        this.redis.connect().catch(console.error);
+        //this.redis = createClient({socket: {host: redisOptions.host, port: redisOptions.port}});
+        //this.redis.connect().catch(console.error);
+        this.redis = getRedisBase()
 
         if (this.isWorkerThread) {
             // In worker thread
@@ -60,8 +65,9 @@ class QueueManager {
             this.overrideMethodsForWorkerThread();
         } else {
             // In main thread
-            logger.info(`QueueManager instantiated in main thread for ${this.type}`);
-            if( !this.processCallback ){
+            const runWorkers = process.env.RUN_QUEUE_WORKERS === 'true' //|| process.env.NODE_ENV === 'development'
+            logger.info(`QueueManager instantiated in main thread for ${this.type} (run workers = ${runWorkers} / ${process.env.RUN_QUEUE_WORKERS} / ${process.env.NODE_ENV})`);
+            if( !this.processCallback && runWorkers){
                 let readyCount = 0
                 for (let i = 0; i < this.numWorkersPerQueue; i++) {
                     logger.debug(`-- ${this.type} Thread ${i}`)
@@ -74,6 +80,9 @@ class QueueManager {
                                 redisOptions: this.connection
                             }
                         });
+
+                        //worker.stdout?.on('data', d => process.stdout.write(`[worker ${worker.threadId}] ${d}`));
+                        worker.stderr?.on('data', d => process.stderr.write(`[worker ${worker.threadId} ERR] ${d}`));
                         
                         worker.on('message', async (message) => {
                             if (message.type === 'startJob') {
@@ -130,26 +139,12 @@ class QueueManager {
                                 
                                 await this.resetChildWaiting(message.queueName, message.jobId)
 
-
-                                //const parentJobFromRedis = await this.redis.get(`job:${message.jobId}:parent`)
                                 const parentJob = message.parent || null;
                                 console.log(parentJob)
                                 
                                 this.setQueueActivity(message.queueName, false);
                                 await this.redis.del(`job:${message.jobId}:cancel`);
-                                //await this.redis.del(`job:${message.jobId}:parent`)
 
-                                /*let parentJob
-                                if( parentJobFromRedis ){
-                                        try{
-                                            parentJob = JSON.parse( parentJobFromRedis )
-                                        }catch(error){
-                                            logger.error(`Couldnt parse parent data`)
-                                            logger.error(error)
-                                            logger.error(error.stack)
-                                        }
-                                    
-                                }*/
                                 logger.debug(`Sending notification from ${this.type} ${message.jobId} (${message.requestId}) `, {parentJob})
                                 const childResponse = await this.sendNotification(
                                     message.jobId,{
@@ -172,18 +167,6 @@ class QueueManager {
                                         const qo = this.getQueueObject(qType)
                                         
                                         let grandparentJob
-                                        /*const grandparentJobFromRedis = await this.redis.get(`job:${parentJob.id}:parent`)
-                                        if( grandparentJobFromRedis ){
-                                            try{
-                                                grandparentJob = JSON.parse( grandparentJobFromRedis )
-                                                logger.info(`---- GRANDPARENT `, grandparentJob)
-                                            }catch(error){
-                                                logger.error(`Couldnt parse grandparent data`)
-                                                logger.error(grandparentJob)
-                                                logger.error(error)
-                                                logger.error(error.stack)
-                                            }
-                                        }*/
                                        try {
                                             const parentJobObject = await this.getJobFromQueue({
                                                 queueName: parentJob.queueName,
@@ -339,6 +322,7 @@ class QueueManager {
         if( queue?.notify ){
             let [id, fulMmode] = jobId.split("-")
             let [mode, time] = fulMmode.split(":t")
+            logger.debug(`sendNotification ${jobId} 3`)
             result = await queue.notify({
                     id,
                     mode
@@ -662,7 +646,7 @@ class QueueManager {
         }
     }
 
-    async getQueue(workspaceId) {
+    async getQueue(workspaceId, opts = {}) {
         const queueName = `${workspaceId}-${this.type}`;
         
 
@@ -710,14 +694,30 @@ class QueueManager {
                         }
                         return true
                         
-                    }, { connection: this.connection, ...this.settings }));
+                    }, { 
+                        connection: this.connection, 
+                        ...this.settings 
+                    }));
                 }
             }else{
-                logger.debug(`Notifying ${this.workerThreads?.length} ${this.type} worker threads for ${queueName}`)
-                for(const worker of this.workerThreads){
-                    worker.postMessage({type:"watch", queueName})
+                const threadCount = this.workerThreads?.length ?? 0;
+                logger.debug(`Notifying ${threadCount} ${this.type} workers for ${queueName}`)
+                // Always notify local workers if present
+                if (threadCount > 0) {
+                    for (const worker of this.workerThreads) {
+                        try { worker.postMessage({ type: 'watch', queueName }); } catch {}
+                    }
                 }
-
+                // Also broadcast cross-service unless suppressed
+                if (!opts.suppressControl) {
+                    try {
+                        const payload = { cmd: 'watch', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource };
+                        await this.redis.publish(CONTROL_CHANNEL, JSON.stringify(payload));
+                        logger.info(`Published watch for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource})`);
+                    } catch (e) {
+                        logger.error('Failed to publish watch message', e);
+                    }
+                }
             }
         }
         return this.queues[queueName];
@@ -802,6 +802,23 @@ class QueueManager {
         }
     }
 
+    // Mirror-only cleanup for subscribers that just want to drop local state
+    // without mutating shared Redis or BullMQ state (authoritative service handles that).
+    async mirrorStop(workspaceId, qn) {
+        const queueName = qn ?? `${workspaceId}-${this.type}`;
+        if (queueName && !workspaceId) {
+            workspaceId = queueName.split('-')[0];
+        }
+        try {
+            if (this.queues[queueName]) {
+                delete this.queues[queueName];
+            }
+            logger.info(`Mirror-stop removed local queue reference for ${queueName}`)
+        } catch (error) {
+            console.error(`Error in mirrorStop for ${queueName}: ${error}`);
+        }
+    }
+
     async purgeAllQueues() {
         for (const queueName in this.queues) {
             await this.purgeQueue(undefined, queueName)
@@ -836,7 +853,11 @@ class QueueManager {
             console.error(`Error purging queue: ${error}`);
         }
     }
-    async purgeQueue(workspaceId, qn) {
+    async purgeQueue(workspaceId, qn, opts = {}) {
+        if( this.controlSource === "worker"){
+            console.log(`----- Suppressing purge on serivce of ${workspaceId}`)
+            return
+        }
         if( this.processCallback ){
             return this.purgeQueueLegacy( workspaceId, qn)
         }
@@ -847,15 +868,24 @@ class QueueManager {
     
         if (this.queues[queueName]) {
             logger.info(`Purging queue: ${queueName}`);
-    
-            for (const worker of this.workerThreads) {
-                try {
-                    worker.postMessage({type: 'stop',queueName});
-                } catch (err) {
-                    console.error(`Error terminating worker thread for queue: ${queueName}`, err);
+
+            const threadCount = this.workerThreads?.length ?? 0;
+            if (threadCount > 0) {
+                for (const worker of this.workerThreads) {
+                    try { worker.postMessage({ type: 'stop', queueName }); } catch (err) { console.error(`Error terminating worker thread for queue: ${queueName}`, err); }
                 }
             }
-    
+            // Publish cross-service stop so a remote listener can mirror
+            if (!opts.suppressControl) {
+                try {
+                    const payload = { cmd: 'stop', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource };
+                    await this.redis.publish(CONTROL_CHANNEL, JSON.stringify(payload));
+                    logger.info(`Published stop for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource})`);
+                } catch (e) {
+                    logger.error('Failed to publish stop message', e);
+                }
+            }
+
             // Pause and obliterate the BullMQ queue
             try {
                 await this.queues[queueName].pause(); // Pause the queue

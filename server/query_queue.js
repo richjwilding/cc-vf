@@ -11,7 +11,7 @@ import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
 import { fetchInstagramPostsFromProfile, queryChatGPTViaBD, queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryLinkedInCompanyProfilePostsBrightData, queryLinkedInUserPostsBrightData, queryPerplexityViaBD, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryLinkedInCompanyPostsByRapidAPI, queryQuoraByRapidAPI, queryTwitterProfilePostsByRapidAPI } from './rapid_helper';
-import { BaseQueue } from './base_queue';
+import BaseQueue from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
 import { findTrustPilotURLFromDetails } from './actions/trustpilot_helper';
 import { getLogger } from './logger';
@@ -679,7 +679,7 @@ export default function QueryQueue(){
 
 class QueryQueueClass extends BaseQueue{
     constructor() {
-        super('query', undefined, 5)
+        super('query', undefined, 2)
     }
 
     async doQuery(primitive, options = {}){

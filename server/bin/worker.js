@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+
+import * as dotenv from 'dotenv' 
+const express = require('express');
+const { getRedisBase, getPubSubClients } = require('../redis.js');
+
+
+if( process.env.NODE_ENV === "development"){
+    dotenv.config({ path: `.env.worker` })
+}else{
+    dotenv.config()
+}
+
+console.log(`[boot] role=${process.env.ROLE} service=${process.env.GAE_SERVICE} port=${process.env.PORT}`);
+
+const app = express();
+let ready = false;
+
+app.get('/livez', (_req, res) => res.status(200).send('ok'));
+app.get('/healthz', (_req, res) => ready ? res.status(200).send('ok') : res.status(503).send('starting'));
+
+const PORT = Number(process.env.PORT || 8080);
+app.listen(PORT, '0.0.0.0', () => console.log(`[worker] health on ${PORT}`));
+
+// graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('Shutdown requested');
+  try { if (global.__workerClose) await global.__workerClose(); } catch (e) { console.error(e); }
+  process.exit(0);
+});
+
+(async () => {
+  try {
+    // lazy-import heavy modules so require-time work doesn’t block healthz
+    console.log(`Main worker service connecting to mongoose`)
+    const mongoose = (await import('mongoose')).default;
+    mongoose.set('strictQuery', false);
+
+    await mongoose.connect(process.env.MONGOOSE_URL, {
+        compressors: 'zstd'
+    })
+
+    const { SIO } = await import('../socket.js');
+    const { getQueue }                 = await import('../queue_registry.js');
+    /*const { default: QueueDocument }   = await import('../document_queue.js');
+    const { default: QueueAI }         = await import('../ai_queue.js');
+    const { default: EnrichPrimitive } = await import('../enrich_queue.js');
+    const { default: QueryQueue }      = await import('../query_queue.js');
+    const { default: BrightDataQueue } = await import('../brightdata_queue.js');
+    const { default: FlowQueue }       = await import('../flow_queue.js');*/
+
+    const QueueDocument = await getQueue( "document")
+    const QueueAI = await getQueue( "ai")
+    const EnrichPrimitive = await getQueue( "enrich")
+    const QueryQueue = await getQueue( "query")
+    const BrightDataQueue = await getQueue( "brightdata")
+    const FlowQueue = await getQueue( "flow")
+
+    // Any side-effect module goes last
+    await import('../action_register.js');
+
+    // If your emitter can take an existing client, pass it;
+    // otherwise SIO can do redis.duplicate() internally.
+    const redis = getRedisBase()
+    SIO.initEmitter();
+
+    
+    // Instantiate queues with the SAME redis client
+    QueueAI.myInit();
+    EnrichPrimitive.myInit();
+    QueryQueue.myInit();
+    BrightDataQueue.myInit();
+    FlowQueue.myInit();
+    QueueDocument.myInit();
+
+    // Subscribe for cross-service queue control (watch/stop)
+    const CONTROL_CHANNEL = 'queue:control';
+    const { pub, sub } = await getPubSubClients();
+    await sub.subscribe(CONTROL_CHANNEL, async (raw) => {
+      try {
+        const msg = JSON.parse(raw || '{}');
+        if (!msg?.cmd) return;
+        const type = msg.queueType;
+        const name = msg.queueName;
+        const workspaceId = msg.workspaceId || (name ? String(name).split('-')[0] : undefined);
+        if (!type || !workspaceId) return;
+
+        // Ensure the target queue is loaded
+        const q = await getQueue(type);
+        const qm = q?._queue;
+        if (!qm) return;
+
+        const threads = qm.workerThreads || [];
+        if (msg.cmd === 'watch') {
+          console.log(`[worker] watch ${name} to ${threads.length} threads (${type}) via ${CONTROL_CHANNEL}`);
+          if (threads.length > 0) {
+            for (const t of threads) {
+              try { t.postMessage({ type: 'watch', queueName: name }); } catch {}
+            }
+          }
+        } else if (msg.cmd === 'stop') {
+          console.log(`[worker] stop ${name} to ${threads.length} threads (${type}) via ${CONTROL_CHANNEL}`);
+          // Instruct local worker threads to stop watching
+          if (threads.length > 0) {
+            for (const t of threads) {
+              try { t.postMessage({ type: 'stop', queueName: name }); } catch {}
+            }
+          }
+          // Mirror-only local cleanup (do not purge BullMQ here)
+          try { await qm.mirrorStop(workspaceId, name); } catch {}
+        }
+      } catch (e) {
+        console.error('[worker] control message error', e);
+      }
+    });
+
+    // expose a unified close for SIGTERM
+    global.__gracefulClose = async () => {
+      try { await sub.unsubscribe(CONTROL_CHANNEL); } catch {}
+      try { await sub.quit(); } catch {}
+      try { await pub.quit(); } catch {}
+      try { await redis.quit(); } catch {}
+    };
+
+    ready = true;
+    console.log('[worker] initialized, ready');
+  } catch (err) {
+    console.error('[worker] startup error', err);
+    // keep readiness=503 so Flex replaces this instance
+    // or uncomment to fail fast: process.exit(1);
+  }
+})();

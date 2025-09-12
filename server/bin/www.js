@@ -16,6 +16,8 @@ import BrightDataQueue from '../brightdata_queue';
 
 import FlowQueue from '../flow_queue';
 import "../action_register"
+import { getPubSubClients } from '../redis';
+import { getQueue } from '../queue_registry';
 
 const debug = debugLib('your-project-name:server');
 
@@ -38,12 +40,50 @@ var server = http.createServer(app);
  */
 
 SIO.init( server )
-QueueDocument().myInit()
-QueueAI().myInit()
-EnrichPrimitive().myInit()
-QueryQueue().myInit()
-BrightDataQueue().myInit()
-FlowQueue().myInit()
+QueueDocument().myInit();
+QueueAI().myInit();
+EnrichPrimitive().myInit();
+QueryQueue().myInit();
+BrightDataQueue().myInit();
+FlowQueue().myInit();
+
+// Subscribe to cross-service queue control to mirror local queue objects
+(async () => {
+  try {
+    const CONTROL_CHANNEL = 'queue:control';
+    const { pub, sub } = await getPubSubClients();
+    await sub.subscribe(CONTROL_CHANNEL, async (raw) => {
+      try {
+        const msg = JSON.parse(raw || '{}');
+        if (!msg?.cmd) return;
+        if( msg.source === "app"){
+          return
+        }
+        const type = msg.queueType;
+        const name = msg.queueName;
+        const workspaceId = msg.workspaceId || (name ? String(name).split('-')[0] : undefined);
+        if (!type || !workspaceId) return;
+
+        const q = await getQueue(type);
+        const qm = q?._queue;
+        if (!qm) return;
+        if (msg.cmd === 'watch') {
+          console.error(`[web] recieved watch ${type} / ${workspaceId} from ${msg.source}`);
+          await qm.getQueue(workspaceId, { suppressControl: true });
+        } else if (msg.cmd === 'stop') {
+          console.error(`[web] recieved stop ${type} / ${workspaceId}  from ${msg.source}`);
+          // Mirror-only local teardown; avoid double obliterate across services
+          await qm.mirrorStop(workspaceId, name);
+        }
+      } catch (e) {
+        console.error('[web] control message error', e);
+      }
+    });
+    // no explicit close path here; process exit will drop sockets
+  } catch (e) {
+    console.error('[web] failed subscribing to control channel', e);
+  }
+})();
 
 server.listen(port);
 server.on('error', onError);

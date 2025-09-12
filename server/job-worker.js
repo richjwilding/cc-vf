@@ -1,19 +1,39 @@
-import { createClient } from 'redis';
-import { parentPort, workerData } from 'worker_threads';
-import { WaitingChildrenError, Worker } from 'bullmq';
-import mongoose from 'mongoose';
-import { getLogger } from './logger';
-import "./action_register"
-const asyncLocalStorage = require('./asyncLocalStorage');
+import { parentPort, workerData, isMainThread, threadId } from 'node:worker_threads';
+//import { WaitingChildrenError, Worker } from 'bullmq';
+//import mongoose from 'mongoose';
+//import { getLogger } from './logger.js';
+//import { getRedisBase } from './redis.js';
+//import asyncLocalStorage from './asyncLocalStorage';
 
-const logger = getLogger('job-worker', 'debug'); // Debug level for moduleA
 
-let queueObject
+
+process.on('uncaughtException', (err) => {
+  try { parentPort?.postMessage({ type: 'error', error: { message: err.message, stack: err.stack } }); } catch {}
+  process._rawDebug(`[worker:${threadId}] uncaughtException: ${err.stack || err}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  const msg = reason?.stack || reason?.message || String(reason);
+  try { parentPort?.postMessage({ type: 'error', error: { message: msg } }); } catch {}
+  process._rawDebug(`[worker:${threadId}] unhandledRejection: ${msg}`);
+  process.exit(1);
+});
+
+if (isMainThread || !parentPort) {
+    process.exit(1);
+}
+console.log(`Worker ${workerData.type} init`)
+
+const noop = new Proxy({}, { get: () => () => {} });
+let logger = noop;  // ← use this until the real logger is created
+
+let Worker, WaitingChildrenError;
+let mongoose, getRedisBase, asyncLocalStorage;
+let redisClient, queueObject;
+const queueWorkers = {};
 let isTerminating = false;
-let queueWorkers = {}
 
 const messageHandler = {}
-
 
 process.on('uncaughtException', (err) => {
     parentPort.postMessage({
@@ -89,45 +109,58 @@ async function getProcessFunction(type) {
     queueObject = await getQueueObject(type)
     return queueObject.processQueue
 }
-
 // Dynamically load the appropriate processing function based on queue type
 async function getQueueObject(type) {
     switch (type) {
         case 'document':
-            return (await import('./document_queue'))
+            return (await import('./document_queue.js'))
         case 'ai':
-            return (await import('./ai_queue'))
+            return (await import('./ai_queue.js'))
         case 'enrich':
-            return (await import('./enrich_queue'))
+            return (await import('./enrich_queue.js'))
         case 'query':
-            return (await import('./query_queue'))
+            return (await import('./query_queue.js'))
         case 'brightdata':
-            return (await import('./brightdata_queue'))
+            return (await import('./brightdata_queue.js'))
         case 'flow':
-            return (await import('./flow_queue'))
+            return (await import('./flow_queue.js'))
         default:
             throw new Error(`Unknown queue type: ${type}`);
     }
 }
 (async () => {
 
+    const { getLogger } = await import('./logger.js');    
+    ({ Worker, WaitingChildrenError } = await import('bullmq'));
+    mongoose = (await import('mongoose')).default;
+    ({ getRedisBase } = await import('./redis.js'));
+
+    ({ default: asyncLocalStorage } = await import('./asyncLocalStorage.js'));
+
+    logger = getLogger('job-worker', 'debug'); // Debug level for moduleA
+
     let connection
     try{
 
         mongoose.set('strictQuery', false);
-        connection = mongoose.connect(process.env.MONGOOSE_URL,{
-            maxPoolSize: 2
+        
+        mongoose.connection.on('connecting', () => logger.info('mongo connecting'));
+        mongoose.connection.on('connected', () => logger.info('mongo connected'));
+        mongoose.connection.on('error', err => logger.error('mongo error', err));
+
+        connection = await mongoose.connect(process.env.MONGOOSE_URL,{
+            maxPoolSize: 10
         })
         logger.info(`[Worker] ${workerData.type} connected to MongoDB`, {type: workerData.type });
     }catch(e){
         logger.info(`Couldnt connection mongo`, {  type: workerData.type });
         logger.info(e, { type: workerData.type });
     }
-    
-    const redisClient = createClient({ socket: { host: workerData.redisOptions.host, port: workerData.redisOptions.port } });
-    await redisClient.connect();
-    //const queue = new Queue(workerData.queueName, { connection: workerData.redisOptions });
-    // Load the processing function for this queue type
+
+    await import("./action_register.js")
+
+    redisClient = getRedisBase(`worker-${workerData.type}`)
+
     const processQueue = await getProcessFunction(workerData.type);
     async function processJob(job, queueName, token) {
         if (isTerminating) {
@@ -282,6 +315,7 @@ async function getQueueObject(type) {
         const worker = new Worker(queueName, async (job,token) => await processJob(job, queueName, token), {
             connection: workerData.redisOptions,
                 maxStalledCount: 0,
+                concurrency: 5,
                 removeOnFail: true,
                 waitChildren: true, 
                 removeOnComplete: false, 
@@ -301,12 +335,12 @@ async function getQueueObject(type) {
             logger.error("No workspaceId provided - skipping")
             return
         }
-        console.log(parentJob)
         if( queueObject ){
             await queueObject.default().addJob( options.workspaceId, data, {...options, parent: parentJob})
         }
         parentPort.postMessage({ type: "invoke_job_response", requestId,...data });
     }
+    process._rawDebug(`[worker ${threadId}] ${workerData.type} - sending ready`)
     parentPort.postMessage({ type: "ready"});
 
 

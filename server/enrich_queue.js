@@ -1,5 +1,3 @@
-import { Queue } from "bullmq";
-import { Worker } from 'bullmq'
 import { SIO } from './socket';
 import Primitive from "./model/Primitive";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
@@ -8,13 +6,12 @@ import { enrichFromCrunchbase, fetchCompanyDataFromCrunchbase, findOrganizations
 import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
-import Parser from "@postlight/parser";
 import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL, queryGoogleSERP, replicateURLtoStorage } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
 import { findCompanyURLByName, getCompanyInfoFromDomain } from "./task_processor";
 import { enrichEntityFromOwler } from "./owler_helper";
-import { BaseQueue } from "./base_queue";
+import BaseQueue from "./base_queue";
 import { getBaseDomain, getRegisteredDomain } from "./actions/SharedTransforms";
 import { fetchSERPViaBrightData } from "./brightdata";
 

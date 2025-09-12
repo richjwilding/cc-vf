@@ -1,12 +1,8 @@
-import QueueManager from './queue_manager'; 
-import { Queue } from "bullmq";
-import { Worker } from 'bullmq'
-import Primitive from "./model/Primitive";
+import Primitive from "./model/Primitive.js";
 import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, getDataForProcessing, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
-import Category from "./model/Category";
-import { buildDocumentTextEmbeddings } from './DocumentSearch';
-import { handleCollection } from './brightdata';
-import { BaseQueue } from './base_queue';  
+import Category from "./model/Category.js";
+import { setBrightdataScheduler, handleCollection } from './brightdata.js';
+import BaseQueue from "./base_queue.js";
 
 
 let instance
@@ -119,9 +115,11 @@ export default function BrightDataQueue(){
 class BDQueueClass extends BaseQueue{
     constructor() {
         super('brightdata', undefined, 1)
+        setBrightdataScheduler((primitive, opts, reschedule) =>
+            this.scheduleCollection(primitive, opts, reschedule)
+        );
     }
 
-    
     async scheduleCollection(primitive, options, reschedule ){
         const primitiveId = primitive.id
         const workspaceId = primitive.workspaceId
