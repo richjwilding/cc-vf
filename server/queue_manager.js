@@ -1,6 +1,6 @@
 import { createClient } from 'redis';
 import { Queue, QueueEvents, Worker } from 'bullmq';
-import { Worker as WorkerThread } from 'worker_threads';
+import { threadId, Worker as WorkerThread } from 'worker_threads';
 import path from 'path';
 import { SIO } from './socket';
 import { parentPort, workerData, isMainThread} from 'worker_threads';
@@ -54,6 +54,7 @@ class QueueManager {
         this.requestIdCounter = 0;
         this.pendingRequests = new Map();
         this.controlSource = process.env.GAE_SERVICE || process.env.ROLE || (this.isWorkerThread ? 'worker' : 'app');
+        this.controlInstanceId = process.env.INSTANCE_UUID || process.env.GAE_INSTANCE || String(process.pid);
 
         //this.redis = createClient({socket: {host: redisOptions.host, port: redisOptions.port}});
         //this.redis.connect().catch(console.error);
@@ -77,7 +78,8 @@ class QueueManager {
                             workerData: {
                                 queueName: type,
                                 type: this.type,             // Pass the queue type to workerData
-                                redisOptions: this.connection
+                                redisOptions: this.connection,
+                                instanceId: this.controlInstanceId
                             }
                         });
 
@@ -263,6 +265,24 @@ class QueueManager {
                                 }
                             }else if( message.type === "error"){
                                 logger.error(`Error in worker for queue ${this.type}:\n${message.error.message}\n${message.error.stack}`)                  
+                            }else if (message.type === 'heartbeat') {
+                                try {
+                                    const { threadId: tId, type: qType, reports, error } = message.data || {};
+                                    if (error) {
+                                        logger.info(`[hb:${this.type}] thread ${tId} error ${error}`);
+                                    } else if (Array.isArray(reports)) {
+                                        for (const r of reports) {
+                                            if (r.error) {
+                                                logger.info(`[hb:${this.type}] thread ${tId} ${r.queue} error ${r.error}`);
+                                            } else {
+                                                const c = r.counts || {};
+                                                logger.info(`[hb:${this.type}] thread ${tId} ${r.queue} waiting=${c.waiting||0} active=${c.active||0} wchildren=${c['waiting-children']||0} delayed=${c.delayed||0} failed=${c.failed||0} completed=${c.completed||0}`);
+                                            }
+                                        }
+                                    }
+                                } catch (e) {
+                                    logger.error('heartbeat message handling error', e);
+                                }
                             }
                         });
                         worker.on('error', async (error) => {
@@ -711,9 +731,9 @@ class QueueManager {
                 // Also broadcast cross-service unless suppressed
                 if (!opts.suppressControl) {
                     try {
-                        const payload = { cmd: 'watch', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource };
+                        const payload = { cmd: 'watch', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource, sourceId: this.controlInstanceId };
                         await this.redis.publish(CONTROL_CHANNEL, JSON.stringify(payload));
-                        logger.info(`Published watch for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource})`);
+                        logger.info(`Published watch for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource} / ${this.controlInstanceId})`);
                     } catch (e) {
                         logger.error('Failed to publish watch message', e);
                     }
@@ -765,7 +785,7 @@ class QueueManager {
                     }
                 }
             }
-            logger.info(`Adding job ${jobId} on ${workspaceId}`)
+            logger.info(`Adding job ${jobId} on ${workspaceId}-${this.type}`)
             await queue.add(jobId, jobData, {
                 removeOnFail: true, 
                 removeOnComplete: { age: 180},
@@ -780,6 +800,15 @@ class QueueManager {
                 ...options 
             });
             await this.updateQueueActivity(`${workspaceId}-${this.type}`);
+
+            try {
+                const j = await queue.getJob(jobId);
+                const st = j ? (await j.getState()) : 'missing';
+                const counts = await queue.getJobCounts('waiting','active','waiting-children','delayed','failed','completed');
+                logger.info(`[post-add] ${workspaceId}-${this.type} job=${jobId} state=${st} counts waiting=${counts.waiting||0} active=${counts.active||0} wchildren=${counts['waiting-children']||0} delayed=${counts.delayed||0} failed=${counts.failed||0} completed=${counts.completed||0}`);
+            } catch (e) {
+                logger.warn(`[post-add] error inspecting ${workspaceId}-${this.type} ${jobId}: ${e?.message || e}`)
+            }
 
             return jobId
         } catch (error) {
@@ -878,9 +907,9 @@ class QueueManager {
             // Publish cross-service stop so a remote listener can mirror
             if (!opts.suppressControl) {
                 try {
-                    const payload = { cmd: 'stop', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource };
+                    const payload = { cmd: 'stop', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource, sourceId: this.controlInstanceId };
                     await this.redis.publish(CONTROL_CHANNEL, JSON.stringify(payload));
-                    logger.info(`Published stop for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource})`);
+                    logger.info(`Published stop for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource} / ${this.controlInstanceId})`);
                 } catch (e) {
                     logger.error('Failed to publish stop message', e);
                 }

@@ -27,7 +27,7 @@ console.log(`Worker ${workerData.type} init`)
 const noop = new Proxy({}, { get: () => () => {} });
 let logger = noop;  // ← use this until the real logger is created
 
-let Worker, WaitingChildrenError;
+let Worker, WaitingChildrenError, Queue;
 let mongoose, getRedisBase, asyncLocalStorage;
 let redisClient, queueObject;
 const queueWorkers = {};
@@ -105,6 +105,26 @@ messageHandler['stop'] = async ({queueName})=>{
         })()
 }
 
+// Heartbeat: report counts for queues this thread is watching
+messageHandler['heartbeat'] = async () => {
+        try {
+            const reports = [];
+            for (const [qname, _w] of Object.entries(queueWorkers)) {
+                try {
+                    const q = new Queue(qname, { connection: workerData.redisOptions });
+                    const counts = await q.getJobCounts('waiting','active','waiting-children','delayed','failed','completed');
+                    await q.close();
+                    reports.push({ queue: qname, counts });
+                } catch (e) {
+                    reports.push({ queue: qname, error: e?.message || String(e) });
+                }
+            }
+            parentPort.postMessage({ type: 'heartbeat', data: { threadId, type: workerData.type, reports } });
+        } catch (e) {
+            parentPort.postMessage({ type: 'heartbeat', data: { threadId, type: workerData.type, error: e?.message || String(e) } });
+        }
+}
+
 async function getProcessFunction(type) {
     queueObject = await getQueueObject(type)
     return queueObject.processQueue
@@ -131,7 +151,7 @@ async function getQueueObject(type) {
 (async () => {
 
     const { getLogger } = await import('./logger.js');    
-    ({ Worker, WaitingChildrenError } = await import('bullmq'));
+    ({ Worker, WaitingChildrenError, Queue } = await import('bullmq'));
     mongoose = (await import('mongoose')).default;
     ({ getRedisBase } = await import('./redis.js'));
 
@@ -220,61 +240,26 @@ async function getQueueObject(type) {
                 } catch (e) {
                     logger.debug(`Error in ${workerData.type} queue during job processing: ${e.stack}`, { type: workerData.type });
                     logger.debug(e.stack)
-                    //parentPort.postMessage({ result, success: false, error: e, type: "endJob", queueName, jobId: job.id, notify: job.data.notify, token: token });
                     await queueObject.default().endJob({ result, success: false, error: e, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token, parent: parentMeta })
                     throw e;
                 } finally {
                     clearInterval(lockExtension);
                 }
-                /*let children
-                if(queueObject.default().getChildWaiting){
-                    children = await queueObject.default().getChildWaiting(queueName, job.id)
-                    logger.debug(`Got children count ${children} for ${queueName} / ${job.id} token = ${token}`)
-
-                    if( children && children > 0){
-                        let shouldWait = false
-                        let count = 5
-                        let alreadyMoved = false
-                        do{
-                            try{
-                                shouldWait = await job.moveToWaitingChildren(token);
-                                if( !shouldWait ){
-                                    count--
-                                    logger.debug( `Job ${job.id} has children but could not move to wait state - ${count} tries remaining`)
-                                    await new Promise((resolve)=>setTimeout(()=>resolve(), 500))
-                                }
-                            }catch(err){
-                                if (
-                                    err.message.includes('Missing key for job') &&
-                                    err.message.includes('moveToWaitingChildren')
-                                  ) {
-                                    alreadyMoved = true
-                                  }
-                            }
-                        }while( !alreadyMoved && !shouldWait && (count > 0))
-                        if( alreadyMoved){
-                            logger.debug(`Job ${job.id} already moved to wait for children`)
-                        }else{
-                            logger.debug(`Move ${job.id} to waiting for children (${shouldWait})`)
-                            throw new WaitingChildrenError();
-                        }
-                    }
-                }*/
                 clearInterval(lockExtension); // <— stop keepalive BEFORE moving state
 
                 // Ask BullMQ to park if there are outstanding deps.
                 // v4.2 returns a boolean: true => parent was moved to waiting-children.
-    logger.debug(`calling moveToWait for ${job.id}`)
+                logger.debug(`calling moveToWait for ${job.id}`)
                 const shouldWait = await job.moveToWaitingChildren(token);
 
                 if (shouldWait) {
                     // Mark that we parked in waiting-children so the next pass can finalize quickly
                     try { await job.updateData({ ...(job.data || {}), awaitingChildren: true }); } catch {}
                     // IMPORTANT: do not call your endJob here — the worker will handle rescheduling.
-    logger.debug(`shouldWait -> throwing ${job.id}`)
+                    logger.debug(`shouldWait -> throwing ${job.id}`)
                     throw new WaitingChildrenError();
                 }
-    logger.debug(`continuing to finish ${job.id}`)
+                logger.debug(`continuing to finish ${job.id}`)
 
                 const reschedule = result?.reschedule
                 if( reschedule ){
@@ -308,10 +293,10 @@ async function getQueueObject(type) {
     }
     messageHandler['watch'] = async ({queueName})=>{
         if( queueWorkers[queueName ]){
-            logger.info(`Worker thread already watching ${queueName}`, {  type: workerData.type });
+            logger.info(`Worker thread ${threadId} already watching ${queueName}`, {  type: workerData.type });
             return        
         }
-        logger.info(`Worker thread watching ${queueName}`, {  type: workerData.type });
+        logger.info(`Worker thread ${threadId} watching ${queueName}`, {  type: workerData.type });
         const worker = new Worker(queueName, async (job,token) => await processJob(job, queueName, token), {
             connection: workerData.redisOptions,
                 maxStalledCount: 0,
@@ -322,6 +307,17 @@ async function getQueueObject(type) {
                 stalledInterval:300000,
                 lockDuration: 30 * 60 * 1000, // Set lock duration to 10 minutes
             });
+        // Add visibility into BullMQ worker lifecycle for this queue
+        worker.on('waiting', (jobIdOrJob) => {
+            const id = jobIdOrJob?.id ?? jobIdOrJob;
+            logger.info(`[worker_${workerData.type}] ${threadId} waiting ${queueName} ${id}`);
+        });
+        worker.on('active', (job) => {
+            logger.info(`[worker_${workerData.type}] ${threadId} active ${queueName} ${job?.id}`);
+        });
+        worker.on('completed', (job) => {
+            logger.info(`[worker_${workerData.type}] ${threadId} completed ${queueName} ${job?.id}`);
+        });
         worker.on('failed', async (job, error) =>{
             console.log(`failed`, error)
             logger.info(`===> Sending failed message ${job?.id}`, { type: workerData.type});

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import * as dotenv from 'dotenv' 
+import crypto from 'crypto';
 const express = require('express');
 const { getRedisBase, getPubSubClients } = require('../redis.js');
 
@@ -11,7 +12,11 @@ if( process.env.NODE_ENV === "development"){
     dotenv.config()
 }
 
-console.log(`[boot] role=${process.env.ROLE} service=${process.env.GAE_SERVICE} port=${process.env.PORT}`);
+// Generate a per-process UUID to tag control messages and filter echoes
+const INSTANCE_UUID = crypto.randomUUID();
+process.env.INSTANCE_UUID = process.env.INSTANCE_UUID || INSTANCE_UUID;
+
+console.log(`[boot] role=${process.env.ROLE} service=${process.env.GAE_SERVICE} port=${process.env.PORT} instance=${process.env.INSTANCE_UUID}`);
 
 const app = express();
 let ready = false;
@@ -80,6 +85,10 @@ process.on('SIGTERM', async () => {
       try {
         const msg = JSON.parse(raw || '{}');
         if (!msg?.cmd) return;
+        if (msg?.sourceId && msg.sourceId === process.env.INSTANCE_UUID) {
+          // Ignore self-originated messages
+          return;
+        }
         const type = msg.queueType;
         const name = msg.queueName;
         const workspaceId = msg.workspaceId || (name ? String(name).split('-')[0] : undefined);
@@ -124,6 +133,34 @@ process.on('SIGTERM', async () => {
 
     ready = true;
     console.log('[worker] initialized, ready');
+
+    // Heartbeat: log main-thread queues and request thread reports
+    const queues = [QueueDocument, QueueAI, EnrichPrimitive, QueryQueue, BrightDataQueue, FlowQueue].filter(Boolean);
+    async function logMainQueuesHeartbeat() {
+      try {
+        console.log(`[hb] main instance=${process.env.INSTANCE_UUID}`);
+        for (const inst of queues) {
+          const qm = inst?._queue;
+          if (!qm) continue;
+          for (const [name, bullq] of Object.entries(qm.queues || {})) {
+            try {
+              const c = await bullq.getJobCounts('waiting','active','waiting-children','delayed','failed','completed');
+              console.log(`[hb] main ${name} waiting=${c.waiting||0} active=${c.active||0} wchildren=${c['waiting-children']||0} delayed=${c.delayed||0} failed=${c.failed||0} completed=${c.completed||0}`);
+            } catch (e) {
+              console.log(`[hb] main ${name} error ${e?.message || e}`);
+            }
+          }
+          // Request thread heartbeats for this queue type
+          for (const t of qm.workerThreads || []) {
+            try { t.postMessage({ type: 'heartbeat' }); } catch {}
+          }
+        }
+      } catch (e) {
+        console.log('[hb] main error', e?.message || e);
+      }
+    }
+    const HEARTBEAT_MS = Number(process.env.WORKER_HEARTBEAT_MS || 30000);
+    setInterval(() => { logMainQueuesHeartbeat(); }, HEARTBEAT_MS);
   } catch (err) {
     console.error('[worker] startup error', err);
     // keep readiness=503 so Flex replaces this instance

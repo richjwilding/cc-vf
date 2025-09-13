@@ -5,6 +5,7 @@
  */
 
 import app from '../app';
+import crypto from 'crypto';
 import { SIO } from '../socket';
 import debugLib from 'debug';
 import http from 'http';
@@ -39,25 +40,59 @@ var server = http.createServer(app);
  * Listen on provided port, on all network interfaces.
  */
 
+// Ensure a stable UUID for this process before queues are constructed
+if (!process.env.INSTANCE_UUID) {
+  process.env.INSTANCE_UUID = crypto.randomUUID();
+}
+
 SIO.init( server )
-QueueDocument().myInit();
-QueueAI().myInit();
-EnrichPrimitive().myInit();
-QueryQueue().myInit();
-BrightDataQueue().myInit();
-FlowQueue().myInit();
+const q1 = QueueDocument(); q1.myInit();
+const q2 = QueueAI();       q2.myInit();
+const q3 = EnrichPrimitive(); q3.myInit();
+const q4 = QueryQueue();    q4.myInit();
+const q5 = BrightDataQueue(); q5.myInit();
+const q6 = FlowQueue();     q6.myInit();
+
+// Heartbeat: log webserver queues periodically
+const webQueues = [q1, q2, q3, q4, q5, q6].filter(Boolean);
+async function logWebHeartbeat() {
+  try {
+    console.log(`[hb-web] instance=${process.env.INSTANCE_UUID}`);
+    for (const inst of webQueues) {
+      const qm = inst?._queue;
+      if (!qm) continue;
+      for (const [name, bullq] of Object.entries(qm.queues || {})) {
+        try {
+          const c = await bullq.getJobCounts('waiting','active','waiting-children','delayed','failed','completed');
+          console.log(`[hb-web] ${name} waiting=${c.waiting||0} active=${c.active||0} wchildren=${c['waiting-children']||0} delayed=${c.delayed||0} failed=${c.failed||0} completed=${c.completed||0}`);
+        } catch (e) {
+          console.log(`[hb-web] ${name} error ${e?.message || e}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.log('[hb-web] error', e?.message || e);
+  }
+}
+const WEB_HEARTBEAT_MS = Number(process.env.WEB_HEARTBEAT_MS || process.env.WORKER_HEARTBEAT_MS || 30000);
+setInterval(() => { logWebHeartbeat(); }, WEB_HEARTBEAT_MS);
 
 // Subscribe to cross-service queue control to mirror local queue objects
 (async () => {
   try {
+    // Ensure this process has a stable UUID for control message filtering
+    if (!process.env.INSTANCE_UUID) {
+      process.env.INSTANCE_UUID = crypto.randomUUID();
+    }
     const CONTROL_CHANNEL = 'queue:control';
     const { pub, sub } = await getPubSubClients();
     await sub.subscribe(CONTROL_CHANNEL, async (raw) => {
       try {
         const msg = JSON.parse(raw || '{}');
         if (!msg?.cmd) return;
-        if( msg.source === "app"){
-          return
+        if (msg?.sourceId && msg.sourceId === process.env.INSTANCE_UUID) {
+          // Ignore our own messages
+          return;
         }
         const type = msg.queueType;
         const name = msg.queueName;
