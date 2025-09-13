@@ -6,7 +6,7 @@ import { InputPopup } from './InputPopup';
 import DropdownButton from "./DropdownButton";
 import InfiniteCanvas from "./InfiniteCanvas";
 import CollectionUtils from "./CollectionHelper";
-import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderDatatable, renderMatrix, renderPlaceholder, renderPlainObject } from "./RenderHelpers";
+import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderDatatable, renderMatrix, renderPlaceholder, renderPlainObject, themes } from "./RenderHelpers";
 import HierarchyNavigator from "./HierarchyNavigator";
 import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
@@ -572,17 +572,22 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
         };
         break;
       case "page": {
+        const themeKey = primitiveToRender.renderConfig?.theme || "default";
+        const theme = themes[themeKey] || themes.default;
         const renderFunc = stageOptions =>
           RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, renderOptions, data: view.renderData });
         renderView = {
           ...baseRenderView,
           utils: view.renderSubPages || RENDERSUB
-            ? { prepareBoards: prepareSubBoards, renderBoard: renderSubBoard }
+            ? {
+                prepareBoards: prepareSubBoards,
+                renderBoard: (d, opts = {}) => renderSubBoard(d, { ...opts, theme }),
+              }
             : undefined,
           canChangeSize: true,
           canvasMargin: [0, 0, 0, 0],
-          items: renderFunc,
-          bgFill: "white"
+          items: stageOptions => renderFunc({ ...stageOptions, theme }),
+          bgFill: theme.palette.background,
         };
         break;
       }
