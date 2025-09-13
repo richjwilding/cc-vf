@@ -1,4 +1,3 @@
-import { child } from 'winston';
 import { BaseQueue } from './base_queue';
 import { getLogger } from './logger';
 import { addRelationship, dispatchControlUpdate, fetchPrimitive, getConfig, primitiveOrigin, primitiveParentsOfType, removeRelationship } from './SharedFunctions';
@@ -33,7 +32,7 @@ export async function processQueue( job, cancelCheck ){
 
 class FlowQueueClass extends BaseQueue {
     constructor() {
-        super('flow', undefined, 3); // Call the base constructor with queue name and options
+        super('flow', undefined, 2); // Call the base constructor with queue name and options
 
         this.registerNotification("run_flow_instance", async (primitive, result, mode, parentJob)=>{
             if( result.started ){

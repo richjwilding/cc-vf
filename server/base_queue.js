@@ -3,7 +3,7 @@ import QueueManager from './queue_manager';
 import { registerQueue } from './queue_register';
 import { dispatchControlUpdate, fetchPrimitive } from './SharedFunctions';
 
-export class BaseQueue {
+export default class BaseQueue {
     constructor(queueName, processQueue = undefined, concurrency = 3) {
         registerQueue(queueName, this)
         this.logger = getLogger(`${queueName}-queue`);
@@ -116,3 +116,5 @@ export class BaseQueue {
         console.log(`${this.queueName} initialized`);
     }
 }
+
+export {BaseQueue}

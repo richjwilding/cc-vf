@@ -532,7 +532,7 @@ export async function replicateWorkflow( flow, targetWorkspace ){
             
         }
         
-        const {replicatedSeedId, data: newNodes} = await cloneTreeNodes( flow, steps )
+        const {replicatedSeedId, data: newNodes} = await cloneTreeNodes( flow, steps, {} )
         const { start, end } = await getNextSequenceBlock("base", newNodes.length);
         logger.verbose(`Cloned nodes allocated ids ${start} - ${end}, new Flow base id = ${replicatedSeedId}`)
 

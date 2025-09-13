@@ -3,8 +3,10 @@ import http from "http"
 import axios from 'axios';
 import moment from "moment";
 import { addRelationship, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives } from "./SharedFunctions";
-import BrightDataQueue from "./brightdata_queue";
 import { extractMarkdown } from "./google_helper";
+
+let schedule = async () => { throw new Error('scheduler not set'); };
+export function setBrightdataScheduler(fn) { schedule = fn; }
 
 
 async function getCurrentIP() {
@@ -763,7 +765,8 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
         console.log('Data collection triggered successfully:', data);
         dispatchControlUpdate(primitive.id, `processing.bd.${api}.collectionId` , config.customDataset ? data?.collection_id : data?.snapshot_id)
 
-        await BrightDataQueue().scheduleCollection( primitive, {api})
+        //await BrightDataQueue().scheduleCollection( primitive, {api})
+        await schedule( primitive, {api})
         
     } catch (error) {
         console.error('Error triggering data collection:', error.response ? error.response.data : error.message);
@@ -775,7 +778,8 @@ export async function restartCollection( primitive, {api} = {} ){
         throw "No API defined for collection"
     }
     const config = bdExtractors[api]
-    await BrightDataQueue().scheduleCollection( primitive, {api, callopts: {enrich: config.enrich}})
+    //await BrightDataQueue().scheduleCollection( primitive, {api, callopts: {enrich: config.enrich}})
+    await schedule( primitive, {api, callopts: {enrich: config.enrich}})
 
 }
 
@@ -808,7 +812,8 @@ export async function handleCollection(primitive, {api} = {}, doCreation = true)
                 console.log(`still running - retry`)
                 return {
                     reschedule: async (parent)=>{
-                        await BrightDataQueue().scheduleCollection( primitive, {api, parent}, true )
+                        //await BrightDataQueue().scheduleCollection( primitive, {api, parent}, true )
+                        schedule( primitive, {api, parent}, true )
                     }
                 }
             }

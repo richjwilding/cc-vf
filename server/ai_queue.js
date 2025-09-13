@@ -1,14 +1,13 @@
 import { addRelationship, addRelationshipToMultiple, buildContext, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, expandPrimitiveLiterals, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, findPrimitiveOriginParent, getConfig, getConfigParent, getConfigParentForTerm, getDataForImport, getDataForProcessing, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
-import { analyzeForClusterPhrases, analyzeListAgainstItems, analyzeListAgainstTopics, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
+import { analyzeForClusterPhrases, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
 import DBSCAN from "@cdxoo/dbscan";
 import Category from "./model/Category";
 import PrimitiveParser from "./PrimitivesParser";
-import { buildDocumentEmbedding, buildEmbeddingsForPrimitives, ensureDocumentEmbeddingsExist, fetchDocumentEmbeddings, getDocumentAsPlainText } from "./google_helper";
 import agglo from "agglo";
-import { BaseQueue } from './base_queue';
-import { comapreToPeers, getItemsForQuery, hasMeaningfulContent, oneShotQuery, summarizeWithQuery } from "./task_processor";
+import BaseQueue from './base_queue';
+import { comapreToPeers, hasMeaningfulContent, oneShotQuery, summarizeWithQuery } from "./task_processor";
 import { reviseUserRequest } from "./prompt_helper";
 import { getLogger } from './logger.js';
 
@@ -855,7 +854,7 @@ export default function QueueAI(){
 
 class AIQueueClass extends BaseQueue{
     constructor() {
-        super('ai', undefined, 5)
+        super('ai', undefined, 2)
     }
 
 
