@@ -133,6 +133,12 @@ export const darkNavyTheme = {
   fontFamily: "Arial"
 };
 
+// Collection of available themes keyed by identifier
+export const themes = {
+  default: defaultTheme,
+  darkNavy: darkNavyTheme,
+};
+
 export function themeColor(theme, key, fallback) {
   return theme?.palette?.[key] ?? fallback;
 }

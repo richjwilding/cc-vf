@@ -28,6 +28,7 @@ import {Checkbox} from "@heroui/react";
 import InputWithSync from "./InputWithSync"
 import { Icon } from "@iconify/react/dist/iconify.js"
 import { DebouncedNumberInput } from "./@components/DebouncedNumberInput"
+import { themes } from "./RenderHelpers"
 
 // Add the icons to the library
 
@@ -42,6 +43,11 @@ const tabs = [
     { name: 'Process', referenceId: 112, process: true},
     { name: 'Items', list: true}
 ]
+
+const themeOptions = Object.keys(themes).map(key => ({
+    key,
+    label: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())
+}));
 
 const mainTabs = [
     { name: 'Query', referenceId: 81, initial: true},
@@ -1121,22 +1127,39 @@ export default function CollectionInfoPane({board, frame, underlying, primitive,
                     <Button fullWidth variant="bordered" onPress={()=>mainstore.doPrimitiveAction(frame, frame.metadata.actions[0]?.key)}>Run</Button>
                 </div>
             }
-            {frame.type === "page" && 
+            {frame.type === "page" && (
                 <div className="space-y-2">
+                    <div className="border rounded-md bg-gray-50 p-3">
+                        <Select
+                            className="w-full"
+                            label="Theme"
+                            size="sm"
+                            variant="bordered"
+                            selectedKeys={[frame.renderConfig?.theme ?? "default"]}
+                            onSelectionChange={(v)=>{
+                                frame.setField('renderConfig.theme', Array.from(v)[0]);
+                                updateFrame();
+                            }}
+                        >
+                            {themeOptions.map(opt => (
+                                <SelectItem key={opt.key}>{opt.label}</SelectItem>
+                            ))}
+                        </Select>
+                    </div>
                     <div className="border rounded-md bg-gray-50">
                         <div onClick={()=>setShowDetails(!showDetails)} className="flex text-gray-500 w-full place-items-center px-3 py-2 ">
                             <p className="font-medium ">{frame.metadata.title} details</p>
                             <ChevronRightIcon strokeWidth={2} className={`ml-auto w-5 h-5 ${showDetails ? '-rotate-90 transform' : ''}`}/>
                         </div>
-                        {showDetails && <>
+                        {showDetails && (
                             <div className="px-4 pb-2 space-y-2 text-sm text-gray-600">
                                 {pinSet("Inputs", "inputPins")}
                                 {pinSet("Outputs", "outputPins")}
                             </div>
-                        </>
-                        }
+                        )}
                     </div>
                 </div>
+            )
             }
            
             {frame.type === "query" && 
