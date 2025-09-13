@@ -17,7 +17,9 @@ ui/node_modules
 # misc
 .DS_Store
 app.yaml
+worker.yaml
 .env.local
+.env.worker
 .env.development.local
 .env.test.local
 .env.production.local

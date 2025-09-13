@@ -9,13 +9,9 @@ import {buildCategories, categorize, summarizeMultiple, processPromptOnText, bui
 import PrimitiveParser from './PrimitivesParser';
 import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLAsArticle, fetchURLAsTextAlternative, fetchURLPlainText, fetchURLScreenshot, getDocumentAsPlainText, getFaviconFromURL, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, getMetaImageFromURL, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
 import { SIO } from './socket';
-import EnrichPrimitive from './enrich_queue';
-import QueueAI from './ai_queue';
-import QueueDocument, { compareTwoStrings, extractEvidenceFromFragmentSearch, mergeDataQueryResult } from './document_queue';
 //import silhouetteScore from '@robzzson/silhouette';
 import { localeData } from 'moment';
 import Parser from '@postlight/parser';
-import QueryQueue from './query_queue';
 import { buildDocumentTextEmbeddings, fetchFragmentsForTerm, indexDocument, storeDocumentEmbeddings } from './DocumentSearch';
 import ContentEmbedding from './model/ContentEmbedding';
 import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
@@ -23,10 +19,9 @@ import Embedding from './model/Embedding';
 import { aggregateItems, checkAndGenerateSegments, comapreToPeers, companyLogoURL, compareItems, extractor, getSegemntDefinitions, iterateItems, lookupPerson, queryByAxis, replicateFlow, resourceLookupQuery, runProcess, summarizeWithQuery } from './task_processor';
 import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
 import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, handleCollection, restartCollection } from './brightdata';
-import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue';
 import { runAction } from './action_helper';
 import "./workflow.js"
-import FlowQueue from './flow_queue.js';
+;
 import { getLogger } from './logger.js';
 import { queryQuoraByRapidAPI } from './rapid_helper.js';
 import { baseURL, expandStringLiterals, findFilterMatches, getRegisteredDomain, pickAtRandom } from './actions/SharedTransforms.js';
@@ -39,6 +34,47 @@ import Organization from './model/Organization.js';
 import { getDataForImportDB } from './actions/getDataForImportDB.js';
 import { getConfigFromDB } from './actions/getConfigFromDB.js';
 import { fetchPrimitiveInputs } from './InputHandler.js';
+import { getQueue } from './queue_registry.js';
+
+/*
+import EnrichPrimitive from './enrich_queue';
+import QueueAI from './ai_queue';
+import QueueDocument, { compareTwoStrings, extractEvidenceFromFragmentSearch, mergeDataQueryResult } from './document_queue';
+import QueryQueue from './query_queue';
+import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue';
+import FlowQueue from './flow_queue.js'
+*/
+
+
+
+function makeQueueFacade(name) {
+  // Return a function so your existing `QueryQueue()` call still works
+  return function () {
+    // Each property access returns an async method that forwards to the real queue
+    return new Proxy({}, {
+      get(_target, prop) {
+        // avoid weirdness if someone does `.then` on this object
+        if (prop === 'then') return undefined;
+
+        return async (...args) => {
+          const q = await getQueue(name);
+          const fn = q[prop];
+          if (typeof fn !== 'function') {
+            throw new TypeError(`Queue "${name}" has no method "${String(prop)}"`);
+          }
+          return fn.apply(q, args);
+        };
+      }
+    });
+  };
+}
+
+export const EnrichPrimitive   = makeQueueFacade('enrich');
+export const QueueAI       = makeQueueFacade('ai');
+export const QueueDocument = makeQueueFacade('document');
+export const QueryQueue    = makeQueueFacade('query');
+export const BrightDataQueue    = makeQueueFacade('brightdata');
+export const FlowQueue     = makeQueueFacade('flow');
 
 const logger = getLogger('sharedfn', "debug"); // Debug level for moduleA
 

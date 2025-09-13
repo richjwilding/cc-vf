@@ -7,7 +7,7 @@ import { analyzeText, analyzeText2, buildEmbeddings, processPromptOnText, summar
 import ContentEmbedding from "./model/ContentEmbedding";
 import PrimitiveParser from "./PrimitivesParser";
 import { fetchFragmentsForTerm } from "./DocumentSearch";
-import { BaseQueue } from './base_queue';
+import BaseQueue from './base_queue';
 import { assessContextForPrompt, reviseUserRequest } from './prompt_helper';
 import { getLogger } from './logger.js';
 import { compareTwoStrings } from './actions/SharedTransforms.js';
@@ -1267,7 +1267,7 @@ export default function QueueDocument(){
 
 class DocumentQueueClass extends BaseQueue{
     constructor() {
-        super('document', undefined, 5)
+        super('document', undefined, 2)
     }
     async doDataQuery( primitive, options ){
         const workspaceId = primitive.workspaceId

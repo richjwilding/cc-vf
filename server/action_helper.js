@@ -1,5 +1,5 @@
 import Category from "./model/Category"
-import { dispatchControlUpdate } from "./SharedFunctions"
+//import { dispatchControlUpdate } from "./SharedFunctions"
 
 let _actionMap
 function getActionMap(){
@@ -50,7 +50,7 @@ export async function runAction(primitive, actionKey, options, req){
         console.warn(`Cant find action definition for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${actionKey}`)
         return {success: false}
     }
-    dispatchControlUpdate(primitive.id, `aLog.${actionKey}`, {status: "invoked", user: req?.user?.id, date_invoked: new Date()})
+    //dispatchControlUpdate(primitive.id, `aLog.${actionKey}`, {status: "invoked", user: req?.user?.id, date_invoked: new Date()})
     return {success: true, result: await actionCall(primitive, action ?? actionKey, options, req)}
 
 }
