@@ -99,6 +99,44 @@ export const tagColors =  {
     Sky: ["#e0f2fe", "#bae6fd", "#7dd3fc", "#38bdf8", "#0ea5e9", "#0284c7"]
   };
 
+export const defaultTheme = {
+  palette: {
+    background: "#ffffff",
+    surface: "#f9fafb",
+    primary: "#334155",
+    secondary: "#94a3b8",
+    border: "#e2e2e2",
+    muted: "#777777",
+    accent: "#7e8184",
+    overlay: "#edf3f8",
+    placeholder: "#e2e2e2",
+    categoryColors,
+    tagColors
+  },
+  fontFamily: "Arial"
+};
+
+export const darkNavyTheme = {
+  palette: {
+    background: "#0f172a",
+    surface: "#1e293b",
+    primary: "#f1f5f9",
+    secondary: "#94a3b8",
+    border: "#334155",
+    muted: "#cbd5e1",
+    accent: "#38bdf8",
+    overlay: "#1e293b",
+    placeholder: "#475569",
+    categoryColors,
+    tagColors
+  },
+  fontFamily: "Arial"
+};
+
+export function themeColor(theme, key, fallback) {
+  return theme?.palette?.[key] ?? fallback;
+}
+
   function interpolateHexColors(startHex, endHex, steps) {
     // strip “#”, handle shorthand
     const normalize = hex => {
@@ -174,7 +212,7 @@ function renderWithWidget( primitive, options, mainRender){
         })
 
         let w, h
-        const widget = RenderPrimitiveAsKonva( primitive, {config: "widget", data: options.widgetConfig, imageCallback: options.imageCallback})
+        const widget = RenderPrimitiveAsKonva( primitive, {config: "widget", data: options.widgetConfig, imageCallback: options.imageCallback, theme: options.theme})
         g.add( widget )
         w = widget.width()
         h = widget.height()
@@ -216,7 +254,8 @@ export function RenderSetAsKonva( primitive, list, options = {} ){
         console.warn(`Cant find renderer for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${config}`)
         return
     }
-    return renderer(primitive, {list:list, ...options, config: options.config} )
+    const themedOptions = { ...options, theme: options.theme ?? defaultTheme };
+    return renderer(primitive, {list:list, ...themedOptions, config: options.config} )
 }
 export function RenderPrimitiveAsKonva( primitive, options = {} ){
     if( !primitive){
@@ -232,10 +271,12 @@ export function RenderPrimitiveAsKonva( primitive, options = {} ){
         return
     }
 
-    return renderWithWidget( primitive, options, (options)=>renderer(primitive, options))
+    const themedOptions = { ...options, theme: options.theme ?? defaultTheme };
+    return renderWithWidget( primitive, themedOptions, (options)=>renderer(primitive, options))
 
 }
 registerRenderer( {type: "default", configs: "set_dials"}, (primitive, options = {})=>{
+    const theme = options.theme ?? defaultTheme;
     const config = {width: 60, height: 30, padding: [2,2,2,2], ...(options.renderConfig ?? {})}
     if( !options.list ){
         return undefined
@@ -259,7 +300,7 @@ registerRenderer( {type: "default", configs: "set_dials"}, (primitive, options =
             y: config.padding[0] + (pad / 2),
             width: w,
             height: h,
-            fill: '#f9fafb',
+            fill: themeColor(theme, 'surface', '#f9fafb'),
             name: "background"
         })
         g.add(r)
@@ -284,7 +325,7 @@ registerRenderer( {type: "default", configs: "set_dials"}, (primitive, options =
                         wrap: false,
                         ellipsis: true,
                         verticalAlign:"middle",
-                        bgFill:"#f3f4f6",
+                        bgFill: themeColor(theme, 'overlay', '#f3f4f6'),
                         x: 0,
                         y: config.height - 9,
                         width: config.width,
@@ -299,8 +340,8 @@ registerRenderer( {type: "default", configs: "set_dials"}, (primitive, options =
                         y: config.padding[0] + (pad / 2),
                         width: w,
                         height: ah,
-                        fill: '#eee',
-                        stroke: '#ccc',
+                        fill: themeColor(theme, 'overlay', '#eee'),
+                        stroke: themeColor(theme, 'border', '#ccc'),
                         strokeWidth: 0.5,
                     });
                   g.add(arc1)
@@ -759,7 +800,8 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
 
 
-    let color = "#00bc7d" //primitive.renderConfig?.color ? categoryColors[primitive.renderConfig?.color] : "#0ea5e9"
+    const palette = options.theme?.palette?.categoryColors ?? categoryColors
+    let color = "#00bc7d" //primitive.renderConfig?.color ? palette[primitive.renderConfig?.color] : "#0ea5e9"
 
 
     if( options.renderConfig?.viewConfig?.scheme === "under_over" ){
@@ -1598,6 +1640,7 @@ registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive,
 
     let ox = (options.x ?? 0) 
     let oy = (options.y ?? 0) 
+    const theme = options.theme ?? defaultTheme;
 
     const g = new Konva.Group({
         name: "view",
@@ -3730,11 +3773,15 @@ export function renderPlaceholder(renderOptions = {}){
         type, 
         text, 
         scale = 1,
-        fontFamily = "Poppins", 
-        ...options 
-    } = { 
-        ...renderOptions 
+        fontFamily,
+        ...options
+    } = {
+        ...renderOptions
     };
+
+    const theme = renderOptions.theme ?? defaultTheme;
+    const themeFont = theme.fontFamily ?? "Poppins";
+    fontFamily = fontFamily ?? themeFont;
 
     width = Math.abs(width)
     height = Math.abs(height)
@@ -3770,7 +3817,7 @@ export function renderPlaceholder(renderOptions = {}){
         y: padding,
         width: usableWidth,
         height: usableHeight,
-        stroke: "#e2e2e2",
+        stroke: themeColor(theme, 'border', '#e2e2e2'),
         strokeWidth: 10 * scale,
         cornerRadius: padding
     })
@@ -3792,8 +3839,8 @@ export function renderPlaceholder(renderOptions = {}){
                         y,
                         width: thisWidth,
                         height: h,
-                        cornerRadius, 
-                        fill: "#e2e2e2"
+                        cornerRadius,
+                        fill: themeColor(theme, 'placeholder', '#e2e2e2')
                     }))
                 }
             }
@@ -3805,7 +3852,7 @@ export function renderPlaceholder(renderOptions = {}){
                         x: padding + r + (usableWidth - r * 2) / 2,
                         y: padding + r + (usableHeight - r * 2) / 2,
                         radius: r,
-                        fill: "#f2f2f2",
+                        fill: themeColor(theme, 'overlay', '#f2f2f2'),
                     }))
                 g.add(new Konva.Arc({
                         x: padding + r + (usableWidth - r * 2) / 2,
@@ -3813,16 +3860,16 @@ export function renderPlaceholder(renderOptions = {}){
                         angle: 50,
                         rotation: 270,
                         outerRadius: r,
-                        fill: "#d2d2d2",
+                        fill: themeColor(theme, 'border', '#d2d2d2'),
                     }))
-                g.add(new Konva.Arc({
-                        x: padding + r + (usableWidth - r * 2) / 2,
-                        y: padding + r + (usableHeight - r * 2) / 2,
-                        angle: 90,
-                        rotation: 320,
-                        outerRadius: r,
-                        fill: "#e2e2e2",
-                    }))
+                  g.add(new Konva.Arc({
+                          x: padding + r + (usableWidth - r * 2) / 2,
+                          y: padding + r + (usableHeight - r * 2) / 2,
+                          angle: 90,
+                          rotation: 320,
+                          outerRadius: r,
+                          fill: themeColor(theme, 'placeholder', '#e2e2e2'),
+                      }))
 
             }
             break
@@ -4186,10 +4233,10 @@ registerRenderer( {type: "default", configs: "ai_processing"}, function renderFu
         return config
     }
 
-    let ox = (options.x ?? 0) 
-    let oy = (options.y ?? 0) 
+    let ox = (options.x ?? 0)
+    let oy = (options.y ?? 0)
 
-
+    const theme = options.theme ?? defaultTheme;
 
     const g = new Konva.Group({
         id: primitive.id,
@@ -4436,7 +4483,7 @@ registerRenderer( {type: "categoryId", id: 95, configs: "default"}, (primitive, 
         y: 0,
         width: config.width,
         height: config.height,
-        fill: "#ffffff"
+        fill: themeColor(theme, "background", "#ffffff")
 
     })
     g.add( bg )
@@ -4467,7 +4514,7 @@ registerRenderer( {type: "categoryId", id: 95, configs: "default"}, (primitive, 
         fontSize:12,
         lineHeight:1.2,
         width: config.width - config.padding[3] - config.padding[1] - 24,
-        fill: "#7e8184",
+        fill: themeColor(theme, 'accent', '#7e8184'),
         text: "1,264 followers\nPromoted"
     })
     g.add( concept2Text )
@@ -4511,7 +4558,7 @@ registerRenderer( {type: "categoryId", id: 95, configs: "default"}, (primitive, 
         y: image.attrs.y + image.height() + 12 + headingText.height() +8 ,
         fontSize:12,
         width: config.width - config.padding[3] - config.padding[1] - 24,
-        fill: "#7e8184",
+        fill: themeColor(theme, "accent", "#7e8184"),
         wrap: true,
         text: primitive.referenceParameters?.url ?? "www.homepage.io"
     })
@@ -4520,7 +4567,7 @@ registerRenderer( {type: "categoryId", id: 95, configs: "default"}, (primitive, 
         y: image.attrs.y + image.height(),
         width: config.width,
         height: headingText.height() + 36 + urlText.height(),
-        fill: "#edf3f8"
+        fill: themeColor(theme, "overlay", "#edf3f8")
 
     })
     let footerHeight = 0
@@ -4593,7 +4640,7 @@ registerRenderer( {type: "type", id: "flow", configs: "default"}, (primitive, op
     })
     return g
 })
-function arrowButton({x = 0, y = 0, size = 60, dir = "right", callback}){
+function arrowButton({x = 0, y = 0, size = 60, dir = "right", callback, theme = defaultTheme}){
 
     const g = new Konva.Group({
         x, y, onClick: callback,
@@ -4601,10 +4648,11 @@ function arrowButton({x = 0, y = 0, size = 60, dir = "right", callback}){
         height: size,
         name: "clickable"
     })
+    const color = themeColor(theme, 'primary', 'black');
     if( dir === "left"){
         g.add( new Konva.Line({
             name: "hover_target",
-            fill: "black",
+            fill: color,
             points: [size,0,
                 0, size / 2,
                 size,size
@@ -4614,7 +4662,7 @@ function arrowButton({x = 0, y = 0, size = 60, dir = "right", callback}){
     }else{
         g.add( new Konva.Line({
             name: "hover_target",
-            fill: "black",
+            fill: color,
             points: [0,0,
                 size, size / 2,
                 0,size
@@ -4627,6 +4675,7 @@ function arrowButton({x = 0, y = 0, size = 60, dir = "right", callback}){
 }
 registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, options = {})=>{
     const config = {width: 1920, height: 1080, pageColumns: 6, ...options}
+    const theme = options.theme ?? defaultTheme;
     const g = new Konva.Group({
         id: primitive.id,
         x: config.x,
@@ -4646,8 +4695,8 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
         y: 0,
         width: config.width,
         height: config.height,
-        stroke: '#555',
-        fill:"white",
+        stroke: themeColor(theme, 'border', '#555'),
+        fill: themeColor(theme, 'background', 'white'),
         name:"background"
     })
     g.add(r)
@@ -4668,14 +4717,15 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                 text: skeleton.title,
                 align:"left",
                 fontStyle: "bold",
-                fill: "#777",
+                fill: themeColor(theme, 'muted', '#777'),
                 x: margin[3],
                 y: margin[0],
                 wrap: true,
                 width: mainWidth,
                 lineHeight: 1.05,
                 fontSize: headerFontSize ,
-                refreshCallback: options.imageCallback
+                refreshCallback: options.imageCallback,
+                fontFamily: theme.fontFamily
             })
             g.add(t)
 
@@ -4694,7 +4744,7 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                     width: sectionWidth, 
                     height: sectionHeight,
                     strokeWidth: 1,
-                    stroke: "#a2a2a2",
+                    stroke: themeColor(theme, 'border', '#a2a2a2'),
                     cornerRadius: 10,
                     dashEnabled: true,
                     dash:[5,3]
@@ -4706,7 +4756,8 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                     align: "center",
                     x: x + 40,
                     width: sectionWidth - 80,
-                    wrap: true
+                    wrap: true,
+                    fontFamily: theme.fontFamily
                 })
 
                 const previewWidth = sectionWidth / 3 * 2
@@ -4727,10 +4778,11 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                         renderOptions: thisRenderOptions,
                         id: primitive.id,
                         stageOptions:{
-                            x: x + (sectionWidth - previewWidth) / 2, 
+                            x: x + (sectionWidth - previewWidth) / 2,
                             y: y + offsetY,
                             imageCallback: options.imageCallback
                         },
+                        theme: options.theme
                     })
                     g.add(chart)
                     if( preview.renderOptions.size === "scale"){
@@ -4739,12 +4791,13 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                     }
                 }else{
                     g.add( renderPlaceholder({
-                        x: x + (sectionWidth - previewWidth) / 2, 
+                        x: x + (sectionWidth - previewWidth) / 2,
                         y: y + offsetY,
-                        style: d.type === "visualization" ? "pie_chart" : "text", 
+                        style: d.type === "visualization" ? "pie_chart" : "text",
                         scale: 0.5,
-                        width: previewWidth, 
-                        height: previewHeight
+                        width: previewWidth,
+                        height: previewHeight,
+                        theme: options.theme
                     }))
                 }
                 t.y( y + offsetY + previewHeight + spacer[0])
@@ -4769,17 +4822,17 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
             }
 
             if( currentSuggestion > 1){
-                g.add( arrowButton( {x: 1840, y: 1040, size: 30, dir: "left", callback: ()=>switchSuggestion( currentSuggestion - 1)}))
+                g.add( arrowButton( {x: 1840, y: 1040, size: 30, dir: "left", callback: ()=>switchSuggestion( currentSuggestion - 1), theme} ))
             }
             if( currentSuggestion < suggestionCount ){
-                g.add( arrowButton( {x: 1880, y: 1040, size: 30, dir: "right", callback: ()=>switchSuggestion( currentSuggestion + 1)}))
+                g.add( arrowButton( {x: 1880, y: 1040, size: 30, dir: "right", callback: ()=>switchSuggestion( currentSuggestion + 1), theme} ))
             }
         }
         g.name("inf_track page")
     }else{
         const subpages = options.utils.prepareBoards( primitive )
         for(const subboards of subpages){
-            const subrenders = subboards.map(d=>options.utils.renderBoard(d, {imageCallback: options.imageCallback, amimCallback: options.amimCallback}))
+        const subrenders = subboards.map(d=>options.utils.renderBoard(d, {imageCallback: options.imageCallback, amimCallback: options.amimCallback, theme: options.theme}))
             let i = 0
 
             const sg = new Konva.Group({
@@ -4803,8 +4856,8 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                 y: 0,
                 width: config.width,
                 height: config.height,
-                stroke: '#555',
-                fill:"white",
+                stroke: themeColor(theme, 'border', '#555'),
+                fill: themeColor(theme, 'background', 'white'),
                 name:"background"
             })
             sg.add(r)
@@ -6218,7 +6271,7 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
         // Grouped bars: use a single global max across all bars
         maxValue = globalMaxCount
     }
-    let colors = options.colors ?? categoryColors
+    let colors = options.colors ?? options.theme?.palette?.categoryColors ?? categoryColors
     
     let axisList = []
     let yAxisList = []
@@ -6428,7 +6481,7 @@ function renderPieChart( segments, options = {}){
 
     let a = 0
     let idx = 0
-    let colors = options.colors ?? categoryColors
+    let colors = options.colors ?? options.theme?.palette?.categoryColors ?? categoryColors
 
     g.add(new Konva.Circle({
         x: r,
@@ -6493,7 +6546,7 @@ function renderSubCategoryChart( title, data, options = {}){
 
     if( options.byTag ){
         data = data.sort((a,b)=>a.tag - b.tag)
-        const tagColorsArr = Object.values(tagColors)
+        const tagColorsArr = Object.values(options.theme?.palette?.tagColors ?? tagColors)
         let lastTag, idx = 0
         data.forEach(d=>{
             if( d.tag !== lastTag){
@@ -6530,7 +6583,7 @@ function renderSubCategoryChart( title, data, options = {}){
     sg.add(r)
     const innerSpacing = config.fontSize * 1.2
 
-    let colors = categoryColors
+    let colors = options.theme?.palette?.categoryColors ?? categoryColors
     if( options.colorMap ){
         colors = data.map(d=>options.colorMap[d.label])
     }else{
@@ -7525,7 +7578,7 @@ registerRenderer( {type: "default", configs: "set_overunder"}, function renderFu
     const list = options.list ?? []
     const scores = (options.allocations?.filterGroup0 ?? []).filter(d=>d.idx !== undefined && d.idx !== null && d.idx !== "_N_")
     const groups = options.allocations?.filterGroup1 ?? []
-    let groupColors = categoryColors
+    let groupColors = options.theme?.palette?.categoryColors ?? categoryColors
 
     let g = new Konva.Group({
         id: options.id,
@@ -7755,7 +7808,7 @@ function categoryGrid(primitive, options = {}){
     const spacing = (usableWidth - (columns * itemSize)) / (columns - 1)
     let ySpacing = spacing
     const actualColumns = Math.min(columns, setCount)
-    let colors = categoryColors
+    let colors = options.theme?.palette?.categoryColors ?? categoryColors
     
     const actualWidth = ((spacing + itemSize) * actualColumns) - spacing
     let x = config.padding[3]// + spacing
@@ -7802,7 +7855,7 @@ function categoryGrid(primitive, options = {}){
             if( d.tag !== lastTag){
                 tagIdx = 0
             }
-            const scol = Object.values(tagColors)[d.tag]
+            const scol = Object.values(options.theme?.palette?.tagColors ?? tagColors)[d.tag]
             d.color = scol ? scol[tagIdx % scol.length] : undefined
             tagIdx ++
             lastTag = d.tag
@@ -8721,10 +8774,13 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         ...renderOptions 
     };
     const {
-        x = 0, 
+        x = 0,
         y = 0,
-        imageCallback        
+        imageCallback
     } = stageOptions
+
+    const theme = options.theme ?? renderOptions.theme ?? defaultTheme;
+    options.theme = theme;
 
     if( renderOptions.widgetConfig && primitive){
         const g = new Konva.Group({
@@ -8734,7 +8790,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         })
 
         let w, h
-        const widget = RenderPrimitiveAsKonva( primitive, {config: "widget", data: renderOptions.widgetConfig, imageCallback: options.imageCallback})
+        const widget = RenderPrimitiveAsKonva( primitive, {config: "widget", data: renderOptions.widgetConfig, imageCallback: options.imageCallback, theme: renderOptions.theme ?? options.theme})
         widget.name(widget.name() + " item_info")
         g.add( widget )
         w = widget.width()
