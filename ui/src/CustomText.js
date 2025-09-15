@@ -2,7 +2,7 @@ import { SceneCanvas } from "konva/lib/Canvas";
 import { Factory } from "konva/lib/Factory";
 import { _registerNode } from "konva/lib/Global";
 import { Util } from "konva/lib/Util";
-import { getBooleanValidator, getNumberOrAutoValidator, getNumberValidator, getStringValidator } from "konva/lib/Validators";
+import { getBooleanValidator, getNumberOrAutoValidator, getNumberValidator, getStringOrGradientValidator, getStringValidator } from "konva/lib/Validators";
 import { Text } from "konva/lib/shapes/Text";
 import { markdownToSlate } from "./SharedTransforms";
 import { calcInheritedBounds } from "./CustomImage";
@@ -997,7 +997,7 @@ checkCanvasCleared() {
         let showLines = fh * scale > 1.5
         if( showLines && this.attrs.showPlaceHolder !== false){
             
-            ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
+            ctx.fillStyle = this.attrs.placeholderFill ?? this.attrs.lineFill ?? "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
             let alignCenter = this.attrs.align === "center"
             let alignRight = this.attrs.align === "right"
@@ -1021,7 +1021,7 @@ checkCanvasCleared() {
         }else{
           let steps = Math.min(Math.max(Math.ceil(h / 50), 2), 30)
           let step = Math.max(h / steps, 10)
-          ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
+          ctx.fillStyle = this.attrs.placeholderFill ?? this.attrs.lineFill ?? "#eaeaea"
           let widths = [w - 2, w * 0.8, w * 0.6, w * 0.7, w*0.2]
           let wi = 0
           for(let i = (step * 0.3); i < h ; i += step){
@@ -1355,4 +1355,5 @@ Factory.addGetterSetter(CustomText, 'text', '', getStringValidator());
 
 Factory.addGetterSetter(CustomText, 'textDecoration', '');
 
+Factory.overWriteSetter(CustomText, 'placeholderFill', undefined,  getStringOrGradientValidator())
 export default CustomText;

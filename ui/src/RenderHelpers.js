@@ -99,30 +99,17 @@ export const tagColors =  {
     Sky: ["#e0f2fe", "#bae6fd", "#7dd3fc", "#38bdf8", "#0ea5e9", "#0284c7"]
   };
 
-export const defaultTheme = {
-  palette: {
-    background: "#ffffff",
-    surface: "#f9fafb",
-    primary: "#334155",
-    secondary: "#94a3b8",
-    border: "#e2e2e2",
-    muted: "#777777",
-    accent: "#7e8184",
-    overlay: "#edf3f8",
-    placeholder: "#e2e2e2",
-    categoryColors,
-    tagColors
-  },
-  fontFamily: "Arial"
-};
 
 export const darkNavyTheme = {
   palette: {
     background: "#0f172a",
     surface: "#1e293b",
-    primary: "#f1f5f9",
-    secondary: "#94a3b8",
+    panel: "#3a4150", // Call out panel fill
+    primary: "#e6eaee",
+    secondary: "#060708ff",
     border: "#334155",
+    grid: "#cbd5e1",
+    subgrid: "#334155",
     muted: "#cbd5e1",
     accent: "#38bdf8",
     overlay: "#1e293b",
@@ -130,7 +117,26 @@ export const darkNavyTheme = {
     categoryColors,
     tagColors
   },
-  fontFamily: "Arial"
+  fontFamily: "Poppins"
+};
+export const defaultTheme = {
+  palette: {
+    background: "#ffffff", // Slide background
+    surface: "#f9fafb", // Neutral surface for text and items
+    panel: "#f2f2f2", // Call out panel fill
+    primary: "#334155", // Main text 
+    secondary: "#94a3b8", // less prominent text
+    border: "#e2e2e2", // border of items
+    grid: "#e2e2e2", // grid lines in graphs and charts
+    subgrid: "#d2d2d2", // minor grid lines in graphs and charts
+    muted: "#777777", // low emphasis text
+    accent: "#7e8184", // high emphasis text
+    overlay: "#edf3f8", // soft halo
+    placeholder: "#e2e2e2", // placeholder color
+    categoryColors,
+    tagColors
+  },
+  fontFamily: "Poppins"
 };
 
 // Collection of available themes keyed by identifier
@@ -139,8 +145,16 @@ export const themes = {
   darkNavy: darkNavyTheme,
 };
 
-export function themeColor(theme, key, fallback) {
-  return theme?.palette?.[key] ?? fallback;
+export function themeColor(theme, key, fallback, override) {
+    if( override){
+
+        if( override.startsWith('#')){
+            return override
+        }else{
+            return theme?.palette?.[override] ?? fallback;
+        }
+    }
+    return theme?.palette?.[key] ?? fallback;
 }
 
   function interpolateHexColors(startHex, endHex, steps) {
@@ -597,15 +611,22 @@ function getTextColor(hexColor) {
 }
 
 function mixHexWithWhite(hex, opacity = 0.25) {
+    mixHex(hex, "#ffffff", opacity)
+}
+function mixHex(hex, hex2, opacity = 0.25) {
     // Convert hex to RGB
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
 
+    const r2 = parseInt(hex2.slice(1, 3), 16);
+    const g2 = parseInt(hex2.slice(3, 5), 16);
+    const b2 = parseInt(hex2.slice(5, 7), 16);
+
     // Calculate the new RGB values by blending each channel with white (255)
-    const newR = Math.round((1 - opacity) * r + opacity * 255);
-    const newG = Math.round((1 - opacity) * g + opacity * 255);
-    const newB = Math.round((1 - opacity) * b + opacity * 255);
+    const newR = Math.round((1 - opacity) * r + opacity * r2);
+    const newG = Math.round((1 - opacity) * g + opacity * g2);
+    const newB = Math.round((1 - opacity) * b + opacity * b2);
 
     // Convert the new RGB values back to hex
     const toHex = (value) => value.toString(16).padStart(2, '0');
@@ -1458,185 +1479,6 @@ registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = 
 
     return g
 })
-registerRenderer( {type: "default", configs: "field"}, (primitive, options = {})=>{
-    const config = {showId: true, fontSize: 16, fontFamily: "Arial", width: 128, padding: [10,10,10,10], ...options}
-    if( config.minWidth){
-        config.width = config.minWidth
-    }
-
-    const g = new Konva.Group({
-        name:"inf_track primitive",
-        id: primitive.id,
-        x:options.x ?? 0,
-        y:options.y ?? 0
-    })
-    const r = new Konva.Rect({
-        x: 0,
-        y: 0,
-        width: 1,
-        height: 1,
-        fill: '#f9fafb',
-        name: "background"
-    })
-    g.add(r)
-
-    const w = config.width
-    let h = config.height ?? 40
-    const fullWidth = config.width - config.padding[3] - config.padding[1]
-
-    
-    options.format = options.format ?? options.fontStyle
-
-    if( options.field === "icon"){
-        if(!options.getConfig){
-            const logo = imageHelper( `/api/image/${primitive.id}`, {
-                size: config.width,
-                y: options.getConfig ? undefined : (h - config.padding[0] - config.padding[2]- config.width)/2,
-                linkUrl: primitive.referenceParameters.url,
-                padding: config.padding,
-                center: true,
-                imageCallback: options.imageCallback,
-                placeholder: options.placeholder !== false
-            })
-            g.add(logo)
-        }
-    }else{
-
-        let value = options.field === "title" ? primitive.title : primitive.referenceParameters[options.field]
-        if( options.field.startsWith("cat_")){
-            const topCat = options.field.slice(4)
-            const matches = primitive.parentPrimitives.filter(d=>d.parentPrimitiveIds.includes(topCat))
-            if( matches.length > 0 ){
-                value = matches.map(d=>d.title).join("\n")   
-            }else{
-                value = "None"
-            }
-
-        }
-        let text = value
-        if( options.type === "currency" || options.type === "funding"){
-            if( primitive.referenceParameters?.ipo === "public" || primitive.referenceParameters?.ipo === "delisted"  ){
-                text = "Private"
-            }else{
-                if( value ){
-                    text = roundCurrency(value ?? 0)
-                }else{
-                    text = "-"
-                }
-            }
-        }else if( options.field.startsWith("summary_")){
-            const sectionNames = options.field.slice(8).split("_")
-            text = ""
-            for(const sectionName of sectionNames ){
-                const section = primitive.referenceParameters.structured_summary?.filter(d=>d.heading.toLowerCase() === sectionName.toLowerCase()).map(d=>{
-                    return [
-                        d.content,
-                        ...(d.subsections ?? []).map(d=>d.content)
-                    ]
-                }).flat().filter(d=>d).join("\n").trim()
-                if( sectionNames.length > 1){
-                    text += `**${sectionName}**: `
-                    if(section.match(/^\s*-+\s+/)){
-                        text += "\n"
-                    }
-                }
-                text += section + "\n\n"
-            }
-            text = text.trim()
-            if( options.format === "bold"){
-                text = `**${text}**`
-            }
-        }else if( options.type === "date_string"){
-            text = value?.match(/(\d+)-/)?.[1] ?? "-"
-        }else if(options.part){
-            if( text ){
-                let r1 = new RegExp(`(?:\\*\\*)?(${options.part}):?\\s*(?:\\*\\*)?:?([\\s\\S]*)`, 'i');
-                let m = r1.exec(text)
-                if( m ){
-                    text = m[2]
-                    //let r2 = new RegExp(`(?:-\\s+|\\n)?(?:\\*\\*)?(.+):\\s*(?:\\*\\*)?`, 'i');
-                    let r2 = new RegExp(`(?:-\\s+|\\n)(?:\\*\\*)?([^-]+):\\s*(?:\\*\\*)?`, 'i');
-                    m = r2.exec(text) 
-                    if( m ){
-                        text = text.slice(0, m.index).replaceAll(/\s*-\s*$/g,"").trim()
-                    }
-                    text = (text ?? "").trim()
-                    if( options.format === "bold"){
-                        text = `**${text}**`
-                    }
-                }else{
-                    text = undefined
-                }
-            }
-        }else{
-            if( options.format === "bold"){
-                text = `**${text}**`
-            }
-        }
-        
-        if( text ){
-            let y = config.padding[0]
-            if(options.heading){
-                const t = new CustomText({
-                    x: config.padding[3],
-                    y: y,
-                    fontSize: config.fontSize * 0.8,
-                    fontFamily: config.fontFamily,
-                    fontStyle:"bold",
-                    text: options.heading.toUpperCase(),
-                    fill: '#999999',
-                    showPlaceHolder: false,
-                    wrap: false,
-                    bgFill: 'transparent',
-                    align:'center',
-                    width: fullWidth,
-                    withMarkdown: false,
-                    ellipsis: false,
-                    refreshCallback: options.imageCallback
-                })
-                g.add(t)
-                y += t.height() * 2
-            }
-            const textHeight = options.getConfig ? undefined : h - config.padding[0] - config.padding[2] 
-            
-            const t = new CustomText({
-                x: config.padding[3],
-                y,
-                fontSize: config.fontSize,
-                fontFamily: config.fontFamily,
-                fontStyle: options.format === "light" ? "light" : "normal",
-                lineHeight: 1.25,
-                text: text,
-                fill: '#334155',
-                showPlaceHolder: false,
-                wrap: true,
-                bgFill: 'transparent',
-                width: fullWidth,
-                withMarkdown: true,
-                ellipsis: true,
-                refreshCallback: options.imageCallback
-            })
-            g.add(t)
-            if( t.height() > textHeight){
-                t.height(textHeight)
-            }
-            const th = Math.max(t.height(), textHeight ?? 0)
-            
-          //  t.y( config.padding[0] + (th - t.height())  /2)
-        }
-    }
-
-    r.width(w)
-    r.height(h)
-    g.width(w)
-    g.height(h)
-    if( options.getConfig){
-        config.width = w
-        config.height = h
-        return config
-    }
-    return g
-})
 registerRenderer( {type: "categoryId", id: 118, configs: "default"}, (primitive, options = {})=>{
     const config = {showId: true, idSize: 14, width: 256, padding: [10,10,10,10], ...options}
     if( options.getConfig){
@@ -2054,7 +1896,7 @@ registerRenderer( {type: "type", id: "page", configs: "set_grid"}, (primitive, o
         width: config.width - config.padding[3] - config.padding[1],
         height: config.height ? config.height - config.padding[0] - config.padding[2] : undefined,
         name: "background",
-        fill: '#f9fafb'
+        fill: options.theme?.background || '#f9fafb'
     })
     g.add(r)
 
@@ -2471,6 +2313,7 @@ function renderBaselineOverviewSet(primitive, options){
             width: width - config.itemPadding[1] - config.itemPadding[3], 
             imageCallback: options.imageCallback,
             renderOptions: options.renderOptions,
+            theme: options.renderOptions?.theme,
             padding: config.itemPadding, imageCallback: options.imageCallback})
         
         g.add(node)
@@ -2747,6 +2590,11 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
     let ox =  config.padding[3]
     let oy =  config.padding[0]
 
+    const theme = options.theme ?? defaultTheme;
+    const resolvedFontFamily = options.fontFamily ?? theme?.fontFamily ?? "Arial";
+    const resolvedFontColor = themeColor(theme, 'primary', '#000000', options.text_color)
+    const resovledBackground = themeColor(theme, 'background', '#ffffff')
+    const placeholderFill = mixHex( resolvedFontColor, resovledBackground)
 
 
     const g = new Konva.Group({
@@ -2790,6 +2638,9 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
             text: primitive.title ,
             y: oy + config.padding[0],
             x: tx,
+            fontFamily: resolvedFontFamily,
+            fill: resolvedFontColor,
+            placeholderFill,
             width: availableWidth - tx,
             height: 16,
             wrap: false,
@@ -2820,7 +2671,9 @@ registerRenderer( {type: "categoryId", id: 29, configs: "overview"}, (primitive,
                             fontSize: config.fontSize,
                             lineHeight: 1.5,
                     text: overview.trim(),
-                    fill: '#334155',
+                    fontFamily: resolvedFontFamily,
+                    fill: resolvedFontColor,
+                    placeholderFill,
                     wrap: true,
                     refreshCallback: options.imageCallback,
                     ellipsis: true,
@@ -3829,6 +3682,9 @@ export function renderPlaceholder(renderOptions = {}){
     })
     g.add(r)
     
+    const resolvedFontColor = themeColor(theme, 'primary', '#000000', options.text_color)
+    const resovledBackground = themeColor(theme, 'background', '#ffffff')
+    const placeholderFill = mixHex( resolvedFontColor, resovledBackground)
     
 
     switch(options.style){
@@ -3884,6 +3740,8 @@ export function renderPlaceholder(renderOptions = {}){
         const t = new Konva.CustomText({
             text: options.status?.message,
             fontSize: usableWidth > 150 ? 40 * scale : 20 * scale ,
+            fill: resolvedFontColor,
+            placeholderFill,            
             align: "center",
             width: usableWidth,
             maxHeight: usableHeight,
@@ -3907,7 +3765,7 @@ export function renderPlainObject(renderOptions = {}){
         height = 128, 
         type, 
         text, 
-        fontFamily = "Poppins", 
+        fontFamily, 
         ...options 
     } = { 
         ...renderOptions 
@@ -3917,6 +3775,13 @@ export function renderPlainObject(renderOptions = {}){
     width = Math.abs(width)
     height = Math.abs(height)
     
+
+    // Resolve theme + font defaults (override with explicit options)
+    const theme = options.theme ?? defaultTheme;
+    const resolvedFontFamily = fontFamily ?? theme?.fontFamily ?? "Arial";
+    const resolvedFontColor = themeColor(theme, 'primary', '#000000', options.text_color)
+    const resovledBackground = themeColor(theme, 'background', '#ffffff')
+    const placeholderFill = mixHex( resolvedFontColor, resovledBackground, 0.7)
 
     const g = new Konva.Group({
         id: id,
@@ -3941,8 +3806,8 @@ export function renderPlainObject(renderOptions = {}){
                 y: 0,
                 width,
                 height,
-                fill: options.fill,
-                stroke: options.stroke,
+                fill: themeColor(theme, 'surface', '#f9fafb', options.fill ),
+                stroke: themeColor(theme, 'border', '#e2e2e2', options.stroke),
             })
             g.add(r)
         }
@@ -3992,10 +3857,11 @@ export function renderPlainObject(renderOptions = {}){
                 x: padding[3],
                 y: y,
                 fontSize: 12,
-                fontFamily: fontFamily,
+                fontFamily: resolvedFontFamily,
                 fontStyle:"bold",
                 text: options.heading.toUpperCase(),
-                fill: '#999999',
+                fill: themeColor(theme, 'muted', '#999999'),
+                placeholderFill:  mixHex( themeColor(theme, 'muted', '#999999'), resovledBackground),
                 showPlaceHolder: false,
                 wrap: false,
                 bgFill: 'transparent',
@@ -4017,8 +3883,9 @@ export function renderPlainObject(renderOptions = {}){
             lineHeight: options.lineHeight ?? 1.2,
             text: useText,
             withMarkdown: true,
-            fill: options.text_color ?? "black",
-            fontFamily: fontFamily,
+            fill:  resolvedFontColor,
+            placeholderFill,
+            fontFamily: resolvedFontFamily,
             fontSize: options.fontSize,
             align: options.align,
             fontStyle: fontStyle,
@@ -4029,7 +3896,17 @@ export function renderPlainObject(renderOptions = {}){
             g.name("inf_track primitive")
         }
     }else  if( type === "structured_text"){
-        const {didOverflow: thisOverflow} = renderFormattedSections( text, g, {width, height, fontFamily, ...options})
+        const {didOverflow: thisOverflow} = renderFormattedSections( 
+            text, 
+            g, 
+            {
+                width, 
+                height, 
+                fontFamily: resolvedFontFamily, 
+                fontFill: resolvedFontColor, 
+                placeholderFill,
+                ...options
+            })
         didOverflow ||= thisOverflow
     }
     if( didOverflow ){
@@ -4466,6 +4343,7 @@ registerRenderer( {type: "default", configs: "default"}, function renderFunc(pri
 
 registerRenderer( {type: "categoryId", id: 95, configs: "default"}, (primitive, options = {})=>{
     const config = {width: 555, height: 800, padding: [10,10,10,10], ...options}
+    const theme = options.theme ?? defaultTheme;
     if( options.getConfig){
         return config
     }
@@ -5756,6 +5634,7 @@ export function renderMatrix( primitive, list, options ){
                 imageCallback: options.imageCallback,
                 utils: options.utils,
                 renderOptions: options.renderOptions,
+                theme: options.theme,
                 padding: options.padding ?? [0,0,0,0]
     }
     if( asCounts || options?.renderOptions?.calcRange){
@@ -6218,7 +6097,7 @@ function generateAxisTicks([minVal, maxVal], tickCount = 5) {
   return ticks;
 }
 
-function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValue, ...options}){
+function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValue, gridStroke = "black", subGridStroke = "#d2d2d2", ...options}){
     const config = {size: 20, ...options}
     const width = config.width ?? config.size
     const height = config.height ?? config.barHeght ?? config.size
@@ -6303,7 +6182,10 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                         maxHeight: maxAxisValueHeight,
                         textPadding: [0,0,0,0],
                         minFontSize: 1,
-                        refreshCallback: options.imageCallback
+                        refreshCallback: options.imageCallback,
+                        fontFamily: options.fontFamily,
+                        fontFill: options.fontFill,
+                        placeholderFill: options.placeholderFill,
                     } )
                     r.rendered.x(0)
                     r.rendered.y(yp)
@@ -6340,7 +6222,7 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                 if( yp > 0){
                     const line = new Konva.Line( {
                         points: [yAxisGap, yp, width, yp],
-                        stroke: i === 0 ? "black" : "#d2d2d2",
+                        stroke: i === 0 ? gridStroke : subGridStroke,
                         dashEnabled: i > 0,
                         dash: i > 0 ? dash : undefined,
                         strokeWidth: 1
@@ -6377,6 +6259,9 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                         maxWidth: axisWidth,
                         textPadding: [0,0,0,0],
                         minFontSize: 1,
+                        fontFamily: options.fontFamily,
+                        fontFill: options.fontFill,
+                        placeholderFill: options.placeholderFill,
                         refreshCallback: options.imageCallback
                     } )
                     r.rendered.x(x)
@@ -6537,7 +6422,8 @@ function renderSubCategoryChart( title, data, options = {}){
         y = 0,
         innerPadding = [10,10,10,10],
         itemSize = 200,        
-        paletteName        
+        paletteName ,
+        theme,
     } = options
     
     data = data.map((d,i)=>{
@@ -6617,10 +6503,10 @@ function renderSubCategoryChart( title, data, options = {}){
     let showLegend = !options.hideLegend
 
     let legend
-    let usableWidth = width
-    let usableHeight = height
     let minW = innerPadding[1] + innerPadding[3]
     let minH = innerPadding[2] + innerPadding[0]
+    let usableWidth = width 
+    let usableHeight = height
     if( showLegend ){
         const maxLegendWidth = usableWidth * 0.5
         const legendData = options.colorBySecondary ? (options.sublabels?.items ?? []) : data
@@ -6632,6 +6518,9 @@ function renderSubCategoryChart( title, data, options = {}){
                             width: options.legendOnRight ? undefined : width,
                             maxWidth: options.legendOnRight ? maxLegendWidth : undefined,
                             colors,
+                            fontFamily: options.legendFont,
+                            fontFill: options.legendFontColor,
+                            placeholderFill: options.legendFontPlaceholderColor,
                             height: options.legendOnRight ? usableHeight : undefined
         })
         if( options.legendOnRight ){
@@ -6643,7 +6532,7 @@ function renderSubCategoryChart( title, data, options = {}){
         }
     }
     
-    let pieY = innerSpacing
+    let pieY = 0//innerSpacing
     if( !options.hideTitle){
 
         const t = new CustomText({
@@ -6658,7 +6547,7 @@ function renderSubCategoryChart( title, data, options = {}){
             fill: '#334155',
             wrap: false,
             ellipsis: true,
-            width: usableWidth - innerPadding[3] - innerPadding[1],
+            width: usableWidth - innerPadding[3] - innerPadding[1]
         })
         sg.add(t)
         pieY = (config.fontSize * 2.5) + innerSpacing
@@ -6684,7 +6573,12 @@ function renderSubCategoryChart( title, data, options = {}){
             showLines: true,
             showAxisValue: true,
             stack: options.style === "stacked_bar",
-            sublabels: options.sublabels
+            fontFamily: options.legendFont,
+            fontFill: options.legendFontColor,
+            placeholderFill: options.legendFontPlaceholderColor,
+            sublabels: options.sublabels,
+            gridStroke: themeColor(theme, "grid"),
+            subGridStroke: themeColor(theme, "subgrid")
         }
 
         if( options.style ==="bar" ){
@@ -6747,7 +6641,7 @@ function renderSubCategoryChart( title, data, options = {}){
         if( options.scale ){
             pieSize *= options.scale
         }
-        const pie = renderPieChart(data, {size: pieSize, x: (usableWidth - pieSize) / 2, y: pieY + pieMid - (pieSize/ 2), colors: colors})
+        const pie = renderPieChart(data, {size: pieSize, x: innerPadding[3] + (usableWidth - pieSize) / 2, y: pieY + (usableHeight - pieSize)/ 2, colors: colors})
         mainChart = new Konva.Group({
             x: 0,
             y: 0,
@@ -6825,7 +6719,9 @@ function renderLegend( data, {colors, itemSize, height, width, maxWidth, ...opti
             y: ly,
             fontSize: legendFontSize,
             text: d.label, //`${d.label} ${(d.count / total * 100).toFixed(2)}%`,
-            fill: '#334155',
+            fill: options.fontFill,
+            placeholderFill: options.placeholderFill,
+            fontFamily: options.fontFamily,
             ellipsis: true,
             width: options.horizontalLegend ? "auto" : (width ? width - lx : undefined)
         })
@@ -7134,6 +7030,9 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
     const width = renderOptions.width ?? config.itemSize
     const height = renderOptions.height ?? config.itemSize
 
+    const resolvedFont = options.resolvedFontFamily
+    const resolvedFontColor = options.resolvedFontColor
+    const placeholderFill = options.resovledPlaceholderFill
 
     function sortByOrder(values){
         if( renderOptions.order === "high_to_low"){
@@ -7202,6 +7101,9 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         max,
         min,
         count,
+        legendFont: resolvedFont,
+        legendFontColor: resolvedFontColor,
+        legendFontPlaceholderColor: placeholderFill,
         colorMap: renderOptions.colorMap,
         showValue: renderOptions.show_value ?? false, 
         legendSize: renderOptions.legend_size,
@@ -7209,6 +7111,7 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         horizontalLegend: renderOptions.show_legend !== "right",
         reversePalette: renderOptions.reverse_palette,
         hideLegend: !renderOptions.show_legend,
+        theme: options.theme,
         sort: "none"
     })
     g.add(sg)
@@ -8738,6 +8641,8 @@ function renderFormattedSections( text, g, fullOptions = {} ){
                     text: thisText,
                     withMarkdown: true,
                     fontFamily: section.fontFamily ?? fontFamily,
+                    fill: options.fontFill,
+                    placeholderFill: options.placeholderFill,
                     fontStyle,
                     fontSize,
                     refreshCallback: options.imageCallback
@@ -8835,6 +8740,11 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         name:"view"
     })
 
+    const resolvedFontFamily = theme.fontFamily ?? "Poppins";
+    const resolvedFontColor = themeColor(theme, 'primary', '#000000', options.text_color)
+    const resovledBackground = themeColor(theme, 'background', '#ffffff')
+    const resovledPlaceholderFill = mixHex( resolvedFontColor, resovledBackground)
+
     let showColumnheaders =  (renderOptions.show_column_headers !== false ) && (data.columns.length > 1)
     let showRowheaders =  (renderOptions.show_row_headers !== false ) && (data.rows.length > 1)
 
@@ -8869,7 +8779,12 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         expand: options.expand,
         config: configName, 
         maxHeight: renderOptions.height,
-        sectionConfig: primitive?.getConfig.sections
+        sectionConfig: primitive?.getConfig.sections,
+        resolvedFontColor,
+        resovledBackground,
+        resolvedFontFamily,
+        resovledPlaceholderFill,
+        theme
     }
 
     let configForCells = data.cells.reduce((a,cell)=>{
@@ -8899,12 +8814,13 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
     const rowY = rowHeights.reduce((acc, w, i) => (acc.push(i ? acc[i - 1] + rowHeights[i - 1] + spacing : 0), acc), []);
 
 
-    const headers = prepareHeaders({columns: showColumnheaders ? columns : [], rows: showRowheaders ? rows : [], columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, refreshCallback: imageCallback})
+    const headers = prepareHeaders({columns: showColumnheaders ? columns : [], rows: showRowheaders ? rows : [], columnWidths, rowHeights, columnX, rowY, spacing, renderOptions, theme, refreshCallback: imageCallback})
     let footers
     if( (data.totals.columns && renderOptions.show_column_totals) || (data.totals.rows  && renderOptions.show_row_totals)){
         footers = prepareHeaders({
             columns: data.totals.columns && data.totals.columns.order.map(d=>({label: d})),
             rows: data.totals.rows && data.totals.rows.order.map(d=>({label: d})),
+            theme,
             background: false,
             fontSize: headers.fontSize,
             includeColumns: renderOptions.show_column_totals,
@@ -8993,7 +8909,10 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
                             horizontalLegend: !showOnRight,
                             width: showOnRight ? 200 : maxX,
                             height: showOnRight ? maxY : 300,
-                            colors: legendInfo?.colors
+                            colors: legendInfo?.colors,
+                            fontFamily: resolvedFontFamily,
+                            fontFill: resolvedFontColor,
+                            placeholderFill: resovledPlaceholderFill
         })
         legend.name("inf_track row_header")
         g.add( legend)
@@ -9020,7 +8939,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         }
     }
 
-    const subColumns = subColumnTracker.reduce((a,c)=>a + (c?.columns ?? 0), 0)
+    const subColumns = subColumnTracker.reduce((a,c)=>a + (c?.columns ?? 1), 0)
     const widthPadding = (maxColIdx  * spacing) + subColumnTracker.reduce((a,c)=>a + (c?.widthPadding ?? 0), 0)
 
     g.attrs.resizeInfo = {
@@ -9032,7 +8951,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
 
     return g
 }
-function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, refreshCallback, longestPair, minFontSize = 6}){
+function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, refreshCallback, longestPair, minFontSize = 6, fontFamily, fontFill, placeholderFill}){
     const d = header.label ?? header ?? ""
     let longestFrag
     const words = `${d}`.split(" ")
@@ -9050,12 +8969,15 @@ function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, re
         align:"center",
         wrap: true,
         verticalAlign:"middle",
-        bgFill:"#f3f4f6",
+        //bgFill:"#f3f4f6",
         x: textPadding[3],
         y: textPadding[0],
         withMarkdown: true,
         width: maxWidth ?? "auto",
         height: "auto",
+        fontFamily,
+        fill: fontFill,
+        placeholderFill,
         refreshCallback
     })
     let rescaled = false
@@ -9078,7 +9000,12 @@ function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, re
     
     return {rendered: text, fontSize, rescaled}
 }
-function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY, renderOptions, baseFontSize = 12, spacing, textPadding = [5,5,5,5], refreshCallback, includeColumns = true, includeRows = true, background = true,...options}){
+function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY, renderOptions, baseFontSize = 12, spacing, textPadding = [5,5,5,5], refreshCallback, includeColumns = true, includeRows = true, background = true, theme = defaultTheme,...options}){
+    const resolvedFontFamily = theme.fontFamily ?? "Poppins";
+    const resolvedFontColor = themeColor(theme, 'primary', '#000000', options.text_color)
+    const resovledBackground = themeColor(theme, 'panel', '#ffffff')
+    const resovledFontPlaceholderFill = mixHex( resolvedFontColor, resovledBackground)
+
     const maxColumnWidth = Math.max(...columnWidths)
     const maxRowHeight = Math.max(...rowHeights)
     let maxFont =  Math.max(6, maxRowHeight / 4)
@@ -9127,6 +9054,9 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
                 fontSize: headerFontSize, 
                 maxWidth: columnWidths[i]  - padding[1] - padding[3],
                 textPadding: padding,
+                fontFamily: resolvedFontFamily,
+                fontFill: resolvedFontColor,
+                placeholderFill: resovledFontPlaceholderFill,
                 refreshCallback
             } )
             if( r.fontSize !== headerFontSize){
@@ -9143,6 +9073,9 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
             maxWidth: idealWidth - padding[1] - padding[3],
             maxHeight: rowHeights[i],
             textPadding: padding,
+            fontFamily: resolvedFontFamily,
+            fontFill: resolvedFontColor,
+            placeholderFill: resovledFontPlaceholderFill,
             refreshCallback
         } )
         if( r.fontSize !== headerFontSize){
@@ -9175,7 +9108,7 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
                     x: 0, y: 0,
                     width: columnWidths[i],
                     height,
-                    fill:'#f3f4f6'
+                    fill: resovledBackground
                 })
                 h.add(r)
             }
@@ -9206,7 +9139,7 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
                     x: 0, y: 0,
                     width: idealWidth,
                     height: rowHeights[i],
-                    fill:'#f3f4f6'
+                    fill: resovledBackground
                 })
                 h.add(r)
             }

@@ -30,3 +30,6 @@ yarn-debug.log*
 yarn-error.log*
 .env
 keyboard/zmk-config/
+.env.worker
+worker.yaml
+.env.worker

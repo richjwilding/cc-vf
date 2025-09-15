@@ -320,7 +320,8 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
     const renderOptions = {
         ...(view.underlying?.renderConfig ?? {}),
         ...(view.primitive?.renderConfig ?? {}),
-        ...view.renderConfigOverride
+        ...view.renderConfigOverride,
+        theme: view.theme
     };
     if (view.widgetConfig) {
       renderOptions.widgetConfig = view.widgetConfig;
@@ -453,7 +454,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                 expand: Object.keys(primitive.frames?.[d.id]?.expand ?? {}),
                 renderOptions,
                 viewConfig,
-                theme: stageOptions.theme
+                theme: renderOptions.theme
             });
           }
         };
@@ -572,8 +573,6 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
         };
         break;
       case "page": {
-        const themeKey = primitiveToRender.renderConfig?.theme || "default";
-        const theme = themes[themeKey] || themes.default;
         const renderFunc = stageOptions =>
           RenderPrimitiveAsKonva(primitiveToRender, { ...stageOptions, ...renderOptions, renderOptions, data: view.renderData });
         renderView = {
@@ -581,13 +580,12 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
           utils: view.renderSubPages || RENDERSUB
             ? {
                 prepareBoards: prepareSubBoards,
-                renderBoard: (d, opts = {}) => renderSubBoard(d, { ...opts, theme }),
+                renderBoard: (d, opts = {}) => renderSubBoard(d, { ...opts, theme: renderOptions.theme }),
               }
             : undefined,
           canChangeSize: true,
           canvasMargin: [0, 0, 0, 0],
-          items: stageOptions => renderFunc({ ...stageOptions, theme }),
-          bgFill: theme.palette.background,
+          items: stageOptions => renderFunc(stageOptions),
         };
         break;
       }
@@ -1390,11 +1388,17 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
             myState[stateId].primitive = basePrimitive
             myState[stateId].config = "page"
             myState[stateId].lastView = d.referenceParameters?.explore?.view
+
+            const themeKey = d.renderConfig?.theme || "default";
+            const theme = themes[themeKey] || themes.default;
+            myState[stateId].theme = theme
+
             if( !myState[stateId].renderSubPages && !RENDERSUB){
                 for(let child of childNodes){
                     myState[child.id] ||= {
                         id: child.id, 
                         inPage: true,
+                        theme: theme,
                         page: d
                     }
                     const renderResult = SharedPrepareBoard(child, myState)

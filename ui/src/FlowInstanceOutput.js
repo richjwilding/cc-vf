@@ -5,6 +5,7 @@ import BoardViewer, { IGNORE_NODES_FOR_EXPORT } from "./BoardViewer";
 import { createPptx, exportKonvaToPptx } from "./PptHelper";
 import Konva from "konva";
 import PrimitiveConfig from "./PrimitiveConfig";
+import { themes } from "./RenderHelpers";
 
 const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, inputPrimitives, steps,...props},ref){
     const myState = useRef({})
@@ -105,7 +106,9 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
             const renderConfig = BoardViewer.prepareBoard(d, myState)
             const inputPin = pin.split("_")[1]
             myState[d.id].title = flow.referenceParameters?.outputPins?.[inputPin]?.name ??  `Output for ${pin}`
-            return BoardViewer.renderBoardView(d, primitive, myState)
+            const themeKey = "darkNavy"//d.renderConfig?.theme || "default";
+            const theme = themes[themeKey] || themes.default;
+            return BoardViewer.renderBoardView(d, primitive, myState, {theme})
         })).flat().filter(Boolean)
     }, [primitive?.id, flowStatus])
 
