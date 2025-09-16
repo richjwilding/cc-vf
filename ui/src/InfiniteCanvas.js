@@ -941,9 +941,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
                 d.original = {
                     parent: d.parent,
-                    x: d.attrs.x,
-                    y: d.attrs.y,
-                    s: d.attrs.scaleX,
+                    x: d.x(),
+                    y: d.y(),
+                    s: d.scaleX(),
                 }
 
                 d.remove()
@@ -3120,8 +3120,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         cornerRadius: 2,
                         width: Math.max(node.attrs.width - 2, 1),
                         height: Math.max(node.attrs.height - 2, 1),
-                        stroke: colors[operation]?.stroke,
-                        fill: colors[operation]?.fill,
+                        stroke: node.attrs?.hoverStroke ?? node.attrs?.hoverFill ?? colors[operation]?.stroke,
+                        fill: node.attrs?.hoverFill ?? colors[operation]?.fill,
                        // strokeScaleEnabled: false,
                         name: label
                     })
@@ -3305,17 +3305,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 })
             }            
         }
-        function insertByZIndex(arr, node) {
-            const z = node.zIndex();
-            // binary-search the right spot
-            let lo = 0, hi = arr.length;
-            while (lo < hi) {
-                const mid = (lo + hi) >>> 1;
-                if (arr[mid].zIndex() < z) lo = mid + 1;
-                else hi = mid;
-            }
-            arr.splice(lo, 0, node);
-        }
         function processHighlights(x,y, dropCandidate){
             if( !dropCandidate && myState.current.dragging){
                 return 
@@ -3374,23 +3363,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             // 3) Strip off our metadata and return just the nodes in draw order
             return enriched.map(e => e.node);
         }
-        /*function orderInteractiveNodes(found){
-            if( !found ){return []}
-            const nodesWithZIndex = found.map(node => {
-                let zIndex = node.zIndex()
-                if(!node.attrs.name || !node.attrs.name.match(/\bframe\b/)){
-                    let frame = node.findAncestor('.frame')
-                    if( frame ){
-                        zIndex += frame.zIndex()
-                    }
-                }
-                return {
-                node,
-                zIndex
-              }})
-            return nodesWithZIndex.sort((a, b) => b.zIndex - a.zIndex).map(d=>d.node)
-
-        }*/
         async function processClick(e){
             if( myState.current.ignoreClick ){
                 myState.current.ignoreClick = false

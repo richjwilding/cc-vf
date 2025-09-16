@@ -1259,6 +1259,9 @@ class CollectionUtils{
             const rowList = filtered.filter((item=>Array.isArray(item.row) ? item.row.includes( row.idx ) : item.row === row.idx))
             finalColumns.forEach((column,cIdx)=>{
                 let subList = rowList.filter((item)=>Array.isArray(item.column) ? item.column.includes( column.idx ) : item.column === column.idx)
+                if( config.limitItems ){
+                    subList = subList.slice(0, config.limitItems)
+                }
                 let count = subList.length
 
                 table.totals.rows.idx[row.idx] = (table.totals.rows.idx[row.idx] || 0) + count

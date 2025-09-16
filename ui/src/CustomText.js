@@ -1003,7 +1003,13 @@ checkCanvasCleared() {
             let alignRight = this.attrs.align === "right"
             if( this.attrs.withMarkdown ){
               for(const d of this.textArr){
-                ctx.fillRect(d.indent, d.y, d.width - 1 , fh - 1)
+                let offset = 0
+                if( alignCenter ){
+                  offset += (this.attrs.width - d.width) / 2
+                }else if(alignRight){
+                  offset += (this.attrs.width - d.width)
+                }
+                ctx.fillRect(offset + d.indent, d.y, d.width - 1 , fh - 1)
               }
             }else{
               for(const d of this.textArr){
@@ -1355,5 +1361,4 @@ Factory.addGetterSetter(CustomText, 'text', '', getStringValidator());
 
 Factory.addGetterSetter(CustomText, 'textDecoration', '');
 
-Factory.overWriteSetter(CustomText, 'placeholderFill', undefined,  getStringOrGradientValidator())
 export default CustomText;

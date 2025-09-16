@@ -23,13 +23,14 @@ import { CheckboxField, Checkbox as LegacyCheckbox } from "./@components/checkbo
 import { AdjustmentsVerticalIcon, BackwardIcon, CloudArrowDownIcon, PlayCircleIcon, StopCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
-import { Button, Input, NumberInput, Select, SelectItem, Switch } from "@heroui/react"
+import { Button, Input, NumberInput, Select, SelectItem, Slider, Switch } from "@heroui/react"
 import { Checkbox } from "@heroui/react";
 import InputWithSync from "./InputWithSync"
 import { Icon } from "@iconify/react/dist/iconify.js"
 import { DebouncedNumberInput } from "./@components/DebouncedNumberInput"
 import { themes, tagColors } from "./RenderHelpers"
 import { ColorSelector } from "./@components/ColorSelector.jsx"
+import { DebouncedSlider } from "./@components/DebouncedSlider.jsx"
 
 // Add the icons to the library
 
@@ -757,7 +758,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                             value={viewConfigs[activeView]?.id}
                             zIndex={50}
                         />
-                        <div className='w-full overflow-y-scroll space-y-3 max-h-[50vh] flex flex-col'>
+                        <div className='w-full overflow-y-scroll space-y-3 max-h-[50vh] h-full flex flex-col'>
                             {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
                             {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d => {
                                 const currentValue = frame.renderConfig?.hasOwnProperty(d) ? frame.renderConfig[d] : viewConfig.config[d].default
@@ -767,6 +768,35 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                         return <UIHelper key={d} {...viewConfig.config[d]} value={frame.renderConfig?.[d]} zIndex={50} onChange={onValueChange} />
                                     case "boolean":
                                         return <Switch size="sm" key={d} isSelected={currentValue} onValueChange={onValueChange}>{viewConfig.config[d].title}</Switch>
+                                    case "axis_text":
+                                        const mapSize = [0.1, 0.2, 0.5, 0.65, 1, 1.3, 1.5, 1.8, 2, 2.5, 3]
+                                        const axisTextValue = mapSize.indexOf(frame.renderConfig?.axis_text ?? 1) ?? 4
+                                          return <div className="flex my-5"><DebouncedSlider
+                                                className="w-full"
+                                                value={axisTextValue}
+                                                color="primary"
+                                                label="Header size"
+                                                maxValue={10}
+                                                minValue={0}
+                                                showSteps={true}
+                                                hideValue={true}
+                                                size="md"
+                                                step={1}
+                                                marks={[
+                                                    { value: 0, label: "Tiny" },
+                                                    { value: 2, label: "Small" },
+                                                    { value: 4, label: "Normal" },
+                                                    { value: 6, label: "Medium" },
+                                                    { value: 8, label: "Large" },
+                                                    { value: 10, label: "Huge" },
+                                                ]}
+                                                onChange={(v)=>{
+                                                    const mapped = mapSize[v]
+                                                    if( frame.renderConfig?.axis_text !== mapped){
+                                                        return onValueChange( mapped )
+                                                    }
+                                                }}
+                                            /></div>
                                     case "column_count":
                                         return <DebouncedNumberInput
                                             label="Columns"
@@ -775,7 +805,21 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                             minValue={viewConfig.config[d].min ?? 1}
                                             maxValue={viewConfig.config[d].max ?? 10}
                                             value={currentValue}
-                                            onValueChange={onValueChange}
+                                            onValueChange={(v)=>{
+                                                if( v === currentValue ){
+                                                    console.log("skip")
+                                                    return
+                                                }
+                                                if( viewConfig.config[d].rebalance_width ){
+                                                    const frameDetail = frame.origin?.frames?.[frame.id]
+                                                    if( frameDetail?.width ){
+                                                        const newWidth = frameDetail.width * currentValue / v
+                                                        console.log(`${frameDetail.width} > ${newWidth}`)
+                                                        frame.origin.setField(`frames.${frame.id}.width`, newWidth)
+                                                    }
+                                                }
+                                                return onValueChange(v)
+                                            }}
                                             startContent={
                                                 <div className="pointer-events-none flex items-center">
                                                     <Icon icon='material-symbols:view-column-outline' className="w-6 h-6" />
@@ -1035,7 +1079,6 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                 const sections = list.flatMap(d => d.referenceParameters.structured_summary?.map(d => d.heading)).filter((d, i, a) => d && a.indexOf(d) === i)
                                                 if (sections.length > 0) {
                                                     return <div className="px-2 py-1 flex flex-col space-y-4 text-gray-500 @container">
-                                                        <DescriptionList inContainer={true}>
                                                             <Checkbox
                                                                 size="sm"
                                                                 isSelected={frame.referenceParameters?.sections?.segment_title?.show}
@@ -1069,7 +1112,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                                                     onValueChange={() => { frame.setField(`referenceParameters.sections.${d}.largeSpacing`, !largeSpacing) }}
                                                                                 >Large spacing</Checkbox>
                                                                             </div>
-                                                                            <div className="flex space-x-2 w-full">
+                                                                            <div className="flex space-x-2 w-full ">
                                                                                 <DebouncedNumberInput
                                                                                     value={fontSize}
                                                                                     variant="bordered"
@@ -1139,7 +1182,6 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                                     </div>
                                                                 )
                                                             })}
-                                                        </DescriptionList>
                                                     </div>
                                                 }
                                             }

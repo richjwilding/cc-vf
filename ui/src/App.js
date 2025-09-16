@@ -48,7 +48,6 @@ window.mainstore_tests = test// MainStoreTests
 window.p = (d)=>mainstore.primitive(d)
 
 function App() {
-  
   const [loaded, setLoaded] = React.useState(false)
   const [open, setOpen] = React.useState(false)
   const [overlay, setOverlay] = React.useState(false)
@@ -139,9 +138,9 @@ function App() {
     }
   }
     
-  //const { id } = useParams();
   const id = window.location.pathname.match(/^\/item\/([a-fA-F0-9]{24})(?=\/|$)/)?.[1]
   const pagePrimitive = mainstore.primitive(id)
+  console.log(`App got ${id}`)
 
   function setWorkspace(workspace){
     mainstore.setActiveWorkspace(workspace)
@@ -190,7 +189,7 @@ function App() {
                   <Route path="/account/" element={<AccountScreen/>}/>
                   <Route path="/queue/:id?" element={<QueuePage />}/>
                   <Route path="/workflows/:id?" element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage}/>}/>
-                  <Route path="/item/:id" element={<PrimitivePage key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} primitive={pagePrimitive} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
+                  <Route path="/item/:id" element={<PrimitivePage key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
                   <Route path="/project/:id" element={<ProjectScreen/>}/>
                 </Route>
             </Routes>
