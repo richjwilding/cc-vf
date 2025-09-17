@@ -30,6 +30,7 @@ import FlowPage from './FlowPage';
 import ReportViewExporter from './ReportViewExporter';
 import RouterTest from './RouterTest';
 import FlowInstancePage from './FlowInstancePage';
+import PageView from './PageView';
 
 
 let mainstore = MainStore()
@@ -382,6 +383,10 @@ export function PrimitivePage({primitive, ...props}) {
       )
     }
   
+  if( primitive?.type === "page" ){
+    return <PageView primitive={primitive}/>
+  }
+
   if( primitive?.type === "working" ){
     return <AnalysisPage primitive={primitive}/>
   }
