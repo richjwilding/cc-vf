@@ -344,7 +344,16 @@ export function RenderPrimitiveAsKonva( primitive, options = {} ){
     }
     if( !renderer ){
         console.warn(`Cant find renderer for ${primitive.id} ${primitive.type} ${primitive.referenceId} / ${config}`)
-        return
+        const g = new Konva.Group({
+            width: 200,
+            height: 300
+        })
+        g.add( new Konva.Rect({
+            width: 200,
+            height: 300,
+            fill: "#DEADBE"
+        }))
+        return g
     }
 
     const themedOptions = { ...options, theme: options.theme ?? defaultTheme };
@@ -504,96 +513,6 @@ registerRenderer( {type: "default", configs: "datatable_checktable"}, ({table, c
 
     return g
 })
-/*registerRenderer( {type: "default", configs: "set_checktable"}, (primitive, options = {})=>{
-    const config = {width: 60, height: 60, padding: [2,2,2,2], ...(options.renderConfig ?? {})}
-    if( !options.list ){
-        return undefined
-    }
-    let g = new Konva.Group({
-        id: options.id,
-        name:"cell inf_track",
-        x: (options.x ?? 0),
-        y: (options.y ?? 0),
-        width: config.width,
-        height: config.height
-    })
-        const items = options.list
-        
-        const w = config.width - config.padding[3] - config.padding[1]
-        const h = config.height - config.padding[0] - config.padding[2]
-        const r = new Konva.Rect({
-            x: config.padding[3],
-            y: config.padding[0],
-            width: w,
-            height: h,
-            fill: '#f9fafb',
-            name: "background"
-        })
-        g.add(r)
-
-        //const colors = [undefined, "#aaa", "#666", "black"]
-        const colors = [undefined, "#bbf7d0", "#86efac", "#4ade80"]
-
-        if( items.length > 0 ){
-            if( options.checkMap ){
-                const score = items.map(d=>d.parentPrimitiveIds.map(d=>options.checkMap[d] ?? 0)).flat().reduce((a,c)=>a > c ? a : c, 0)
-
-                var circle = new Konva.Circle({
-                    x: config.padding[3] + (w/ 2),
-                    y: config.padding[0] + (h / 2),
-                    radius: w * 0.4,
-                    fill: 'white',
-                    stroke: "black",
-                    strokeWidth:1,
-                  });
-                  g.add(circle)
-                var arc = new Konva.Arc({
-                    x: config.padding[3] + (w/ 2),
-                    y: config.padding[0] + (h / 2),
-                    innerRadius: 0,
-                    outerRadius: w * 0.4,
-                    angle: 120 * score,
-                    rotation: 270,
-                    fill: colors[score],
-                    strokeWidth: 1,
-                  });
-                  g.add(arc)
-            }else{
-
-                const cScale = Math.min(w,h * 0.75) / 500 
-                const dim = 500 * cScale
-                const points = [
-                    100, 300, 200, 400, 400, 100
-                ].map(d=>d * cScale)
-                
-                const polyline = new Konva.Line({
-                    points: points,
-                    x: config.padding[3] + ((w - dim) / 2),
-                    y: config.padding[0] + ((h - dim) / 2),
-                    stroke: "black",
-                    strokeWidth: 2,
-                    lineJoin: 'round',
-                    lineCap: 'round',
-                    closed: false
-                });
-                g.add(polyline)
-            }
-
-        }
-
-
-    if( options.getConfig){
-        config.cachedNodes = g
-        return config
-    }else{
-        if( options.cachedNodes ){
-            options.cachedNodes.destroy()
-        }
-    }
-
-
-    return g
-})*/
 registerRenderer( {type: "default", configs: "set_totalValue"}, (primitive, options = {})=>{
     const config = {width: 130, height: 60, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
 
@@ -1100,131 +1019,6 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
 
     return g
 })
-/*registerRenderer( {type: "default", configs: "set_heatmap"}, (primitive, options = {})=>{
-    const renderOptions = options.renderOptions
-    const config = {width: 128, height: 128, padding: [5,5,5,5], ...(options.renderConfig ?? {})}
-    if( !options.list ){
-        return undefined
-    }
-    let range = options.range ?? [0,0]
-    let totals = options.totals ?? [0]
-    let title = ""
-    if(!options.inTable){
-
-        if( renderOptions?.group_by === "row"){
-            totals = options.rowTotal?.[options.rIdx]
-            range = options.rowRange?.[options.rIdx]
-            title = options.colTitles?.[options.cIdx]
-        }else if( renderOptions?.group_by === "col"){
-            totals = options.colTotal?.[options.cIdx]
-            range = options.colRange?.[options.cIdx]
-            title = options.rowTitles?.[options.rIdx]
-        }
-    }
-
-    const colors = heatMapPalette.find(d=>d.name === (renderOptions?.colors ?? "default"))?.colors ?? heatMapPalette[0].colors
-    const textColors = heatMapPalette.find(d=>d.name === (renderOptions?.colors ?? "default"))?.text_colors ?? colors.map(d=>"black")
-    range ||= [0,0]
-    const spread = range[1] - range[0] + 1
-    
-    
-    const g = new Konva.Group({
-        id: options.id,
-        name:"cell inf_track",
-        x: (options.x ?? 0),
-        y: (options.y ?? 0),
-        width: config.width,
-        height: config.height
-    })
-    const items = options.list
-
-    const idx = Math.floor((items.length - range[0]) / spread * colors.length) 
-
-    if( renderOptions.bubble){
-        const b = new Konva.Rect({
-            x: config.padding[3],
-            y: config.padding[0],
-            width: config.width - config.padding[3] - config.padding[1],
-            height: config.height - config.padding[0] - config.padding[2],
-            fill: "transparent",
-            name: "background"
-        })
-        g.add(b)
-        const midX = (config.width - config.padding[3] - config.padding[1]) / 2
-        const midY = (config.height - config.padding[2] - config.padding[0]) / 2
-        const maxR = Math.min(midX, midY)
-        const s = items.length
-        let r = s ===0 ? (!renderOptions.counts ? 1 : 0) : maxR / spread * (1+(s- range[0]))
-        let color = s === 0 && !renderOptions.counts ? "#555" : s === 0 ? "white" : colors[idx]
-        if( r > 0){
-            const r2 = new Konva.Circle({
-                x: config.padding[3] + midX,
-                y: config.padding[0] + midY,
-                radius: r,
-                fill: color
-            })
-            g.add(r2)
-        }
-    }else{
-        const r2 = new Konva.Rect({
-            x: config.padding[3],
-            y: config.padding[0],
-            width: config.width - config.padding[3] - config.padding[1],
-            height: config.height - config.padding[0] - config.padding[2],
-            fill: items.length === 0 ? "white" : colors[idx]
-        })
-        g.add(r2)
-    }
-    if( renderOptions?.counts){
-        const t = new Konva.CustomText({
-            x: config.padding[3],
-            y: (config.height) / 2,
-            text: renderOptions?.counts === "percentage" ? `${(items.length / totals * 100).toFixed(0)}% ` : items.length,
-            fontSize: renderOptions.bubble ? 10 : 16,
-            fontStyle: renderOptions.bubble ? "bold" : undefined,
-            fill: textColors[idx],
-            width: config.width - config.padding[3] - config.padding[1],
-            align:'center',
-            height:20,
-            bgFill: 'transparent',
-            refreshCallback: options.imageCallback
-        })
-        g.add(t)
-        t.y((config.height - t.textHeight ) /2)
-
-    }else if( renderOptions?.titles){
-        const t = new Konva.CustomText({
-            x: config.padding[3],
-            y: (config.height - 20) / 2,
-            text: title,
-            fontSize: 16,
-            width: config.width - config.padding[3] - config.padding[1],
-            fill: textColors[idx],
-            wrap: true,
-            ellipses: true,
-            align:'center',
-            //height:20,
-            bgFill: 'transparent',
-            refreshCallback: options.imageCallback
-        })
-        g.add(t)
-        t.y((config.height - t.height() ) /2)
-
-    }
-
-
-    if( options.getConfig){
-        config.cachedNodes = g
-        return config
-    }else{
-        if( options.cachedNodes ){
-            options.cachedNodes.destroy()
-        }
-    }
-
-
-    return g
-})*/
 
 registerRenderer( {type: "default", configs: "datatable_grid"}, function renderFunc({table, cell, renderOptions, childRenderOptions, stageOptions, ...options}){
     const items = cell.items
@@ -1409,6 +1203,7 @@ registerRenderer( {type: "default", configs: "datatable_grid"}, function renderF
     return g
 })
 registerRenderer( {type: "default", configs: "set_grid"}, (primitive, options = {})=>{
+    console.warn("DEPRECATED SET_GRID")
     const config = {itemSize: 256, columns: 5, spacing: [8,12], itemPadding: [10,12,10,8], padding: [5,5,5,5], ...(options.renderConfig ?? {}), ...(options.renderOptions ?? {})}
     if( config.minWidth ){
         config.itemSize = config.minWidth
@@ -1931,96 +1726,6 @@ function addHeader( title, options ={}){
 
 }
 
-registerRenderer( {type: "type", id: "page", configs: "set_grid"}, (primitive, options = {})=>{
-    const config = {minColumns: 1, spacing: [20,20], itemPadding: [0,0,0,0], padding: [5,5,5,5], ...(options.renderConfig ?? {})}
-    if( !options.list ){
-        return undefined
-    }
-
-    let minColumns = config.minColumns
-
-    let items = options.list
-    let itemCount = items.length + (config.showExtra ? 1 : 0)
-
-    if( minColumns) {
-        config.columns = Math.max(minColumns, config.columns)
-    }
-
-    const width = config.width 
-    const height = config.height 
-    
-    const g = new Konva.Group({
-        id: options.id,
-        name:"cell inf_track",
-        x: (options.x ?? 0),
-        y: (options.y ?? 0),
-        width: width,
-        height: height,
-    })
-    let x = config.padding[3] + config.spacing[1]
-    let y = config.padding[0] + config.spacing[0]
-
-    const r = new Konva.Rect({
-        x: config.padding[3],
-        y: config.padding[0],
-        width: config.width - config.padding[3] - config.padding[1],
-        height: config.height ? config.height - config.padding[0] - config.padding[2] : undefined,
-        name: "background",
-        fill: options.theme?.background || '#f9fafb'
-    })
-    g.add(r)
-
-
-    let idx = 0
-    let maxX = 0
-    let columnYs = new Array( config.columns ).fill( y )
-    for( let dIdx = 0; dIdx < itemCount; dIdx++){
-        const d = items[dIdx]
-        let node
-
-        if( d ){
-            node = RenderPrimitiveAsKonva( d, {
-                config: "default", 
-                x: x, 
-                y: columnYs[ idx ], 
-                onClick: options.primitiveClick,
-                padding: config.itemPadding, 
-                placeholder: options.placeholder !== false,
-                imageCallback: options.imageCallback,
-                itemIdx: dIdx,
-                utils: options.utils,
-                ...options.extras
-            })
-        }else{
-            node = addExtraNode( config, options, x, y, 1080)
-        }
-
-        g.add(node)
-        let lastHeight = node.attrs.height
-        columnYs[idx] += lastHeight + config.spacing[0]
-
-        maxX = Math.max(maxX, x + node.attrs.width)
-        x += node.attrs.width + config.spacing[1]
-        idx++
-        if( idx === config.columns){
-            idx = 0
-            x = config.padding[3] + config.spacing[1]
-            y = columnYs[idx]
-        }
-    }
-
-    const mayY = Math.max(...columnYs) 
-    g.height( mayY + config.padding[2])
-    config.height = mayY + config.padding[2]
-    config.width = maxX
-
-    if( options.getConfig ){
-        return config
-    }
-
-    return g
-
-})
 registerRenderer( {type: "categoryId", id: 138, configs: "set_grid"}, (primitive, options = {})=>{
     const config = {itemWidth: 600, minColumns: 1, spacing: [2,2], itemPadding: [10,10,10,10], ...(options.renderConfig ?? {})}
     return baseGridRender(options, config)
@@ -7543,93 +7248,6 @@ registerRenderer( {type: "default", configs: "datatable_heatmap"}, ({table, cell
 
     return g
 })
-registerRenderer( {type: "default", configs: "set_distribution_chart"}, function renderFunc(primitive, options = {}){
- //   console.warn("USING OLD RENDER FOR SUB DIST - REPLACE")
-    const config = {itemSize: 280, padding: [10,10,10,10], ...options}
-    if( options.getConfig){
-        return {
-            ...config,
-            width: config.itemSize,
-            height: config.itemSize
-        }
-    }
-    const list = options.listWithAllocations ?? []
-    let field = options.renderConfig.viewConfig.field
-    let values = {}
-    let useBasic = false
-    if( field === "is_verified_review" ){
-        values = {
-            true: {label: "Yes", count: 0},
-            false: {label: "No", count: 0}
-        }
-        useBasic = true
-    }else if( field === "review_rating"){
-        useBasic = true
-        values = {
-            1: {label: "1", count: 0},
-            2: {label: "2", count: 0},
-            3: {label: "3", count: 0},
-            4: {label: "4", count: 0},
-            5: {label: "5", count: 0},
-        }
-    }else{
-        values = options.allocationExtents?.filterGroup0?.reduce((a,c)=>{
-            a[c.idx] = {label: c.label, count: 0}
-            return a
-        },{}) ?? {}
-    }
-    list.forEach(d=>{
-        let v
-        if(useBasic){
-            v = d.primitive.referenceParameters?.[field] ?? ""
-        }else{
-            const lookup = Array.isArray(d.filterGroup0) ? d.filterGroup0[0] : d.filterGroup0
-            v = lookup
-        }
-        values[v] ||= {label: v, count: 0}
-        values[v].count++
-    })
-    let scale
-    let max, min, count
-    if(options.renderOptions.calcRange && Array.isArray(options.rowRange)){
-        //max = options.range[1]
-        //min = options.range[0]
-        //max = options.rowRange[options.rIdx][1]
-        //min = options.rowRange[options.rIdx][0]
-        max = options.colRange[options.cIdx][1]
-        min = options.colRange[options.cIdx][0]
-        count = list.length 
-        scale = ((count / max) * 0.8) + 0.2
-        
-    }
-    let g = new Konva.Group({
-        id: options.id,
-        name:"cell inf_track",
-        x: (options.x ?? 0),
-        y: (options.y ?? 0),
-        width: config.itemSize,
-        height: config.itemSize
-    })
-    const sg = renderSubCategoryChart("", Object.values(values), {
-        x: config.itemSize * (options.renderOptions.show_legend ? 0.1 : 0), 
-        y: 0, 
-        itemSize: config.itemSize * (options.renderOptions.show_legend ? 0.8 : 1), 
-        innerPadding: config.padding, 
-        style: options.renderOptions.style, 
-        hideTitle: true, 
-        paletteName: options.renderOptions.colors,
-        scale,
-        max,
-        min,
-        count,
-        horizontalLegend: true,
-        reversePalette: options.renderOptions.reverse_palette,
-        hideLegend: !options.renderOptions.show_legend,
-        sort: "none"
-    })
-    g.add(sg)
-    return g
-})
 registerRenderer( {type: "default", configs: "datatable_timeseries"}, function renderFunc({table, cell, renderOptions, ...options}){
     const config = {width: 280, height: 140, padding: [10,10,10,10], ...options}
     if( renderOptions.width ){
@@ -7776,6 +7394,225 @@ registerRenderer( {type: "default", configs: "datatable_timeseries"}, function r
             height: g.height()
         }
     }
+    return g
+})
+registerRenderer( {type: "default", configs: "datatable_overunder"}, ({table, cell, renderOptions, ...options})=>{
+     const config = {itemSize: 350, padding: [2,2,2,2], ...options}
+    const fontSize = 12
+    const barHeight = 20
+    const list = cell.items ?? []
+
+    const _allocations = table.defs?.allocations ?? {}
+    const [scoreName, axisName, compsName] = _allocations.map(d=>d.field)
+    const scores = scoreName ? (table.allocations[scoreName].items ?? []).filter(d=>d.idx !== undefined && d.idx !== null && d.idx !== "_N_")  : []
+    const axis = axisName ? table.allocations[axisName].items : []
+    const comps = compsName ? table.allocations[compsName].items : [undefined]
+    let groupColors = options.theme?.palette?.categoryColors ?? categoryColors
+
+    let g = new Konva.Group({
+        id: options.id,
+        name:"cell inf_track",
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.itemSize,
+        height: config.itemSize
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.itemSize,
+        height: config.itemSize,
+        fill:"white"
+    })
+    g.add(r)
+
+
+    let positives, negatives
+
+    if( scores.length % 2 === 1){
+        const mid = (scores.length + 1) / 2
+        negatives = new Set(scores.map(d=>d.idx).slice(0,mid - 1))
+        positives = new Set(scores.map(d=>d.idx).slice(mid))
+    }else{
+        const mid = scores.length / 2
+        negatives = new Set(scores.map(d=>d.idx).slice(0,mid))
+        positives = new Set(scores.map(d=>d.idx).slice(mid))
+    }
+
+    const renderData = {}
+    const maximums = {positives: 0, negatives: 0}
+
+    for(const comp of comps ){
+        for(const ax of axis ){
+            const key = `${ax.idx}-${comp?.idx}`
+            renderData[key] = {
+                negativeScoreCounts: negatives.keys().toArray().reduce((a,c)=>{a[c] = 0; return a}, {}),
+                positiveScoreCounts: positives.keys().toArray().reduce((a,c)=>{a[c] = 0; return a}, {}),
+                global: {
+                    positives: 0,
+                    negatives: 0,
+                    total: 0
+                },
+            }
+            for(const score of scores){
+                let target = cell.allocations[scoreName].find(d=>d.idx === score.idx)
+                if( target ){
+                    target = target.allocations[axisName].find(d=>d.idx === ax.idx)
+                    if( compsName && target ){
+                        target = target.allocations[compsName].find(d=>d.idx === comp.idx)
+                    }
+                }
+
+                let count = target.count
+
+                if( negatives.has(score.idx)){
+                    renderData[key].negativeScoreCounts[score.idx] = (renderData[key].negativeScoreCounts[score.idx]  || 0) + count
+                    renderData[key].global.negatives += count
+                }else if( positives.has(score.idx)){
+                    renderData[key].global.positives += count
+                    renderData[key].positiveScoreCounts[score.idx] = (renderData[key].positiveScoreCounts[score.idx]  || 0) + count
+                }
+                renderData[key].global.total += count
+
+
+                if( renderData[key].global.positives > maximums.positives){
+                    maximums.positives = renderData[key].global.positives
+                }
+                if( renderData[key].global.negatives > maximums.negatives){
+                    maximums.negatives = renderData[key].global.negatives
+                }
+
+            }
+        }
+    }
+
+    const usableWidth = (config.itemSize * 0.9) - (renderOptions.show_breakdown ? barHeight * 4 : 0)
+    const scale = usableWidth / Math.max(1, (renderOptions?.center ? Math.max(maximums.negatives, maximums.positives) * 2 : (maximums.negatives + maximums.positives)))
+    const axisOrigin = (renderOptions.show_breakdown ? barHeight * 2 : 0) + (renderOptions?.center ? (Math.max(maximums.negatives, maximums.positives) * scale) : (maximums.negatives * scale))
+
+    const heatColors = [...heatMapPalette.find(d=>d.name === "heat").colors].slice(-negatives.size).reverse()
+    const greenColors = [...heatMapPalette.find(d=>d.name === "green").colors].slice(-negatives.size)
+
+    let x = config.padding[3], y = config.padding[0]
+    let maxW = 0
+    let rIdx = -1
+    const includeNeutralInPercent = true
+    for(const ax of axis ){
+        x = config.padding[3] 
+        rIdx ++
+        let cIdx = -1
+        let sg = new Konva.Group({
+            x,
+            y,
+            width: config.itemSize,
+        })
+        let ly = 0
+        let idx = -1
+        for(const comp of comps ){
+            idx++
+            const key = `${ax.idx}-${comp?.idx}`
+            cIdx++
+            const thisData = renderData[key]            
+            if( !thisData ){
+                continue
+            }
+
+            if( cIdx === 0){
+                sg.add(new CustomText({
+                    x: axisOrigin + 4,
+                    text: axis[rIdx].label,
+                    fontSize
+                }))
+                ly += fontSize * 1.2
+            }
+                if( renderOptions.show_breakdown){
+                    sg.add(renderPieChart( Object.keys(thisData.negativeScoreCounts).map(d=>({label: scores.find(d2=>d2.idx === d)?.label, count: thisData.negativeScoreCounts[d] })),
+                    {
+                        x: 0,
+                        y: ly + barHeight * 0.1,
+                        size: barHeight * 0.8,
+                        colors: heatColors
+                    }))
+                    sg.add(new CustomText({
+                        x: (barHeight),
+                        y: ly + barHeight * 0.1,                        
+                        fontSize: fontSize * 0.7,
+                        text: `${((includeNeutralInPercent ? thisData.global.negatives / thisData.global.total : thisData.global.negatives  / (thisData.global.positives + thisData.global.negatives ) )* 100).toFixed(0)}%`
+                    }))
+                }
+                sg.add(new Konva.Rect({
+                    x: axisOrigin - (scale * thisData.global.negatives),
+                    y: ly,
+                    width: (scale * (thisData.global.negatives + thisData.global.positives)),
+                    height: barHeight,
+                    fill: groupColors[idx]
+                }))
+                if( renderOptions.show_breakdown){
+                    sg.add(renderPieChart( Object.keys(thisData.positiveScoreCounts).map(d=>({label: scores.find(d2=>d2.idx === d)?.label, count: thisData.positiveScoreCounts[d] })),
+                    {
+                        x: config.itemSize - barHeight,
+                        y: ly + barHeight * 0.1,
+                        size: barHeight * 0.8,
+                        colors: greenColors
+                    }))
+                    sg.add(new CustomText({
+                        x: config.itemSize - (barHeight * 2),
+                        fontSize: fontSize * 0.7,
+                        y: ly + barHeight * 0.1,                        
+                        text: `${((includeNeutralInPercent ? thisData.global.positives / thisData.global.total : thisData.global.positives / (thisData.global.positives + thisData.global.negatives ))* 100).toFixed(0)}%`
+                    }))
+                }
+                ly += barHeight * 1.2
+            }
+            sg.height(ly)
+            g.add(sg)
+            y += sg.height() + (fontSize * 1.75)
+
+            x += config.itemSize
+            maxW = x > maxW ? x : maxW
+    }
+    g.width(maxW)
+
+    g.add(new Konva.Line({
+        points: [ config.padding[3] + axisOrigin, config.padding[0], config.padding[3] + axisOrigin, y],
+        strokeWidth: 1 ,
+        stroke: "#828282"
+    }))
+    if( comps.length > 1){
+        if( renderOptions.show_legend){
+            y += fontSize * 1.2
+            const legend = renderLegend( comps,{
+                                ...options,
+                                fontSize: fontSize * 0.8,
+                                x: config.padding[3],
+                                y: y,
+                                itemSize: config.itemSize,
+                                colors: groupColors
+            })
+            g.add( legend)
+            y += legend.height()
+
+        }
+
+    }
+
+    r.height(y)
+    g.height(y)
+
+
+    if( options.getConfig){
+        return {
+            ...config,
+            width: g.width(),
+            height: g.height()
+        }
+    }
+
+    /*list.forEach(d=>{
+        const v = Array.isArray(d.filterGroup0) ? d.filterGroup0[0] : d.filterGroup0
+        values[v] ||= {label: v, count: 0}
+        values[v].count++
+    })*/
     return g
 })
 registerRenderer( {type: "default", configs: "set_overunder"}, function renderFunc(primitive, options = {}){
@@ -9409,10 +9246,12 @@ function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY,
         headerFontSize = headerFontSize * userScaleHeaders
     }
 
-    if( needColumnFontRescale ){
-        columnContent.forEach(d=>d.fontSize(headerFontSize))
+    if( needColumnFontRescale && columnLabelAsText){
+        columnContent.forEach(d=>{
+            d.fontSize(headerFontSize)
+        })
     }
-    if( needRowFontRescale ){
+    if( needRowFontRescale && rowLabelAsText){
         rowContent.forEach(d=>d.fontSize(headerFontSize))
     }
 

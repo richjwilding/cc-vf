@@ -772,9 +772,15 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                     variant="bordered"
                                                     labelPlacement="outside"
                                                     disallowEmptySelection={true}
-                                                    selectedKeys={[frame.renderConfig?.[d]]}
+                                                    selectedKeys={[`${frame.renderConfig?.[d]}`]}
                                                     onSelectionChange={(v)=>{
-                                                        onValueChange(Array.from(v)[0])
+                                                        v = Array.from(v)[0]
+                                                        if( v === "false"){
+                                                            v = false
+                                                        }else if( v == "true" ){
+                                                            v = true
+                                                        }
+                                                        onValueChange(v)
                                                     }}
                                                     >
                                                          {viewConfig.config[d].options.map(n => (

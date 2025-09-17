@@ -1151,7 +1151,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                     mappedCategories
                 }
             }else{
-                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "ranking" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts || viewConfig.matrixType === undefined){
+                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "ranking" || viewConfig.matrixType === "overunder" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts || viewConfig.matrixType === undefined){
                     let dataTable 
 
                     function setupDataConfig( viewConfig, renderConfig = {} ){
