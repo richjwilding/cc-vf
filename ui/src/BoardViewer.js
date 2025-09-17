@@ -24,7 +24,7 @@ import { ConvertVisualizationSpec } from "./VisualizationToDataTable";
 const log = getLogger('BoardViewer', { level: 'debug' })
 
                 
-export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
+export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "view", "pin", "pin_label", "plainId", "indicators"]
 const RENDERSUB = false//true
 
 function preparePins(primitiveToPrepare, basePrimitive, stateId, myState){

@@ -190,6 +190,9 @@ class CustomImage extends Shape {
   static wgl = null
   static wtexture = null
   static wframebuffer = null
+  static wglKey = null
+  static wglKeyProgram = null
+  static wglKeyTexture = null
 
   static setupWGL(){
     if( this.wUnsupported){return}
@@ -219,6 +222,222 @@ class CustomImage extends Shape {
     this.wtexture = texture
     this.wframebuffer = framebuffer
   }
+
+  static setupKeyWGL(){
+    if( this.wKeyUnsupported){return}
+    if( this.wglKey ){return}
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true });
+    if (!gl) {
+      this.wKeyUnsupported = true
+      return
+    }
+
+    const vertexShaderSrc = `
+      attribute vec2 a_position;
+      attribute vec2 a_texCoord;
+      varying vec2 v_texCoord;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+        v_texCoord = a_texCoord;
+      }
+    `;
+    const fragmentShaderSrc = `
+      precision mediump float;
+      varying vec2 v_texCoord;
+      uniform sampler2D u_image;
+      uniform vec3 u_key;
+      uniform float u_tol;   // tolerance 0..1 (RGB distance)
+      uniform float u_soft;  // softness feather 0..1
+      uniform bool u_useWhiteKey;
+      uniform float u_sTol;  // saturation tol for white key
+      uniform float u_sSoft; // saturation softness
+      uniform float u_vMin;  // min value threshold for white key gate
+      uniform vec2 u_imgMin; // image rect min UV
+      uniform vec2 u_imgMax; // image rect max UV
+      uniform vec2 u_cornerEps; // small inset in UV to avoid boundary AA
+
+      float maskKeep(vec3 col){
+        float dE = distance(col, u_key);
+        vec3 ad = abs(col - u_key);
+        float dM = max(ad.r, max(ad.g, ad.b));
+        if(u_useWhiteKey){
+          float maxc = max(col.r, max(col.g, col.b));
+          float minc = min(col.r, min(col.g, col.b));
+          float diff = maxc - minc;
+          float s = maxc == 0.0 ? 0.0 : diff / maxc;
+          float v = maxc;
+          float satS = smoothstep(u_sTol, u_sTol + u_sSoft, s);
+          float vS   = smoothstep(u_vMin - 0.05, u_vMin + 0.05, v);
+          float whiteness = (1.0 - satS) * vS;
+          float maskE = smoothstep(u_tol, u_tol + u_soft, dE);
+          float maskM = smoothstep(u_tol, u_tol + u_soft, dM);
+          float maskW = 1.0 - whiteness;
+          return min(maskW, min(maskE, maskM));
+        }else{
+          float maskE = smoothstep(u_tol, u_tol + u_soft, dE);
+          float maskM = smoothstep(u_tol, u_tol + u_soft, dM);
+          return min(maskE, maskM);
+        }
+      }
+
+      void main(){
+        vec4 c = texture2D(u_image, v_texCoord);
+
+        // Corner check in image rect
+        vec2 eps = u_cornerEps;
+        vec2 uv1 = u_imgMin + eps;
+        vec2 uv2 = vec2(u_imgMax.x - eps.x, u_imgMin.y + eps.y);
+        vec2 uv3 = vec2(u_imgMin.x + eps.x, u_imgMax.y - eps.y);
+        vec2 uv4 = u_imgMax - eps;
+        float k1 = 1.0 - maskKeep(texture2D(u_image, uv1).rgb);
+        float k2 = 1.0 - maskKeep(texture2D(u_image, uv2).rgb);
+        float k3 = 1.0 - maskKeep(texture2D(u_image, uv3).rgb);
+        float k4 = 1.0 - maskKeep(texture2D(u_image, uv4).rgb);
+        float cornersKey = min(min(k1, k2), min(k3, k4));
+
+        float alpha;
+        if(cornersKey < 0.5){
+          // do not key if corners don't match key color
+          alpha = c.a;
+        } else {
+          float keep = maskKeep(c.rgb);
+          alpha = keep * c.a;
+        }
+        gl_FragColor = vec4(c.rgb * alpha, alpha);
+      }
+    `;
+
+    const vs = createShader(gl, gl.VERTEX_SHADER, vertexShaderSrc);
+    const fs = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSrc);
+    const program = createProgram(gl, vs, fs);
+    gl.useProgram(program);
+
+    // quad
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1,-1, 1,-1, -1,1, 1,1
+    ]), gl.STATIC_DRAW);
+    const positionLocation = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    const texCoordBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      0,0, 1,0, 0,1, 1,1
+    ]), gl.STATIC_DRAW);
+    const texCoordLocation = gl.getAttribLocation(program, 'a_texCoord');
+    gl.enableVertexAttribArray(texCoordLocation);
+    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    this.wglKey = gl
+    this.wglKeyProgram = program
+    this.wglKeyTexture = texture
+    this.wglKeyCanvas = canvas
+  }
+
+  static _parseHexToRgbNorm(hex){
+    if(!hex) return [1,1,1]
+    if(typeof hex === 'boolean'){ return [1,1,1] }
+    if(hex === 'white'){ return [1,1,1] }
+    // allow #rgb or #rrggbb
+    const m = String(hex).trim();
+    let h = m.startsWith('#') ? m.slice(1) : m
+    if(h.length === 3){ h = h.split('').map(ch=>ch+ch).join('') }
+    const r = parseInt(h.slice(0,2),16)/255;
+    const g = parseInt(h.slice(2,4),16)/255;
+    const b = parseInt(h.slice(4,6),16)/255;
+    return [isNaN(r)?1:r, isNaN(g)?1:g, isNaN(b)?1:b]
+  }
+
+  static processChromaKeyToCanvas(sourceCanvas, keyColor, tol=0.08, soft=0.02, imgRect){
+    // Try WebGL keyer
+    this.setupKeyWGL()
+    if( this.wglKey){
+      const gl = this.wglKey
+      const canvas = this.wglKeyCanvas
+      // resize GL canvas
+      canvas.width = sourceCanvas.width
+      canvas.height = sourceCanvas.height
+      gl.viewport(0,0,canvas.width, canvas.height)
+
+      gl.bindTexture(gl.TEXTURE_2D, this.wglKeyTexture)
+      // Flip Y so WebGL texture matches 2D canvas orientation
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sourceCanvas)
+
+      gl.useProgram(this.wglKeyProgram)
+      gl.activeTexture(gl.TEXTURE0)
+      const samplerLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_image')
+      gl.uniform1i(samplerLoc, 0)
+      const keyLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_key')
+      const tolLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_tol')
+      const softLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_soft')
+      const useWhiteLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_useWhiteKey')
+      const sTolLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_sTol')
+      const sSoftLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_sSoft')
+      const vMinLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_vMin')
+      const imgMinLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_imgMin')
+      const imgMaxLoc = gl.getUniformLocation(this.wglKeyProgram, 'u_imgMax')
+      const epsLoc    = gl.getUniformLocation(this.wglKeyProgram, 'u_cornerEps')
+      const [kr,kg,kb] = this._parseHexToRgbNorm(keyColor)
+      gl.uniform3f(keyLoc, kr, kg, kb)
+      gl.uniform1f(tolLoc, tol)
+      gl.uniform1f(softLoc, soft)
+      // detect near-white key
+      const isWhite = (kr > 0.98 && kg > 0.98 && kb > 0.98);
+      gl.uniform1i(useWhiteLoc, isWhite ? 1 : 0)
+      // reasonable defaults for white background removal
+      gl.uniform1f(sTolLoc, 0.15)
+      gl.uniform1f(sSoftLoc, 0.10)
+      gl.uniform1f(vMinLoc, 0.80)
+      // image rect uniforms (UV space) and small epsilon inset
+      const minUV = (imgRect && imgRect.min) ? imgRect.min : [0.0, 0.0]
+      const maxUV = (imgRect && imgRect.max) ? imgRect.max : [1.0, 1.0]
+      const epsUV = (imgRect && imgRect.eps) ? imgRect.eps : [1.0 / canvas.width, 1.0 / canvas.height]
+      gl.uniform2f(imgMinLoc, minUV[0], minUV[1])
+      gl.uniform2f(imgMaxLoc, maxUV[0], maxUV[1])
+      gl.uniform2f(epsLoc, epsUV[0], epsUV[1])
+
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+      return canvas
+    }
+
+    // Fallback: CPU pixel loop
+    const out = document.createElement('canvas')
+    out.width = sourceCanvas.width
+    out.height = sourceCanvas.height
+    const octx = out.getContext('2d')
+    octx.drawImage(sourceCanvas, 0, 0)
+    const img = octx.getImageData(0,0,out.width,out.height)
+    const d = img.data
+    const [kr,kg,kb] = this._parseHexToRgbNorm(keyColor).map(v=>Math.round(v*255))
+    const thr = Math.round(tol*255)
+    const softThr = Math.round(soft*255)
+    for(let i=0;i<d.length;i+=4){
+      const dr = d[i]-kr, dg=d[i+1]-kg, db=d[i+2]-kb
+      const dist = Math.sqrt(dr*dr+dg*dg+db*db)
+      if(dist <= thr){
+        d[i+3]=0
+      }else if(dist < (thr+softThr)){
+        const t = (dist - thr)/softThr
+        d[i+3] = Math.round(d[i+3]*t)
+      }
+    }
+    octx.putImageData(img,0,0)
+    return out
+  }
+
 
   constructor(attrs) {
     const defaults = {
@@ -402,8 +621,8 @@ this.maxImage.width  = this.attrs.width  * rasterScale;
 this.maxImage.height = this.attrs.height * rasterScale;
 const ctx = this.maxImage.getContext('2d');
 
-// fill background if not SVG
-if (!this.attrs.url.startsWith('svg:')) {
+// fill background only if not SVG and no chroma-keying requested
+if (!this.attrs.url.startsWith('svg:') && !this.attrs.colorKey && !this.attrs.clearImg !== false) {
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, this.maxImage.width, this.maxImage.height);
 }
@@ -416,82 +635,30 @@ ctx.drawImage(
   drawWidth  * rasterScale, // drawWidth = img.width * baseScale => becomes img.width * rasterScale
   drawHeight * rasterScale  // likewise
 );
+          // Optional chroma-key at load time so downstream cache draws are cheap
+          if(this.attrs.colorKey){
+            const key = this.attrs.colorKey === true ? '#ffffff' : this.attrs.colorKey;
+            const tol = isNaN(this.attrs.keyTolerance) ? 0.08 : Math.max(0, Math.min(0.5, this.attrs.keyTolerance));
+            const soft = isNaN(this.attrs.keySoftness) ? 0.02 : Math.max(0, Math.min(0.5, this.attrs.keySoftness));
+            // Compute UV rect of drawn image for shader corner check
+            const cw = this.maxImage.width, ch = this.maxImage.height
+            const minU = (dx * rasterScale) / cw
+            const minV = (dy * rasterScale) / ch
+            const maxU = (dx * rasterScale + drawWidth * rasterScale) / cw
+            const maxV = (dy * rasterScale + drawHeight * rasterScale) / ch
+            const epsU = 1.5 / cw
+            const epsV = 1.5 / ch
+            const processed = CustomImage.processChromaKeyToCanvas(this.maxImage, key, tol, soft, {min:[minU,minV], max:[maxU,maxV], eps:[epsU,epsV]});
+            // Draw processed result back into our persistent canvas
+            ctx.clearRect(0,0,this.maxImage.width,this.maxImage.height);
+            ctx.drawImage(processed, 0, 0, this.maxImage.width, this.maxImage.height);
+            // Verify GL result; if large portion remains solid white, use CPU fallback
+            this._chromaApplied = true;
+          }
           // 9) refresh
           this._clearSelfAndDescendantCache('absoluteTransform');
           this.requestRefresh();
           resolve();
-        /*
-          let padding = this.attrs.padding ?? [0,0,0,0]
-          let aWidth = this.attrs.width - padding[1] - padding[3]
-          let aHeight = (this.attrs.height - padding[0] - padding[2]) 
-          let targetWidth = aWidth * this.maxScale * this.scaleRatio, targetHeight = aHeight * this.maxScale * this.scaleRatio
-          
-          const targetRatio = targetWidth / targetHeight
-
-          let sy = 0, sx =0
-          let sWidth = img.width
-          let sHeight = img.height
-          let newWidth, newHeight
-
-          if( this.attrs.fit === "cover"){
-            if(img.width >= img.height){
-                sHeight = img.width / targetRatio
-                sy = (img.height - sHeight) / 2
-            }else{
-                sWidth = img.height * targetRatio
-                sx = (img.width - sWidth) / 2
-            }
-            newWidth = targetWidth
-            newHeight = targetHeight
-          }else{
-            if(img.width > img.height){
-              if(img.width < targetWidth){
-                targetWidth = img.width
-                targetHeight = targetWidth / targetRatio
-              }
-            }else{
-              if(img.height < targetHeight){
-                targetHeight = img.height
-                targetWidth = targetHeight * targetRatio
-              }
-            }
-            const imgScale = Math.min( targetWidth / img.width, targetHeight / img.height)
-            newWidth = img.width * imgScale
-            newHeight = img.height * imgScale
-          }
-
-
-
-          const xOffset = (targetWidth - newWidth) / 2;
-          const yOffset = (targetHeight - newHeight) / 2;
-
-          this.activeScale = Math.min(targetWidth / aWidth, targetHeight / aHeight )
-      
-
-          this.maxImage = document.createElement('canvas');
-          this.maxImage.width = this.attrs.width * this.activeScale
-          this.maxImage.height = this.attrs.height * this.activeScale
-
-
-
-          let ctx = this.maxImage.getContext("2d")
-
-          if( xOffset !== 0 || yOffset !== 0 || newWidth !== targetWidth || newHeight !== targetHeight ){
-            this.needsFill = true
-          }
-          if(!this.attrs.url.startsWith("svg:")){
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0,0,this.maxImage.width, this.maxImage.height)
-          }
-
-          ctx.drawImage(img, sx,sy, sWidth,sHeight, xOffset + (this.activeScale * padding[3]), yOffset + (this.activeScale * padding[0]), newWidth, newHeight);
-          
-          
-          this._clearSelfAndDescendantCache('absoluteTransform')
-          this.requestRefresh()
-        
-        resolve(); // Indicate that the image has been successfully loaded and drawn
-        */
 
       };
   
@@ -568,10 +735,10 @@ ctx.drawImage(
     this.pcache._canvas_context = this.pcache._canvas.getContext("2d")    
 
     
-    if( !this.maxImage && !this.cloneFrom){
+    if( !this.maxImage && !this.cloneFrom && !this.attrs.colorKey && !this.attrs.clearImg !== false){
       CustomImage.ensurePlaceholderReady().then(() => {
           if( !this.maxImage ){
-            if(!this.attrs.url.startsWith("svg:")){
+            if(!this.attrs.url?.startsWith("svg:")){
                 const w = Math.max(Math.min(this.pcache.width, 200),CustomImage.placeholderImage.width)
                 const h = CustomImage.placeholderImage.height / CustomImage.placeholderImage.width * w
                 let x = (this.pcache.width - w)/2

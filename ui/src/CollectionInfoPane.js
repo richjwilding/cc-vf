@@ -758,14 +758,29 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                             value={viewConfigs[activeView]?.id}
                             zIndex={50}
                         />
-                        <div className='w-full overflow-y-scroll space-y-3 max-h-[50vh] h-full flex flex-col'>
+                        <div className='w-full overflow-y-scroll space-y-8 max-h-[50vh] h-full flex flex-col'>
                             {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
                             {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d => {
                                 const currentValue = frame.renderConfig?.hasOwnProperty(d) ? frame.renderConfig[d] : viewConfig.config[d].default
                                 const onValueChange = async (v) => { await frame.setField(`renderConfig.${d}`, v); updateFrame() }
                                 switch (viewConfig.config[d].type) {
                                     case "option_list":
-                                        return <UIHelper key={d} {...viewConfig.config[d]} value={frame.renderConfig?.[d]} zIndex={50} onChange={onValueChange} />
+                                        //return <UIHelper key={d} {...viewConfig.config[d]} value={frame.renderConfig?.[d]} zIndex={50} onChange={onValueChange} />
+                                        return <Select 
+                                                    key={d} 
+                                                    label={viewConfig.config[d].title}
+                                                    variant="bordered"
+                                                    labelPlacement="outside"
+                                                    disallowEmptySelection={true}
+                                                    selectedKeys={[frame.renderConfig?.[d]]}
+                                                    onSelectionChange={(v)=>{
+                                                        onValueChange(Array.from(v)[0])
+                                                    }}
+                                                    >
+                                                         {viewConfig.config[d].options.map(n => (
+                                                                <SelectItem key={n.id}>{n.title}</SelectItem>
+                                                            ))}
+                                                    </Select>
                                     case "boolean":
                                         return <Switch size="sm" key={d} isSelected={currentValue} onValueChange={onValueChange}>{viewConfig.config[d].title}</Switch>
                                     case "axis_text":

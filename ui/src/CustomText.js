@@ -554,7 +554,7 @@ _setTextData() {
             currentHeightPx = startRow + rowSpacing
             let firstOfCell = true
             if( rIdx === 0){
-                fills[cIdx] = "#999999"
+                fills[cIdx] = this.attrs.tableHeaderFill ?? "#999999"
             }else{
 
               //const m = col.children[0].children?.[0]?.text?.match(heatRegex)
@@ -665,7 +665,7 @@ _setTextData() {
             const bold = frag.bold || isHeading  || tableInfo?.row === 0
             const bullet = isListItem && (fragmentIdx === 0)
             const lastLine = lastSection && (fragmentIdx === (children.length - 1))
-            const color = tableInfo?.row === 0 ? "white" : undefined
+            const color = tableInfo?.row === 0 ? (this.attrs.tableHeaderColor ?? "white") : undefined
             let text = frag.text
             let fragChildren = frag.children
             if( text !== undefined){

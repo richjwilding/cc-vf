@@ -68,12 +68,17 @@ class CollectionUtils{
         if( metaConfigs ){
             metaConfigs = metaConfigs.map(d=>{
                 if( d.builtIn ){
-                    return {
+                    const partial = {
                         ...(PrimitiveConfig.renderConfigs[d.builtIn] ?? {}),
                         title: d.title,
                         categoryId: category.id,
                         id: d.id
                     }
+                    partial.config = {
+                        ...(partial.config ?? {}),
+                        ...(d.config ?? {})
+                    }
+                    return partial
                 }
                 return {
                     ...d,

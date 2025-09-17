@@ -110,11 +110,13 @@ export const darkNavyTheme = {
  //   background: "red",//"#0f172a",
     background: "#0f172a",
     surface: undefined,
-    panel: "#3a4150", // Call out panel fill
+    panel: "#3a4150", 
+    header: "#212736", 
     primary: "#e6eaee",
     secondary: "#cbd5e1",
     muted: "#a6aaae",
     accent: "#38bdf8",
+    headerText: "#C3CCD5", 
     border: "none",
     grid: "#cbd5e1",
     subgrid: "#334155",
@@ -122,7 +124,7 @@ export const darkNavyTheme = {
     placeholder: "#475569",
     hoverFill: "#00B0F025",
     hoverStroke: "#00B0F088",
-    cell: "#3a4150",
+    cell: "#333A47",
     categoryColors,
     tagColors
   },
@@ -154,10 +156,12 @@ export const defaultTheme = {
     background: "#fcfcfc", // Slide background
     surface: undefined, // Neutral surface for text and items
     panel: "#f2f2f2", // Call out panel fill
+    header: "#f2f2f2", // Table header fill
     primary: "#334155", // Main text 
     secondary: "#9b96a2", // less prominent text
     muted: "#777777", // low emphasis text
     accent: "#7e8184", // high emphasis text
+    headerText: "#334155", // Main text 
     border: "#e2e2e2", // border of items
     grid: "#e2e2e2", // grid lines in graphs and charts
     subgrid: "#d2d2d2", // minor grid lines in graphs and charts
@@ -1222,7 +1226,7 @@ registerRenderer( {type: "default", configs: "set_timeseries"}, (primitive, opti
     return g
 })*/
 
-registerRenderer( {type: "default", configs: "datatable_grid"}, function renderFunc({table, cell, renderOptions, stageOptions, ...options}){
+registerRenderer( {type: "default", configs: "datatable_grid"}, function renderFunc({table, cell, renderOptions, childRenderOptions, stageOptions, ...options}){
     const items = cell.items
     const config = {columns: 1, padding: [0, 0, 0, 0], spacing: [10,10], ...options}
     const defaultWidth = defaultWidthByCategory[items[0]?.referenceId + "_" + options.config] ?? defaultWidthByCategory[items[0]?.referenceId] ?? 200
@@ -1296,6 +1300,7 @@ registerRenderer( {type: "default", configs: "datatable_grid"}, function renderF
     const columnYs = new Array(config.columns).fill(y);
     const skipForOverflow = new Array(config.columns).fill(false);
 
+
     for (let dIdx = 0; dIdx < itemCount; dIdx++) {
         if (idx === 0){
             rows++;
@@ -1323,6 +1328,7 @@ registerRenderer( {type: "default", configs: "datatable_grid"}, function renderF
                 data: options.data,
                 sectionConfig: config.sectionConfig,
                 theme: options.theme,
+                renderOptions: childRenderOptions,
                 ...options.extras
             });
         } else {
@@ -2500,7 +2506,7 @@ registerRenderer( {type: "categoryId", id: [34, 78], configs: "overview"}, (prim
 
     
 
-    const logo = imageHelper( `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : ""), {
+    const logo = imageHelper( primitive.referenceParameters?.hasImg ? `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : "") : undefined, {
         x: ox,
         y: oy,
         size: config.height - config.padding[0] - config.padding[2],
@@ -3053,6 +3059,9 @@ registerRenderer({ type: "categoryId", id: 109, configs: "summary_section" }, fu
 
   const theme = options.theme
   const resovledBackground = themeColor(theme, "background")
+  const resovledTableHeaderBackground = themeColor(theme, "header", "#999999")
+  const resovledTableFontColor = themeColor(theme, "headerText", "#000000")
+  const resovledTablePlaceholderFill = mixHex( resovledTableFontColor, resovledTableHeaderBackground, 0.7)
 
   const idHeight = config.showId ? 20 : 0;
   const availableWidth = config.width - config.padding[1] - config.padding[3];
@@ -3119,6 +3128,9 @@ registerRenderer({ type: "categoryId", id: 109, configs: "summary_section" }, fu
             lineHeight: 1.3,
             fill: color,
             placeholderFill,
+            tableHeaderFill: resovledTableHeaderBackground,
+            tableHeaderColor: resovledTableFontColor,
+            tableHeaderPlaceholderFill: resovledTablePlaceholderFill,
             wrap: true,
             withMarkdown: true,
             ...attrs
@@ -3954,6 +3966,10 @@ export function renderPlainObject(renderOptions = {}){
     const resovledBackground = themeColor(theme, 'background', '#ffffff')
     const placeholderFill = mixHex( resolvedFontColor, resovledBackground, 0.7)
 
+    const resovledTableHeaderBackground = themeColor(theme, "header", "#999999")
+    const resovledTableFontColor = themeColor(theme, "headerText", "#000000")
+    const resovledTablePlaceholderFill = mixHex( resovledTableFontColor, resovledTableHeaderBackground, 0.7)
+
     const g = new Konva.Group({
         id: id,
         x,
@@ -4078,6 +4094,9 @@ export function renderPlainObject(renderOptions = {}){
                 fontFamily: resolvedFontFamily, 
                 fontFill: resolvedFontColor, 
                 placeholderFill,
+                tableHeaderFill: resovledTableHeaderBackground,
+                tableHeaderColor: resovledTableFontColor,
+                tableHeaderPlaceholderFill: resovledTablePlaceholderFill,
                 ...options
             })
         didOverflow ||= thisOverflow
@@ -4780,6 +4799,7 @@ function renderThemeElements( page, theme, config, options, top){
                     height,
                     center: true,
                     imageCallback: options.imageCallback,
+                    colorKey: true,
                     maxScale: 1,
                     scaleRatio: 2
                 })
@@ -5437,6 +5457,8 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
             center: true,
             alt: primitive.title,
             imageCallback: options.imageCallback,
+            colorKey: options.renderOptions?.colorKey,
+            clearImg: options.renderOptions?.clearImg,
             placeholder: options.placeholder !== false
         })
         if( showName ){
@@ -8919,6 +8941,9 @@ function renderFormattedSections( text, g, fullOptions = {} ){
                     fontFamily: section.fontFamily ?? fontFamily,
                     fill: options.fontFill,
                     placeholderFill: options.placeholderFill,
+                    tableHeaderFill: options.tableHeaderFill,
+                    tableHeaderColor: options.tableHeaderColor,
+                    tableHeaderPlaceholderFill: options.tableHeaderPlaceholderFill,
                     fontStyle,
                     fontSize,
                     refreshCallback: options.imageCallback
@@ -9051,6 +9076,15 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
     relayConfig.show_legend = showSingleLegend ? false : legendPosition
 
     let configName = viewConfig?.renderType ?? "grid" 
+
+    const childRenderOptions = {}
+    Object.entries(viewConfig?.config ?? {}).forEach(([k, v])=>{
+        if( v?.relay ){
+            childRenderOptions[k] = renderOptions[k]
+            delete renderOptions[k]
+        }
+    })
+
     const commonOptions = {
         stageOptions, 
         renderOptions: relayConfig, 
@@ -9064,6 +9098,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         resovledPlaceholderFill,
         utils: options.utils,
         includeBackground: asTable,
+        childRenderOptions,
         theme
     }
 
@@ -9284,8 +9319,8 @@ function prepareAxisText(header, {maxWidth, maxHeight, textPadding, fontSize, re
 }
 function prepareHeaders({columns, rows, columnWidths, rowHeights, columnX, rowY, renderOptions, baseFontSize = 12, spacing, textPadding = [5,5,5,5], refreshCallback, includeColumns = true, includeRows = true, background = true, theme = defaultTheme,...options}){
     const resolvedFontFamily = theme.fontFamily ?? "Poppins";
-    const resolvedFontColor = themeColor(theme, 'primary', '#000000', options.text_color)
-    const resovledBackground = themeColor(theme, 'panel', '#ffffff')
+    const resolvedFontColor = themeColor(theme, 'headerText', '#000000', options.text_color)
+    const resovledBackground = themeColor(theme, 'header', '#ffffff')
     const resovledFontPlaceholderFill = mixHex( resolvedFontColor, resovledBackground, 0.7)
     const userScaleHeaders = renderOptions.axis_text ?? 1
 
