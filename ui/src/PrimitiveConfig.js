@@ -427,6 +427,27 @@ const PrimitiveConfig = {
     renderConfigs:{
             default: {title:"Show items",id:0, parameters: {showAsCounts:false},
                 config:{
+                    "columns":{
+                        type: "column_count",
+                        title: "Columns per cell",
+                        allow_auto: true,
+                        rebalance_width: true,
+                        default: 1,
+                        max: 20
+                    },
+                    "show_row_headers":{
+                        type: "boolean",
+                        title: "Row heaaders",
+                        default: true,
+                    },"show_column_headers":{
+                        type: "boolean",
+                        title: "Column heaaders",
+                        default: true,
+                    },
+                    "axis_text":{
+                        type: "axis_text",
+                        title: "Headers"
+                    },
                     "summary":{
                         type: "option_list",
                         title: "Show breakdown",

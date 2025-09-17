@@ -30,12 +30,19 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
             savePptx = true
         }
 
-        let slideOptions
+        let slideOptions 
         if( options.master ){
-            slideOptions = {masterName: options.master}
+            slideOptions = {
+                masterName: options.master,
+            }
         }
-
+        
         let slide = pptx.addSlide(slideOptions);
+
+        if( options.backgroundColor ){
+            slide.background = {color: options.backgroundColor}
+        }
+        
         let startSlide = slide
 
         let minX = Infinity, minY = Infinity

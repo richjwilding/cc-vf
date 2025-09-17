@@ -20,18 +20,22 @@ export function DebouncedNumberInput({
 
   React.useEffect(() => {
     const handle = setTimeout(() => {
-      latestCallback.current(internalValue)
+      if( internalValue !== externalValue ){
+        latestCallback.current(internalValue)
+      }
     }, debounce)
     return () => clearTimeout(handle)
   }, [internalValue, debounce])
 
   const handleChange = (val) => {
     const parsed = parseFloat(val)
-    if (!Number.isNaN(parsed)) {
-      setInternalValue(parsed)
-    } else if (val === "" || val === null) {
-      setInternalValue("")
-    } else {
+    if (internalValue !== parsed) {
+      if (!Number.isNaN(parsed)) {
+        setInternalValue(parsed)
+      } else if (val === "" || val === null) {
+        setInternalValue("")
+      } else {
+      }
     }
   }
 

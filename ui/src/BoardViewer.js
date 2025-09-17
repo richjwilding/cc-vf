@@ -6,7 +6,7 @@ import { InputPopup } from './InputPopup';
 import DropdownButton from "./DropdownButton";
 import InfiniteCanvas from "./InfiniteCanvas";
 import CollectionUtils from "./CollectionHelper";
-import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderDatatable, renderMatrix, renderPlaceholder, renderPlainObject } from "./RenderHelpers";
+import { RenderPrimitiveAsKonva, RenderSetAsKonva, renderDatatable, renderMatrix, renderPlaceholder, renderPlainObject, themes } from "./RenderHelpers";
 import HierarchyNavigator from "./HierarchyNavigator";
 import PrimitiveConfig from "./PrimitiveConfig";
 import FilterPane from "./FilterPane";
@@ -24,7 +24,7 @@ import { ConvertVisualizationSpec } from "./VisualizationToDataTable";
 const log = getLogger('BoardViewer', { level: 'debug' })
 
                 
-export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "background", "view", "pin", "pin_label", "plainId", "indicators"]
+export const IGNORE_NODES_FOR_EXPORT = ["frame_outline", "frame_bg", "item_info", "widget", "frame_label", "view", "pin", "pin_label", "plainId", "indicators"]
 const RENDERSUB = false//true
 
 function preparePins(primitiveToPrepare, basePrimitive, stateId, myState){
@@ -292,9 +292,9 @@ function preparePageElements( d, pageState ){
     })
 }
 
-function renderSubBoard(d, stageOptions){
+function renderSubBoard(d, stageOptions = {}){
     if( d.primitive){
-        const output = SharedRenderView( d.primitive, {}, d.state)
+        const output = SharedRenderView( d.primitive, {}, d.state, stageOptions)
         if( output?.items ){
             const rendered = output.items(stageOptions)
             if( rendered){
@@ -313,17 +313,21 @@ function renderSubBoard(d, stageOptions){
 }
 
 let mainstore = MainStore()
-function SharedRenderView(d, primitive, myState) {
+function SharedRenderView(d, primitive, myState, stageOptions = {}) {
     const view = myState[d.id];
     const primitiveToRender = view.primitive.type === "element" ? view.primitive: (view.underlying ?? view.primitive);
     // Base view and options
-    const renderOptions = { 
+    const renderOptions = {
         ...(view.underlying?.renderConfig ?? {}),
         ...(view.primitive?.renderConfig ?? {}),
-        ...view.renderConfigOverride
+        ...view.renderConfigOverride,
+        theme: view.theme
     };
     if (view.widgetConfig) {
       renderOptions.widgetConfig = view.widgetConfig;
+    }
+    if(stageOptions.theme){
+      renderOptions.theme = stageOptions.theme;
     }
   
     // Merge size options if available
@@ -442,14 +446,17 @@ function SharedRenderView(d, primitive, myState) {
           items: stageOptions => {
             const data = myState[d.id].data;
             const viewConfig = myState[d.id].viewConfig;
-            return renderDatatable({ 
-                id: d.id, 
-                primitive: d, 
-                data, 
-                stageOptions, 
+            return renderDatatable({
+                id: d.id,
+                primitive: d,
+                data,
+                stageOptions,
                 expand: Object.keys(primitive.frames?.[d.id]?.expand ?? {}),
-                renderOptions, 
-                viewConfig });
+                renderOptions,
+                viewConfig,
+                utils: { prepareBoards: prepareSubBoards, renderBoard: renderSubBoard },
+                theme: renderOptions.theme
+            });
           }
         };
         break;
@@ -572,12 +579,14 @@ function SharedRenderView(d, primitive, myState) {
         renderView = {
           ...baseRenderView,
           utils: view.renderSubPages || RENDERSUB
-            ? { prepareBoards: prepareSubBoards, renderBoard: renderSubBoard }
+            ? {
+                prepareBoards: prepareSubBoards,
+                renderBoard: (d, opts = {}) => renderSubBoard(d, { ...opts, theme: renderOptions.theme }),
+              }
             : undefined,
           canChangeSize: true,
           canvasMargin: [0, 0, 0, 0],
-          items: renderFunc,
-          bgFill: "white"
+          items: stageOptions => renderFunc(stageOptions),
         };
         break;
       }
@@ -1134,6 +1143,7 @@ function SharedRenderView(d, primitive, myState) {
                         }
                 })
 
+                delete myState[stateId]["data"]
                 myState[stateId].primitive = basePrimitive
                 myState[stateId].stateId = stateId
                 myState[stateId].config = viewConfig.configName ?? "cat_overview"
@@ -1141,11 +1151,11 @@ function SharedRenderView(d, primitive, myState) {
                     mappedCategories
                 }
             }else{
-                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts ){//|| viewConfig.matrixType === undefined){
+                if( viewConfig.matrixType === "timeseries" || viewConfig.matrixType === "checktable" || viewConfig.matrixType === "ranking" || viewConfig.matrixType === "overunder" || viewConfig.matrixType === "distribution" || viewConfig.showAsCounts || viewConfig.matrixType === undefined){
                     let dataTable 
 
-                    function setupDataConfig( viewConfig ){
-                        let config = viewConfig.dataConfig
+                    function setupDataConfig( viewConfig, renderConfig = {} ){
+                        let config = viewConfig.dataConfig ?? {}
                         if( config?.timeseries ){
                             config.timeseries = {
                                 delta: primitiveToPrepare.renderConfig?.timeRange === "delta_row" || primitiveToPrepare.renderConfig?.timeRange === "delta_column",
@@ -1153,6 +1163,9 @@ function SharedRenderView(d, primitive, myState) {
                                 cumulative: primitiveToPrepare.renderConfig?.cumulative,
                                 resolution: primitiveToPrepare.renderConfig?.resolution
                             }
+                        }
+                        if( renderConfig.count ){
+                            config.limitItems = renderConfig.count
                         }
                         return config
                     }
@@ -1173,12 +1186,12 @@ function SharedRenderView(d, primitive, myState) {
                                 viewFilters = [rows]
                                 rows = {}
                             }
-                            dataTable = CollectionUtils.createDataTable( items, {columns, rows, viewFilters, config: setupDataConfig(dataSource.viewConfig), hideNull, alreadyFiltered: true})
+                            dataTable = CollectionUtils.createDataTable( items, {columns, rows, viewFilters, config: setupDataConfig(dataSource.viewConfig, dataSource.renderConfig), hideNull, alreadyFiltered: true})
                         }
 
                     }
                     if( !dataTable ){
-                        dataTable = CollectionUtils.createDataTableForPrimitive( primitiveToPrepare, setupDataConfig(viewConfig), items )
+                        dataTable = CollectionUtils.createDataTableForPrimitive( primitiveToPrepare, setupDataConfig(viewConfig, primitiveToPrepare.renderConfig), items )
                     }
 
                     myState[stateId].primitive = basePrimitive
@@ -1380,11 +1393,17 @@ function SharedRenderView(d, primitive, myState) {
             myState[stateId].primitive = basePrimitive
             myState[stateId].config = "page"
             myState[stateId].lastView = d.referenceParameters?.explore?.view
+
+            const themeKey = d.renderConfig?.theme || "default";
+            const theme = themes[themeKey] || themes.default;
+            myState[stateId].theme = theme
+
             if( !myState[stateId].renderSubPages && !RENDERSUB){
                 for(let child of childNodes){
                     myState[child.id] ||= {
                         id: child.id, 
                         inPage: true,
+                        theme: theme,
                         page: d
                     }
                     const renderResult = SharedPrepareBoard(child, myState)
@@ -1638,22 +1657,30 @@ export default function BoardViewer({primitive,...props}){
                                     const framePrimitive = myState[frameId].primitive
                                     let doFrame = true
                                     if( framePrimitive.type === "page"){
-                                        let dIds = ids
-                                        if(typeof(info) === "string" && info.startsWith('frames.') && (info.endsWith('.height') || info.endsWith('.width'))){
-                                            dIds = [...ids, info.split(".")[1]]
-                                        }
-                                        
-                                        dIds.filter(d=>d !== frameId).map(d=>myState[d]).forEach(other=>{
-                                            if( other && other.primitive.type === "element"){
-                                                needRefresh = prepareBoard( other.primitive )
-                                                if( needRefresh ){
-                                                    refreshBoards.push( other.id )
-                                                    needRebuild = true
-                                                }
-                                                doFrame = false
+                                        if( info === "renderConfig.theme"){
+                                            needRefresh = prepareBoard( framePrimitive )
+                                            const elements = framePrimitive.primitives.origin.allElement
+                                            const theme = myState[framePrimitive.id].theme
+                                            elements.forEach(d=>myState[d.id].theme = theme)
+                                            needRefresh = [...needRefresh, ...elements.map(d=>d.id)]
+                                            doFrame = false
+                                        }else{
+                                            let dIds = ids.filter(d=>d !== frameId)
+                                            if(typeof(info) === "string" && info.startsWith('frames.') && (info.endsWith('.height') || info.endsWith('.width'))){
+                                                dIds = [...dIds, info.split(".")[1]]
                                             }
-                                        })
-
+                                            
+                                            dIds.map(d=>myState[d]).forEach(other=>{
+                                                if( other && other.primitive.type === "element"){
+                                                    needRefresh = prepareBoard( other.primitive )
+                                                    if( needRefresh ){
+                                                        refreshBoards.push( other.id )
+                                                        needRebuild = true
+                                                    }
+                                                    doFrame = false
+                                                }
+                                            })
+                                        }
                                     }else{
                                         needRebuild = true
                                     }
@@ -2487,8 +2514,8 @@ export default function BoardViewer({primitive,...props}){
     window.removeActiveBoard = removeBoard
 
 
-    function renderView(d){
-        return SharedRenderView(d, primitive, myState)
+    function renderView(d, options = {}){
+        return SharedRenderView(d, primitive, myState, options)
     }
     async function addBlankView(cat_or_id = 38, importId, filter, full_options = {}){
         const category = typeof(cat_or_id) === "number" ? mainstore.category(cat_or_id) : cat_or_id
@@ -2887,6 +2914,9 @@ export default function BoardViewer({primitive,...props}){
                 const pptx = createPptx()
                 for(const d of frames){                    
                     const childFrames = Object.values(myState).filter(d2=>d2?.parentRender === d.attrs.id).map(d=>canvas.current.frameData(d.id)).filter(d=>d)
+                    const page = d.find(".page")[0]
+                    const background = page?.find(".background")[0]
+                    const backgroundColor = background?.attrs.fill
                     
                     if( childFrames.length > 0){
                         const aggNode = new Konva.Group({
@@ -2903,7 +2933,7 @@ export default function BoardViewer({primitive,...props}){
                             root.oldParent = root.node.parent
                             aggNode.add( root.node )
                         }
-                        await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,   noFraming: true, padding: [0,0,0,0]} )
+                        await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,   noFraming: true, padding: [0,0,0,0], backgroundColor} )
                         for(const root of childFrames){
                             root.node.x( root.x )
                             root.node.y( root.y )
@@ -2921,6 +2951,8 @@ export default function BoardViewer({primitive,...props}){
 
                         if( pages.length > 0){
                             for(const page of pages){
+                                const background = root.find(".background")[0]
+                                const backgroundColor = background?.attrs.fill
                                 const childFrames = root.node.find(d=>d.attrs.pageTrack === page.attrs.pageIdx)
                                 const aggNode = new Konva.Group({
                                     width: page.width(),
@@ -2934,7 +2966,7 @@ export default function BoardViewer({primitive,...props}){
                                     child.oldParent = child.parent
                                     aggNode.add( child )
                                 }
-                                await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  noFraming: true, padding: [0,0,0,0]} )
+                                await exportKonvaToPptx( aggNode, pptx, {removeNodes: IGNORE_NODES_FOR_EXPORT,  noFraming: true, padding: [0,0,0,0], backgroundColor} )
                                 for(const child of childFrames){
                                     child.x( child.ox )
                                     child.y( child.oy )

@@ -2,7 +2,7 @@ import { SceneCanvas } from "konva/lib/Canvas";
 import { Factory } from "konva/lib/Factory";
 import { _registerNode } from "konva/lib/Global";
 import { Util } from "konva/lib/Util";
-import { getBooleanValidator, getNumberOrAutoValidator, getNumberValidator, getStringValidator } from "konva/lib/Validators";
+import { getBooleanValidator, getNumberOrAutoValidator, getNumberValidator, getStringOrGradientValidator, getStringValidator } from "konva/lib/Validators";
 import { Text } from "konva/lib/shapes/Text";
 import { markdownToSlate } from "./SharedTransforms";
 import { calcInheritedBounds } from "./CustomImage";
@@ -554,7 +554,7 @@ _setTextData() {
             currentHeightPx = startRow + rowSpacing
             let firstOfCell = true
             if( rIdx === 0){
-                fills[cIdx] = "#999999"
+                fills[cIdx] = this.attrs.tableHeaderFill ?? "#999999"
             }else{
 
               //const m = col.children[0].children?.[0]?.text?.match(heatRegex)
@@ -665,7 +665,7 @@ _setTextData() {
             const bold = frag.bold || isHeading  || tableInfo?.row === 0
             const bullet = isListItem && (fragmentIdx === 0)
             const lastLine = lastSection && (fragmentIdx === (children.length - 1))
-            const color = tableInfo?.row === 0 ? "white" : undefined
+            const color = tableInfo?.row === 0 ? (this.attrs.tableHeaderColor ?? "white") : undefined
             let text = frag.text
             let fragChildren = frag.children
             if( text !== undefined){
@@ -997,13 +997,19 @@ checkCanvasCleared() {
         let showLines = fh * scale > 1.5
         if( showLines && this.attrs.showPlaceHolder !== false){
             
-            ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
+            ctx.fillStyle = this.attrs.placeholderFill ?? this.attrs.lineFill ?? "#eaeaea"
             let y = 0, step = this.lineHeight() * fh 
             let alignCenter = this.attrs.align === "center"
             let alignRight = this.attrs.align === "right"
             if( this.attrs.withMarkdown ){
               for(const d of this.textArr){
-                ctx.fillRect(d.indent, d.y, d.width - 1 , fh - 1)
+                let offset = 0
+                if( alignCenter ){
+                  offset += (this.attrs.width - d.width) / 2
+                }else if(alignRight){
+                  offset += (this.attrs.width - d.width)
+                }
+                ctx.fillRect(offset + d.indent, d.y, d.width - 1 , fh - 1)
               }
             }else{
               for(const d of this.textArr){
@@ -1021,7 +1027,7 @@ checkCanvasCleared() {
         }else{
           let steps = Math.min(Math.max(Math.ceil(h / 50), 2), 30)
           let step = Math.max(h / steps, 10)
-          ctx.fillStyle = this.attrs.lineFill ?? "#eaeaea"
+          ctx.fillStyle = this.attrs.placeholderFill ?? this.attrs.lineFill ?? "#eaeaea"
           let widths = [w - 2, w * 0.8, w * 0.6, w * 0.7, w*0.2]
           let wi = 0
           for(let i = (step * 0.3); i < h ; i += step){
