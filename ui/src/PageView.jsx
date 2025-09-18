@@ -13,6 +13,7 @@ import useDataEvent from "./CustomHook";
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list";
 import { PrimitiveCard } from "./PrimitiveCard";
 import FilterHierarchy from "./FilterHierarchy";
+import FunnelHierarchy from "./FunnelHierarchy";
 
 export default function PageView({ primitive }) {
     const mainstore = MainStore();
@@ -71,6 +72,7 @@ export default function PageView({ primitive }) {
     }, [primitive?.id, refreshKey]);
 
     const pinStatus = primitive?.inputPinsWithStatus ?? {};
+    const [viewMode, setViewMode] = useState('tree')
 
     const selectItems = (...args) => {
         mainstore.sidebarSelect(...args);
@@ -403,9 +405,21 @@ export default function PageView({ primitive }) {
                             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
                                 {renderInputs()}
                                 <div className="mt-4 border-t border-slate-200 pt-3">
-                                    <p className="text-sm font-semibold text-slate-600 mb-1">Filter hierarchy</p>
-                                    <p className="text-xs text-slate-500 mb-2">Visualization of inputs and downstream filters.</p>
-                                    <FilterHierarchy root={primitive.importsHierarchyAnnotated} />
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div>
+                                            <p className="text-sm font-semibold text-slate-600">Filter visualization</p>
+                                            <p className="text-xs text-slate-500">Tree or funnel view of sources and filters.</p>
+                                        </div>
+                                        <div className="inline-flex rounded-md border border-slate-300 bg-white overflow-hidden">
+                                            <button className={clsx('px-2 py-0.5 text-xs hover:bg-slate-50', viewMode==='tree' && 'bg-slate-100')} onClick={()=>setViewMode('tree')}>Tree</button>
+                                            <button className={clsx('px-2 py-0.5 text-xs hover:bg-slate-50 border-l border-slate-300', viewMode==='funnel' && 'bg-slate-100')} onClick={()=>setViewMode('funnel')}>Funnel</button>
+                                        </div>
+                                    </div>
+                                    {viewMode === 'funnel' ? (
+                                        <FunnelHierarchy root={primitive.importsHierarchyAnnotated} />
+                                    ) : (
+                                        <FilterHierarchy root={primitive.importsHierarchyAnnotated} />
+                                    )}
                                 </div>
                             </div>
                         </div>
