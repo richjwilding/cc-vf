@@ -99,7 +99,7 @@ export function PrimitivePage({primitive, ...props}) {
           return true
         }
       }
-      if( primitive.type === "board" || primitive.type==="flowinstance"|| primitive.type==="working" || primitive.type==="flow" ){
+      if( primitive.type === "board" || primitive.type==="flowinstance"|| primitive.type==="working" || primitive.type==="page" || primitive.type==="flow" ){
         return true
       }
       return false

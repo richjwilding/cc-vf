@@ -4477,9 +4477,9 @@ function renderThemeElements( page, theme, config, options, top){
         height: config.height,
         id: "elements",
         //name:"inf_track primitive shape_element"
-        name:"inf_track primitive shape_element no_hover"
+        name:"inf_track primitive shape_element no_hover no_select no_drag"
     })
-    for(const d of theme.elements ){
+    for(const d of elements ){
         const [width, height] = d.size ?? [100, 100]
         const [offsetX, offsetY] = d.offset ?? [0, 0]
         let position = {
@@ -4537,49 +4537,7 @@ function renderThemeElements( page, theme, config, options, top){
 
 }
 
-registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, options = {})=>{
-    const config = {width: 1920, height: 1080, pageColumns: 6, ...options}
-    const pfc = primitive.configParent ?? primitive
-    const themeKey = pfc.renderConfig?.theme
-    let theme = themes[themeKey] ?? options.theme ?? themes.default;
-    const g = new Konva.Group({
-        id: primitive.id,
-        x: config.x,
-        y: config.y,
-        width: config.width,
-        height: config.height,
-        onClick: options.onClick,
-        minRenderSize : 0,
-        name:"inf_track",
-        clipX:0,
-        clipY:0,
-        clipWidth:config.width,
-        clipHeight:config.height
-    })
-
-
-
-    let startX = 0
-    let startY = 0
-    let pageCol = 0
-    let maxX = config.width, maxY = config.height
-    let pageIdx = options.itemIdx ?? 0
-    if( !options.utils?.prepareBoards){
-        const r = new Konva.Rect({
-            x: 0,
-            y: 0,
-            width: config.width,
-            height: config.height,
-            stroke: themeColor(theme, 'border', '#555'),
-            fill: themeColor(theme, 'background', 'white'),
-            name:"background no_hover"
-        })
-        g.add(r)
-        if( theme.elements ){
-            g.add( renderBaseThemeElements(primitive, theme, config, options) )
-            g.add( renderTopThemeElements(primitive, theme, config, options) )
-        }
-        if( primitive.slide_state?.data?.slideSpec && !options.getConfig ){
+function renderSlideSuggestions(primitive, g, theme, options){
             let margin = [60, 60 ,60, 60], spacer = [20,20]
             let mainWidth = 1920  - margin[3] - margin[1]
             let headerFontSize = 48
@@ -4693,11 +4651,57 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
             }
 
             if( currentSuggestion > 1){
-                g.add( arrowButton( {x: 1840, y: 1040, size: 30, dir: "left", callback: ()=>switchSuggestion( currentSuggestion - 1), theme} ))
+                g.add( arrowButton( {x: 1840, y: 10, size: 30, dir: "left", callback: ()=>switchSuggestion( currentSuggestion - 1), theme} ))
             }
             if( currentSuggestion < suggestionCount ){
-                g.add( arrowButton( {x: 1880, y: 1040, size: 30, dir: "right", callback: ()=>switchSuggestion( currentSuggestion + 1), theme} ))
+                g.add( arrowButton( {x: 1880, y: 10, size: 30, dir: "right", callback: ()=>switchSuggestion( currentSuggestion + 1), theme} ))
             }
+}
+
+registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, options = {})=>{
+    const config = {width: 1920, height: 1080, pageColumns: 6, ...options}
+    const pfc = primitive.configParent ?? primitive
+    const themeKey = pfc.renderConfig?.theme
+    let theme = themes[themeKey] ?? options.theme ?? themes.default;
+    const g = new Konva.Group({
+        id: primitive.id,
+        x: config.x,
+        y: config.y,
+        width: config.width,
+        height: config.height,
+        onClick: options.onClick,
+        minRenderSize : 0,
+        name:"inf_track",
+        clipX:0,
+        clipY:0,
+        clipWidth:config.width,
+        clipHeight:config.height
+    })
+
+
+
+    let startX = 0
+    let startY = 0
+    let pageCol = 0
+    let maxX = config.width, maxY = config.height
+    let pageIdx = options.itemIdx ?? 0
+    if( !options.utils?.prepareBoards){
+        const r = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: config.width,
+            height: config.height,
+            stroke: themeColor(theme, 'border', '#555'),
+            fill: themeColor(theme, 'background', 'white'),
+            name:"background no_hover"
+        })
+        g.add(r)
+        if( theme.elements ){
+            g.add( renderBaseThemeElements(primitive, theme, config, options) )
+            g.add( renderTopThemeElements(primitive, theme, config, options) )
+        }
+        if( primitive.slide_state?.data?.slideSpec && !options.getConfig ){
+            renderSlideSuggestions( primitive, g, theme, options)
         }
         g.name("inf_track page")
     }else{
@@ -4732,6 +4736,7 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                 name:"background"
             })
             sg.add(r)
+            g.add(sg)
 
             if( theme.elements ){
                 const elements = renderBaseThemeElements(primitive, theme, config, options) 
@@ -4739,10 +4744,22 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
                 sg.add( elements )
             }
 
-            g.add(sg)
 
 
             let idx = 0
+            if( subrenders.length === 0 ){
+                if( primitive.slide_state?.data?.slideSpec && !options.getConfig ){
+                    const eg = new Konva.Group({
+                        width: config.width,
+                        height: config.height,
+                        id: "elements",
+                        //name:"inf_track primitive shape_element"
+                        name:"inf_track primitive shape_element no_hover no_select no_drag"
+                    })
+                    renderSlideSuggestions( primitive, eg, theme, options)
+                    g.add(eg)
+                }
+            }
 
             for(const sub of subrenders){
                 if( !sub?.rendered ){

@@ -248,7 +248,7 @@ export async function processQueue(job, cancelCheck, extendJob){
 
                     if( cache.termsCompleted?.length > 0){
                         const terms = baseTerms.split(",")
-                        const newTerms = terms.filter(d=>!cache.termsCompleted.map(d=>d.toLowerCase().trim()).includes(d.toLowerCase().trim()))
+                        const newTerms = terms.filter(d=>!cache.termsCompleted.flat().map(d=>d.toLowerCase().trim()).includes(d.toLowerCase().trim()))
                         logger.info(`Serach terms filtered to remove those already done ${terms.length} > ${newTerms.length}`)
                         baseTerms = newTerms.join(",")
                         if( terms.length > 0 && newTerms.length === 0){
@@ -619,7 +619,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                             "_id": primitive.id,
                         },
                         {
-                            $push: {"checkCache.termsCompleted": baseTerms.split(",")}
+                            $push: {"checkCache.termsCompleted": {$each: baseTerms.split(",")}}
                         })
 
                     const updatedPrimitive = await fetchPrimitive( primitive.id )
