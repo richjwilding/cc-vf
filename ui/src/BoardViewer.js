@@ -1398,7 +1398,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
             const theme = themes[themeKey] || themes.default;
             myState[stateId].theme = theme
 
-            if( !myState[stateId].renderSubPages && !RENDERSUB){
+            if( myState.showSlideSuggestions  || (!myState[stateId].renderSubPages && !RENDERSUB)){
                 for(let child of childNodes){
                     myState[child.id] ||= {
                         id: child.id, 

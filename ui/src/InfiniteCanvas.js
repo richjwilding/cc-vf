@@ -2328,7 +2328,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
                 [x, y] = convertStageCoordToScene(px, py )
-                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame", "pin"], true))
+                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame", "pin"], true, false, true))
                 let item = found[0]
                 if( !item ){
                     myState.current.panForDrag = true
@@ -2988,7 +2988,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         }
 
-        function findTrackedNodesAtPosition(px,py, classes, includeFrame = false, forClick){
+        function findTrackedNodesAtPosition(px,py, classes, includeFrame = false, forClick, forDrag){
             if( !myState.current?.frames){return}
             if( classes ){
                 classes = [classes].flat()
@@ -3017,6 +3017,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                             if( d.attrs.name?.includes("shape_element")){
                                 continue
                             }
+                        }
+                        if( forClick && d.attrs.name?.includes("no_select")){
+                            continue
+                        }
+                        if( forDrag && d.attrs.name?.includes("no_drag")){
+                            continue
                         }
                         let x = px - frame.node.attrs.x
                         let y = py - frame.node.attrs.y

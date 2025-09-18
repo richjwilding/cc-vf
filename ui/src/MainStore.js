@@ -9,6 +9,7 @@ import { Unpackr } from 'msgpackr';
 import CollectionUtils from "./CollectionHelper";
 import { findFilterMatches } from "./SharedTransforms";
 import { progress } from "framer-motion";
+import { values } from "lodash";
 
 export function _uniquePrimitives(list) {
     if (!Array.isArray(list) || list.length === 0) {
@@ -1106,6 +1107,180 @@ const actions = {
             return origin.findParentPrimitives({type: ["experiment", "activity"]})[0]
         }
         return undefined
+    },
+    importsHierarchy(d, receiver, obj){
+        // Build minimal structure: relationships, applied filters, and counts only
+        const createNode = (primitive)=>{
+            let count
+            const sourceCounts = { origin: 0, alt_origin: 0, import: 0 }
+
+            if( primitive.type === "search" ){
+                sourceCounts.origin = primitive.primitives.origin.allIds.length
+                sourceCounts.alt_origin = primitive.primitives.alt_origin.allIds.length
+                count = sourceCounts.alt_origin + sourceCounts.origin
+                
+            }else{
+                const dataAtNode = primitive.itemsForProcessing
+                count = dataAtNode.length
+                sourceCounts.import = count
+            }
+
+            const params = primitive.referenceParameters ?? {}
+            const filterInfo = {}
+            if( params.referenceId !== undefined ){ filterInfo.referenceId = params.referenceId }
+            if( params.type !== undefined ){ filterInfo.type = params.type }
+            if( params.filters !== undefined ){ filterInfo.filters = params.filters }
+            // Helper to normalize a filter, tolerating differing shapes
+            const normalizeFilter = (f, isAxis = false)=>{
+                if(!f) return undefined
+                const value = (f.value !== undefined) ? f.value : (f.filter !== undefined ? f.filter : f.values)
+                const faux = {
+                    type: f.type,
+                    value,
+                    parameter: f.parameter ?? f.param,
+                    access: f.access,
+                    relationship: f.relationship
+                }
+                const cfg = PrimitiveConfig.commonFilterSetup(faux, isAxis)
+                if(!cfg || cfg.skip || (cfg.check.length === 0 && cfg.includeNulls === false)) return undefined
+                //if(!cfg || cfg.skip ) return undefined
+                const {resolvedFilterType, pivot, relationship, check, includeNulls, isRange, invert, sourcePrimId} = cfg
+                return { originalType: faux.type, parameter: faux.parameter, type: resolvedFilterType, pivot, relationship, includeNulls, isRange, values: check, invert: f.invert, sourcePrimId: f.sourcePrimId }
+            }
+           const exploreFilters = CollectionUtils.convertCollectionFiltersToImportFilters( primitive )
+           const aggFilters = exploreFilters.map(d=>normalizeFilter(d))
+
+            const node = { primitive, count, sourceCounts, children: [] }
+            if( aggFilters.length > 0 ){ node.filters = aggFilters }
+            return node
+        }
+
+        const root = createNode(receiver)
+        const initialPath = new Set()
+        if( receiver.id !== undefined ){
+            initialPath.add(receiver.id)
+        }
+        const queue = [{ primitive: receiver, node: root, path: initialPath }]
+
+        for( let idx = 0; idx < queue.length; idx++ ){
+            const { primitive: currentPrimitive, node, path } = queue[idx]
+            const imports = currentPrimitive?.primitives?.imports?.allItems ?? []
+            for(const child of imports){
+                if( !child ){
+                    continue
+                }
+                const childNode = createNode(child)
+                node.children.push(childNode)
+                node.sourceCounts.import += childNode.count
+                const childId = child.id
+                if( childId !== undefined && path.has(childId) ){
+                    childNode.cycle = true
+                    continue
+                }
+                const nextPath = new Set(path)
+                if( childId !== undefined ){
+                    nextPath.add(childId)
+                }
+                queue.push({ primitive: child, node: childNode, path: nextPath })
+            }
+        }
+
+        return root
+    },
+    importsHierarchyAnnotated(d, receiver, obj){
+        // Build base structure first
+        const root = receiver.importsHierarchy
+        // Walk and annotate nodes with metadata and nodeTypes
+        const q = [root]
+        while(q.length){
+            const node = q.shift()
+            const primitive = node.primitive
+            // Basic node info
+            node.node = { id: primitive.id, plainId: primitive.plainId, title: primitive.title }
+            delete node["primitive"]
+
+            // Build nodeTypes aggregation
+            let refIds = [], metadata = {}
+            if( primitive.referenceParameters?.viewCategory ){
+                refIds.push( ...[primitive.referenceParameters?.viewCategory].flat().filter(Boolean))
+            }
+            if( primitive.type === "search" ){
+                const originPrimitives = primitive.primitives.origin.allItems
+                const alOriginPrimitives = primitive.primitives.alt_origin.allItems
+                refIds = [...originPrimitives.map(d=>d.referenceId), ...alOriginPrimitives.map(d=>d.referenceId)]
+            }else{
+                const dataAtNode = primitive.itemsForProcessing
+                refIds = dataAtNode.map(d=>d.referenceId)
+            }
+            const nodeTypes = refIds.reduce((a,rid)=>{
+                if( !a[rid] ){
+                    const category = obj.category(rid)
+                    a[rid] = { type: category.title, count: 0 }
+                    metadata = {
+                        ...metadata,
+                        ...category.parameters
+                    }
+                }
+                a[rid].count++
+                return a
+            }, {})
+            node.nodeTypes = nodeTypes
+
+            if( node.filters ){
+                node.filters = node.filters.map(f=>{
+                    if( f.type === "parent" ){
+                        let outDescription = {
+                            relationship: "descendant of"
+                        }
+
+                        const targetPrimitives = f.values.map(d=>obj.primitive(d))
+                        const targets = []
+
+                        if( f.sourcePrimId ){
+                            const sourcePrim = obj.primitive(f.sourcePrimId)
+                            if( sourcePrim ){
+                                outDescription.categorization = {
+                                    id: sourcePrim.id,
+                                    plainId: sourcePrim.plainId,
+                                    title: sourcePrim.title
+                                }
+                            }
+                            outDescription.relationship = "categorized as"
+                            if( f.includeNulls){
+                                targets.push("Uncategorized")
+                            }
+                            targets.push(...targetPrimitives.map(d=>({id: d.id, plainId: d.plainId, category_title: d.title, category_detail: d.referenceParameters.description})))
+                        }else{
+                            targets.push(...targetPrimitives.map(d=>({id: d.id, plainId: d.plainId, title: d.title, type: d.metadata?.title})))
+                        }
+                        if( f.invert ){
+                            outDescription.exclude_categories = targets
+                        }else{
+                            outDescription.include_categories = targets
+                        }
+                        return outDescription
+                    }else if(f.type === "parameter"){
+                        const paramInfo = metadata[f.parameter] ?? {}
+                        let outDescription = {
+                            parameter: paramInfo.title ?? f.parameter,
+                            description: paramInfo.description
+                        }
+                         if( f.invert ){
+                            outDescription.exclude_values = f.values
+                        }else{
+                            outDescription.include_values = f.values
+                        }
+                        return outDescription
+                    }
+                    return f
+                })
+            }
+
+
+            // queue children
+            for(const c of node.children){ q.push(c) }
+        }
+        return root
     },
     _parentPrimitives(d, receiver, obj){
         return d.parentPrimitives
