@@ -8,10 +8,11 @@ import BoardViewer from "./BoardViewer";
 import { themes } from "./RenderHelpers";
 import MainStore, { uniquePrimitives } from "./MainStore";
 import PrimitiveConfig from "./PrimitiveConfig";
-import PrimitiveCard from "./PrimitiveCard";
 import AgentChat from "./AgentChat";
 import useDataEvent from "./CustomHook";
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from "./@components/description-list";
+import { PrimitiveCard } from "./PrimitiveCard";
+import FilterHierarchy from "./FilterHierarchy";
 
 export default function PageView({ primitive }) {
     const mainstore = MainStore();
@@ -49,6 +50,7 @@ export default function PageView({ primitive }) {
 
         const state = boardStateRef.current;
         state.renderSubPages = true;
+        state.showSlideSuggestions = true
         state.hideWidgets = true;
         state[primitive.id] = state[primitive.id] ?? { id: primitive.id, renderSubPages: true };
 
@@ -273,6 +275,9 @@ export default function PageView({ primitive }) {
         if (pinEntries.length === 0) {
             return <p className="text-sm text-slate-500">This page has no configurable inputs.</p>;
         }
+        // Build the imports hierarchy (annotated) for visualization
+        const filterTree = mainstore.importsHierarchyAnnotated?.(undefined, primitive, mainstore)
+
         return (
             <DescriptionList inContainer>
                 {pinEntries.map(([pinName, config]) => {
@@ -397,6 +402,11 @@ export default function PageView({ primitive }) {
                             </div>
                             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
                                 {renderInputs()}
+                                <div className="mt-4 border-t border-slate-200 pt-3">
+                                    <p className="text-sm font-semibold text-slate-600 mb-1">Filter hierarchy</p>
+                                    <p className="text-xs text-slate-500 mb-2">Visualization of inputs and downstream filters.</p>
+                                    <FilterHierarchy root={primitive.importsHierarchyAnnotated} />
+                                </div>
                             </div>
                         </div>
                         <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
