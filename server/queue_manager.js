@@ -904,6 +904,12 @@ class QueueManager {
                     try { worker.postMessage({ type: 'stop', queueName }); } catch (err) { console.error(`Error terminating worker thread for queue: ${queueName}`, err); }
                 }
             }
+
+            try {
+                await this.teminateJobsInQueue(workspaceId);
+            } catch (err) {
+                logger.error(`Error signalling job termination for ${queueName}`, err);
+            }
             // Publish cross-service stop so a remote listener can mirror
             if (!opts.suppressControl) {
                 try {

@@ -1050,18 +1050,26 @@ export async function implementation(params, scope, notify){
             // Fallback: if no expanded suggestions, surface outlines so the user sees something
             const finalSuggestions = expandedSuggestions.length ? expandedSuggestions : normalizedOutlines;
 
-            // Create or refresh a 'slides' subflow session and seed it with the output
-            let slideSession = null;
-            if (scope.workSession && scope.workSession.flow === 'slides') {
-              throw "Why is this reachable?";
-            } else if (typeof scope.beginWorkSession === 'function') {
-              slideSession = scope.beginWorkSession('slides', { suggestions: finalSuggestions });
-              slideSession.state = 'list';
-              slideSession.data ||= {};
-              slideSession.data.selection = null;
-              touchSlideState(scope)
-            }
+            if (Array.isArray(finalSuggestions) && finalSuggestions.length) {
+              let state = null;
 
+              if (scope.mode === 'slides' && scope.modeState) {
+                state = scope.modeState;
+              } else if (typeof scope.activateMode === 'function') {
+                state = scope.activateMode('slides');
+              }
+
+              if (state) {
+                state.state = 'list';
+                state.suggestions = finalSuggestions;
+                state.data ||= {};
+                state.data.selection = null;
+                state.data.slideSpec = null;
+                state.data.selectionSpec = null;
+                scope.touchSession?.();
+                touchSlideState(scope);
+              }
+            }
             return { suggestions: finalSuggestions }
         }
         return {

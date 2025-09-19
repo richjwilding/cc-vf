@@ -25,6 +25,7 @@ import { replicateWorkflow } from '../workflow';
 import Organization from '../model/Organization';
 import SubscriptionPlan from '../model/SubscriptionPlan';
 import { handleChat } from '../agent/agent.js';
+import { getRedisBase } from '../redis.js';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -73,6 +74,8 @@ router.get('/companyDetails', async (req, res) => {
       res.status(500).send('Error fetching image');
     }
   });
+
+
 router.get('/companyLogo', async (req, res) => {
     const name = req.query.name;
     let domain = req.query.domain;

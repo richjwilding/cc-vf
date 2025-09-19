@@ -606,7 +606,8 @@ export const slideTools = [
 export const slideMode = {
   id: "slides",
   label: "Slides",
-  toolNames: new Set(slideTools.map((t) => t.definition.name)),
+  description: "Builds and edits slides from existing data",
+  toolNames: new Set([...slideTools.map((t) => t.definition.name), "suggest_analysis"]),
   systemPrompt:
     "You are in slides mode. Help the user draft, refine, and finalize presentation-ready slides. Respect existing categorization definitions and confirm updates before applying them.",
   extraInstructions:

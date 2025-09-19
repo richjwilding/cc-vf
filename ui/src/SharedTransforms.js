@@ -239,8 +239,16 @@ export function markdownToSlate(markdownContent = "") {
       if (!/^(\d+\.)\s|^[-*]\s/.test(text)) {
         const topList  = listStack[listStack.length - 1].node;
         const lastItem = topList.children[topList.children.length - 1];
-        lastItem.children.push({ text: "\n" });
-        parseInlineWithBadges(text).forEach(tok => lastItem.children.push(tok));
+        const target = lastItem.children[lastItem.children.length - 1];
+        if (target?.type === "paragraph") {
+          target.children.push({ text: "\n" });
+          target.children.push(...parseInlineWithBadges(text));
+        } else {
+          lastItem.children.push({
+            type: "paragraph",
+            children: parseInlineWithBadges(text),
+          });
+        }
         continue;
       }
     }

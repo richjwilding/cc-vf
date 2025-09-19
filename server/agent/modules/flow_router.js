@@ -11,7 +11,7 @@ export function setFlowRouterEnabled(enabled) {
 const FLOW_ROUTER_MODEL = process.env.AGENT_FLOW_ROUTER_MODEL ?? "gpt-4o-mini";
 const logger = getLogger("agent_flow_router", "debug", 1);
 
-function buildRouterPrompt(flows, activeFlow) {
+function buildRouterPrompt(flows, activeFlow, recentUsers = []) {
   const flowIds = Object.keys(flows ?? {});
   if (!flowIds.length) {
     return "You have no flows available. Always respond with {\"decisions\":[]}.";
@@ -19,16 +19,26 @@ function buildRouterPrompt(flows, activeFlow) {
 
   const lines = [
     "Decide if the agent should enter, exit, or switch flows before answering the user.",
-    'Return ONLY JSON shaped like {"decisions":[{"action":"enter|exit|switch","flow":"id","from":"id","to":"id"}]}',
+    'Return ONLY JSON shaped like {"decisions":[{"action":"enter|exit|switch","flow":"id","from":"id","to":"id","rationale":"20 word rationale"}]}',
     "If no change is needed, respond with {\"decisions\":[]}",
+    "Do not switch flows unless the user explicitly asks for a different kind of task or tool.",
+    "Stay in the current flow if the user appears to be continuing the same thread (e.g., choosing from prior suggestions).",
     `Current active flow: ${activeFlow ?? "none"}.`,
     "Available flows:",
   ];
 
   for (const id of flowIds) {
-    lines.push(`- ${id}`);
+    lines.push(`- ${id}: ${flows[id].description}`);
   }
 
+  if (recentUsers.length) {
+    lines.push("Recent user messages (oldest first):");
+    recentUsers.forEach((msg, idx) => {
+      lines.push(`${idx + 1}. ${msg}`);
+    });
+  }
+
+  console.log(lines)
   return lines.join("\n");
 }
 
@@ -65,7 +75,7 @@ function normalizeDecisions(decisions, flows) {
   return result;
 }
 
-export async function classifyFlowIntent({ message, flows, activeFlow }) {
+export async function classifyFlowIntent({ message, flows, activeFlow, recentUsers }) {
   if (!flowRouterEnabled) {
     return null;
   }
@@ -76,7 +86,7 @@ export async function classifyFlowIntent({ message, flows, activeFlow }) {
   }
 
   try {
-    const prompt = buildRouterPrompt(flows, activeFlow);
+    const prompt = buildRouterPrompt(flows, activeFlow, recentUsers);
     const openai = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
     const completion = await openai.chat.completions.create({
       model: FLOW_ROUTER_MODEL,
@@ -96,6 +106,8 @@ export async function classifyFlowIntent({ message, flows, activeFlow }) {
     let parsed;
     try {
       parsed = JSON.parse(text);
+      console.log(`router result`)
+      console.log(parsed)
     } catch (error) {
       logger.warn(`Flow router returned non-JSON payload: ${text}`);
       return null;

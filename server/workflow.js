@@ -932,6 +932,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
             
             delete d["_nested"]
             delete d["_oldId"]
+            delete d["renderConfig"]
             delete d["flowElement"]
             d.workspaceId = flowInstance.workspaceId
         })
