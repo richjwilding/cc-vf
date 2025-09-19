@@ -1,31 +1,75 @@
 // modules/slides.js
+import { randomUUID } from "node:crypto";
 import { getLogger } from "../../logger.js";
 import { buildCategories } from "../../openai_helper.js";
 import { dispatchControlUpdate } from "../../SharedFunctions.js";
 import { getDataForAgentAction } from "../utils.js";
+
 const logger = getLogger("agent_module_slides", "debug", 0);
 
-// Small helpers
+export function defaultSlideState(seed = {}) {
+  const data = seed.data ?? {};
+  return {
+    id: seed.id ?? randomUUID(),
+    state: seed.state ?? "list",
+    data: {
+      deckId: data.deckId ?? seed.deckId ?? null,
+      selection: data.selection ?? seed.selection ?? null,
+      slideSpec: data.slideSpec ?? seed.slideSpec ?? null,
+      selectionSpec: data.selectionSpec ?? seed.selectionSpec ?? null,
+    },
+    suggestions: seed.suggestions ?? [],
+  };
+}
+
 function requireSlideSession(scope) {
-  const s = scope.workSession;
-  if (!s || s.flow !== "slides") {
+  if (scope.mode !== "slides" || !scope.modeState) {
     throw new Error("No active slides session. Say 'work on slides' or run suggest_analysis first.");
   }
-  return s;
+  return scope.modeState;
 }
 
-export function touchSlideState(scope){
-    const slides = scope.immediateContext?.filter(d=>d.type === "page") ?? []
-    console.log(`Touch slide state`)
-    if( slides[0]){
-        console.log(`Update page data`)
-        dispatchControlUpdate( slides[0].id, "slide_state", requireSlideSession(scope))
-    }
-    scope.touchWorkSession?.()
+export function touchSlideState(scope) {
+  const session = requireSlideSession(scope);
+  const slides = scope.immediateContext?.filter((d) => d.type === "page") ?? [];
+  if (slides[0]) {
+    dispatchControlUpdate(slides[0].id, "slide_state", session);
+  }
+  scope.touchSession?.();
 }
 
-function touch(scope) { 
-    touchSlideState(scope)
+function touch(scope) {
+  touchSlideState(scope);
+}
+
+function applySlideSeed(state, seed = {}) {
+  if (!seed) {
+    return state ?? defaultSlideState();
+  }
+  const normalized = defaultSlideState(seed);
+  if (!state) {
+    return normalized;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(seed, "id")) {
+    state.id = normalized.id;
+  }
+  if (Object.prototype.hasOwnProperty.call(seed, "state")) {
+    state.state = normalized.state;
+  }
+
+  if (seed.data) {
+    state.data = {
+      ...(state.data || {}),
+      ...(normalized.data || {}),
+    };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(seed, "suggestions")) {
+    state.suggestions = normalized.suggestions;
+  }
+
+  return state;
 }
 function nextSectionId(spec) {
   const ids = (spec.sections || []).map(s => s.id || 0);
@@ -499,7 +543,7 @@ export const create_slide = {
 
     if (params.exit_after !== false) {
       sess.state = "added";
-      scope.endWorkSession?.(); // leaves slides mode
+      scope.deactivateMode?.();
       return { result: "created", slide_id: slideId, route: "exit_subflow" };
     }
 
@@ -546,6 +590,7 @@ export const set_slide_theme = {
 /* Utility export to register */
 export const slideTools = [
   design_slide_from_suggestion,
+  update_slide_from_suggestion,
   update_slide_title,
   update_slide_layout,
   add_slide_section,
@@ -557,3 +602,39 @@ export const slideTools = [
   create_slide,
   set_slide_theme
 ];
+
+export const slideMode = {
+  id: "slides",
+  label: "Slides",
+  toolNames: new Set(slideTools.map((t) => t.definition.name)),
+  systemPrompt:
+    "You are in slides mode. Help the user draft, refine, and finalize presentation-ready slides. Respect existing categorization definitions and confirm updates before applying them.",
+  extraInstructions:
+    "*) Amendment chaining (STRICT): If the user chooses a suggestion and also requests changes (e.g., 'categorize by wellness journey', 'make it a bar chart', 'shorter title'):\n" +
+    "*) - 1. Call design_slide_from_suggestion with any title/layout overrides.\n" +
+    "*) - 2. If an amendment mentions a new categorization, call suggest_section_categorization (once) to produce/choose a categorization spec, then call update_slide_section to apply it to ALL relevant sections.\n" +
+    "*) - 3. If a visualization needs to change, call update_slide_section for those sections and keep categorization consistent.\n" +
+    "*) - 4. If a summarization needs to change, call update_slide_section for those sections.\n" +
+    "*) - 5. Confirm the updated slide spec to the user, then stop.\n" +
+    "*) - 6. If the user switches to a different suggestion call update_slide_from_suggestion with the new suggestion id and overrides.\n" +
+    "*) Prefer slide-level defs + $ref reuse over same_as. If a new categorization replaces one referenced by multiple sections, update the definition once and ensure sections point to the new $ref.\n" +
+    "*) You must NOT perform slide updates without calling one of the above functions.",
+  enterTriggers: [
+    /\b(slide|deck|presentation|title slide|agenda|layout|add slide|create slide)\b/i,
+    /\b(resume slides?)\b/i,
+  ],
+  exitTriggers: [
+    /\b(exit slides?|stop slides?|back|new topic)\b/i,
+  ],
+  createState: defaultSlideState,
+  contextName: "SLIDE_CONTEXT",
+  buildContext: (state = {}) => ({
+    slide_set_id: state.id,
+    current_state: state.state,
+    deck_id: state.data?.deckId ?? null,
+    selection: state.data?.selection ?? null,
+    current_slide_spec: state.data?.slideSpec ?? null,
+    suggestions: state.suggestions ?? null,
+  }),
+  applySeed: applySlideSeed,
+};

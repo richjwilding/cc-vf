@@ -8,11 +8,11 @@ export async function implementation(params, scope, notify){
 
     const chosenSuggestionId = (typeof params.suggestion_id === 'number' ? params.suggestion_id : null);
 
-    if (scope.workSession) {
+    if (scope.mode === "viz" && scope.modeState) {
         if (chosenSuggestionId != null) {
-            scope.workSession.selection = chosenSuggestionId;
+            scope.modeState.selection = chosenSuggestionId;
         }
-        scope.touchVizSession?.();
+        scope.touchSession?.();
     }
 
     const openai = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
@@ -277,10 +277,9 @@ export async function implementation(params, scope, notify){
         "additionalProperties": false
         }
 
-    const vizIndex = scope.workSession ? (scope.workSession.payload?.suggestions || []).map(s => ({
-                                        id: s.id, type: s.type, label: s.description
-                                        }))
-                                    : []
+    const vizIndex = scope.mode === "viz"
+        ? (scope.modeState?.suggestions || []).map(s => ({ id: s.id, type: s.type, label: s.description }))
+        : []
 
     const messages = [
         {
@@ -301,7 +300,7 @@ export async function implementation(params, scope, notify){
 
     Think very carefully about the most optimal way to create a view the result the user is asking for - here are the details about what is possible
     ${suggest_visualizations.VIEW_OPTIONS}
-    ${scope.workSession ? `You have a suggestion index: ${JSON.stringify(vizIndex)}` : ''}
+    ${scope.mode === "viz" ? `You have a suggestion index: ${JSON.stringify(vizIndex)}` : ''}
       `
         },
         {
@@ -447,10 +446,10 @@ const output_schema = {
         result.views.forEach(d=>d.referenceId = referenceIds[0])
         const views = JSON.stringify({views: result.views})
 
-        if (scope.workSession) {
-            scope.workSession.state = 'preview';          // or 'refine' if you detect missing info
-            scope.workSession.spec  = result;             // keep the draft spec for confirm/build
-            scope.touchWorkSession?.();
+        if (scope.mode === "viz" && scope.modeState) {
+            scope.modeState.status = 'preview';          // or 'refine' if you detect missing info
+            scope.modeState.spec  = result;             // keep the draft spec for confirm/build
+            scope.touchSession?.();
             console.log(`updated spec state`)
         }
         
