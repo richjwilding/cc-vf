@@ -41,7 +41,8 @@ function applyVizSeed(state, seed = {}) {
 export const vizMode = {
   id: "viz",
   label: "Visualization",
-  toolNames: new Set(["design_view", "create_view"]),
+  description: "Builds visualizations of existing data",
+  toolNames: new Set(["design_view", "create_view", "suggest_visualizations"]),
   systemPrompt:
     "You are in visualization mode. Partner with the user to iterate on visualization designs and confirm the final configuration before creating it.",
   enterTriggers: [
@@ -65,4 +66,3 @@ export const vizMode = {
   }),
   applySeed: applyVizSeed,
 };
-

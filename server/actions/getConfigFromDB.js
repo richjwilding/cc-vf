@@ -17,7 +17,7 @@ export async function getConfigFromDB(primitive, { skipInputs = false, skipDynam
         // 0) Start at the node
         {
             $match: {
-                _id: ObjectId(primitive.id)
+                _id: primitive._id ?? ObjectId(primitive.id)
             }
         },
 
@@ -655,7 +655,9 @@ export async function getConfigFromDB(primitive, { skipInputs = false, skipDynam
     ]
 
     try {
-        let { overrideRequests, effectiveWithoutOverrides, overridePrimitives } = (await PrimitiveConfigView.aggregate(pipeline).toArray())?.[0]
+        const result = await PrimitiveConfigView.aggregate(pipeline).toArray()
+        console.log(result)
+        let { overrideRequests, effectiveWithoutOverrides, overridePrimitives } = result[0]
         const inputsForPrimitives = {}
         const config = effectiveWithoutOverrides
 

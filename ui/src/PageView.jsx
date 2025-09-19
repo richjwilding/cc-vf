@@ -267,7 +267,7 @@ export default function PageView({ primitive }) {
         if (!primitive) {
             return undefined;
         }
-        return { constrainTo: primitive.id };
+        return { constrainTo: primitive.origin?.id };
     }, [primitive?.id]);
 
 
@@ -304,6 +304,8 @@ export default function PageView({ primitive }) {
                         <div className="flex min-h-0 flex-col overflow-hidden h-full">
                             <AgentChat
                                 primitive={primitive}
+                                context={primitive}
+                                showContext={false}
                                 scope={agentScope}
                                 setStatus={setAgentStatus}
                                 seperateInput={true}

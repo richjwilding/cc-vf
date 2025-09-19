@@ -83,7 +83,9 @@ export const insightTools = [
 export const insightMode = {
   id: "insights",
   label: "Insight analysis",
+  description: "Explores and analyses existing data that the system has already collected",
   toolNames: new Set([
+    "get_data_sources",
     "one_shot_query",
     "one_shot_summary",
     "parameter_values_for_data",

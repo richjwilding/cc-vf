@@ -381,11 +381,12 @@ const searchTools = [
 export const searchMode = {
   id: "search",
   label: "Search",
+  description: "Searches the internet and other external sources for new data",
   toolNames: new Set(searchTools.map((t) => t.definition.name)),
   systemPrompt:
     "You are in search mode. Help the user identify and configure new data searches. Confirm intent before scheduling expensive searches.",
   enterTriggers: [
-    /\b(new data|find data|web search|run a search|google (news|search)|reddit|trustpilot|instagram|tiktok)\b/i,
+    /\b(new data|find data|web search|run a search|google (news|search)|collect)\b/i,
     /\bcreate (a )?(search|scrape)\b/i,
   ],
   exitTriggers: [

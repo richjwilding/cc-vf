@@ -30,6 +30,7 @@ import Organization from './model/Organization';
 dotenv.config()
 import stripeWebhooks from './stripeWebhooks.js';
 import stripeCheckout from './stripeCheckout.js';
+import { getRedisBase } from './redis.js';
 
 
 export const userCache = new NodeCache({ stdTTL: 300, checkperiod: 60 })
@@ -204,6 +205,21 @@ app.use((req, res, next) => {
   });
 
   app.use(express.static(path.join(__dirname, '../public')));
+
+
+app.post("/admin/flush-cache", async (req, res) => {
+  if (req.headers["x-flush-secret"] !== process.env.FLUSH_SECRET) {
+    return res.status(403).send("Forbidden");
+  }
+
+  try {
+        await getRedisBase().flushAll("ASYNC"); // non-blocking flush
+        res.send("Cache flushed");
+  } catch (err) {
+    console.error("Flush failed:", err);
+    res.status(500).send("Error flushing cache");
+  }
+});
 
 
 app.use('/published', publishedRouter);

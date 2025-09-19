@@ -3007,20 +3007,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 const inFrame = inExapndedFrame && clipped.l <= px && clipped.t <= py &&  clipped.r >= px && clipped.b >= py
                 if( inExapndedFrame ){
                     for(const d of frame.lastNodes){
-                        if( !inFrame && !d.attrs.expandedClick){
-                            continue
-                        }
-                        if( props.enableShapeSelection === false){
-                            if( d.attrs.name?.includes("shape_element")){
-                                continue
-                            }
-                        }
-                        if( forClick && d.attrs.name?.includes("no_select")){
-                            continue
-                        }
-                        if( forDrag && d.attrs.name?.includes("no_drag")){
-                            continue
-                        }
                         let x = px - frame.node.attrs.x
                         let y = py - frame.node.attrs.y
                         x /= frame.scale
@@ -3059,6 +3045,20 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 }
                                 checked.add( d._id)
                                 if( addMajor ){
+                                    if( !inFrame && !d.attrs.expandedClick){
+                                        continue
+                                    }
+                                    if( props.enableShapeSelection === false){
+                                        if( d.attrs.name?.includes("shape_element")){
+                                            continue
+                                        }
+                                    }
+                                    if( forClick && d.attrs.name?.includes("no_select")){
+                                        continue
+                                    }
+                                    if( forDrag && d.attrs.name?.includes("no_drag")){
+                                        continue
+                                    }
                                     found.push(d)
                                 }
                             }
@@ -3375,7 +3375,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 return
             }
             let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
-            const clickable_names = ["widget", "inf_track", "frame_label",...Object.keys(props.selectable), ...Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
+            const clickable_names = ["widget", "inf_track", "frame_label",...Object.keys(props.selectable ?? {}), ...Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
             if( clickable_names.length === 0 ){
                 return
             }
