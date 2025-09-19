@@ -1517,22 +1517,22 @@ class QueueManager {
 
         logger.info(`Purging queue: ${queueName}`);
 
-        const threadCount = this.workerThreads?.length ?? 0;
-        if (threadCount > 0) {
-            for (const worker of this.workerThreads) {
-                try { worker.postMessage({ type: 'stop', queueName }); } catch (err) { console.error(`Error terminating worker thread for queue: ${queueName}`, err); }
+            const threadCount = this.workerThreads?.length ?? 0;
+            if (threadCount > 0) {
+                for (const worker of this.workerThreads) {
+                    try { worker.postMessage({ type: 'stop', queueName }); } catch (err) { console.error(`Error terminating worker thread for queue: ${queueName}`, err); }
+                }
             }
-        }
-
-        if (!opts.suppressControl) {
-            try {
-                const payload = { cmd: 'stop', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource, sourceId: this.controlInstanceId };
-                await this.redis.publish(CONTROL_CHANNEL, JSON.stringify(payload));
-                logger.info(`Published stop for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource} / ${this.controlInstanceId})`);
-            } catch (e) {
-                logger.error('Failed to publish stop message', e);
+            // Publish cross-service stop so a remote listener can mirror
+            if (!opts.suppressControl) {
+                try {
+                    const payload = { cmd: 'stop', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource, sourceId: this.controlInstanceId };
+                    await this.redis.publish(CONTROL_CHANNEL, JSON.stringify(payload));
+                    logger.info(`Published stop for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource} / ${this.controlInstanceId})`);
+                } catch (e) {
+                    logger.error('Failed to publish stop message', e);
+                }
             }
-        }
 
         if (this.queues[queueName]) {
             try { await this.teminateJobsInQueue(workspaceId); } catch (err) { logger.error(`Error terminating jobs for ${queueName}`, err); }

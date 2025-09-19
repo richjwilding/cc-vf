@@ -1,6 +1,6 @@
 import OpenAI from "openai"
 import { getLogger } from "../../logger";
-import { categoryDetailsForAgent, resolveId } from "../utils";
+import { categoryDetailsForAgent } from "../utils";
 import { recordUsage } from "../../usage_tracker";
 
 export const VIEW_OPTIONS = `*) Views can be built from the raw data of another object, and can also be built from categorized and / or filtered live views of the original data, so be sure to consider pre-processing steps if its valuable to split out or filter the data to build a compelling view
@@ -87,6 +87,25 @@ export async function implementation(params, scope, notify){
             })
             try{
               const suggestions = JSON.parse(msg?.content)?.suggestions
+
+              if (Array.isArray(suggestions) && suggestions.length) {
+                let state = null;
+
+                if (scope.mode === "viz" && scope.modeState) {
+                  state = scope.modeState;
+                } else if (typeof scope.activateMode === "function") {
+                  state = scope.activateMode("viz");
+                }
+
+                if (state) {
+                  state.status = "list";
+                  state.selection = null;
+                  state.spec = null;
+                  state.suggestions = suggestions;
+                  scope.touchSession?.();
+                }
+              }
+
               return {
                 forClient: ["suggestions"],
                 suggestions
