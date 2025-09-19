@@ -6,6 +6,7 @@ import PrimitiveConfig from './PrimitiveConfig'
 import HierarchyNavigator from './HierarchyNavigator'
 import Popup from './Popup'
 import clsx from 'clsx'
+import { Icon } from '@iconify/react/dist/iconify.js'
 
 function FilterBadge({ label, value }){
   if (value === undefined || value === null) return null
@@ -191,8 +192,7 @@ function computeLayout(node, expandedKeys, parentKey = null, index = 0){
     ...childLayouts.flatMap((child)=>child.allSources)
   ]
 
-  const descendantFilterCount = childLayouts.reduce((sum, child)=>sum + child.totalFilterCount, 0)
-  const totalFilterCount = localFilters.length + descendantFilterCount
+  const descendantFilterCount = childLayouts.reduce((sum, child)=>sum + child.descendantFilterCount + (child.localFilters?.length ?? 0), 0)
 
   const incomingExpanded = children.reduce((acc, child)=>acc + (child?.count ?? 0), 0)
   const directSourcesInput = directSources.reduce((acc, child)=>{
@@ -216,7 +216,6 @@ function computeLayout(node, expandedKeys, parentKey = null, index = 0){
     directSources: directSourceBadges,
     allSources: aggregatedSources,
     descendantFilterCount,
-    totalFilterCount,
     children: childLayouts
   }
 }
@@ -232,36 +231,28 @@ function TreeNode({ layout, depth = 0, onToggle }){
   const nodeTypes = node.nodeTypes || {}
   const nodeTypeKeys = Object.keys(nodeTypes)
   const [showEditor, setShowEditor] = useState(false)
-  const canExpand = children.length > 0
+  const hasChildren = children.length > 0
 
-  const noteDescendantFilterCount = expanded ? 0 : descendantFilterCount
+  const effectivedNestedFilterCount = expanded ? 0 : descendantFilterCount
 
-  const nestedFilterMessage = expanded ? "" : descendantFilterCount === 0
-              ? 'No nested filters applied deeper'
-              : descendantFilterCount === 1
-                ? '1 nested filter applied deeper'
-                : `${descendantFilterCount} nested filters applied deeper` 
+  const nestedFilterMessage = `${descendantFilterCount} nested filter${descendantFilterCount === 1 ? '' : 's'} applied deeper`
+  const nodeIcon = prim.metadata?.icon ?? "QuestionMarkCircleIcon"
 
   return (
-    <div className={clsx('pl-2', depth > 0 && 'border-l border-slate-200 ml-2')}>
+    <div className={clsx(depth > 0 && 'pl-2 border-l border-slate-200 ml-2')}>
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-        <button className="flex w-full items-center justify-between text-left" disabled={!canExpand} onClick={() => onToggle(key)}>
+        <div className="flex w-full items-center justify-between text-left">
           <div className="flex items-center gap-2 truncate">
-            <span className={clsx('inline-block h-3 w-3 rounded-sm', expanded ? 'bg-emerald-500' : 'bg-slate-300')} />
+            <HeroIcon icon={nodeIcon} className="h-3.5 w-3.5 text-slate-500"/>
             <span className="text-sm font-semibold text-slate-700 truncate">{title}</span>
           </div>
-          <div className="text-[11px] text-slate-500 ml-2 shrink-0 flex items-center gap-2">
-            <span>in: <span className="font-semibold text-slate-700">{incomingCount}</span></span>
-            <span>out: <span className="font-semibold text-slate-700">{outCount}</span></span>
+          <div className="text-[11px] text-slate-500 ml-2 shrink-0 flex items-center gap-1">
+            {(incomingCount !== outCount) && <span><span className="font-semibold text-slate-700">{incomingCount}</span> filtered to</span>}
+            <span><span className="font-semibold text-slate-700">{outCount}</span> items</span>
           </div>
-          <div className="right-2 top-2">
-            <button className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50" onClick={(e)=>{e.stopPropagation(); setShowEditor(true)}}>
-              Edit
-            </button>
-          </div>
-        </button>
+        </div>
         <div className="mt-2 space-y-2">
-          {nodeTypeKeys.length > 0 &&  (
+          {nodeTypeKeys.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {nodeTypeKeys.map((rid) => {
                 const info = nodeTypes[rid] || {}
@@ -279,13 +270,19 @@ function TreeNode({ layout, depth = 0, onToggle }){
               })}
             </div>
           )}
-          {filters.length > 0 ? <>
-            {filters.map((f, i) => (<FilterRow key={i} f={f} />)) }
-            <div className="text-[11px] text-slate-500">
-              {nestedFilterMessage}
-            </div>
-            </> : (
-            <div className="text-[11px] text-slate-500">{noteDescendantFilterCount === 0 ? "No filters" : `No filters at this stage, ${nestedFilterMessage}`}</div>
+          {filters.length > 0 ? (
+            <>
+              <div className="text-xs text-slate-500 pt-1.5 place-items-center w-full flex justify-between">
+                <p>Filters</p>
+                <button type="button" className="inline-flex items-center rounded-md border border-slate-300 bg-white px-1 py-0.5 text-slate-700 hover:bg-slate-50 text-sm" onClick={(e)=>{e.stopPropagation(); setShowEditor(true)}}>
+                  <Icon icon="solar:settings-linear" />
+                </button>
+              </div>
+              {filters.map((f, i) => (<FilterRow key={i} f={f} />))}
+              {descendantFilterCount > 0 && <div className="text-[11px] text-slate-500 justify-self-end">+{nestedFilterMessage}</div>}
+            </>
+          ) : (
+            <div className="text-[11px] text-slate-500">{effectivedNestedFilterCount === 0 ? "No filters" : `No filters at this stage, ${nestedFilterMessage}`}</div>
           )}
           {expanded ? (
             directSources.length > 0 && children.length === 0 && (
@@ -301,6 +298,7 @@ function TreeNode({ layout, depth = 0, onToggle }){
             )
           ) : (
             <>
+              <div className="text-xs text-slate-500 ">Sources</div>
               {allSources.length > 0 && (
                 <div className="flex flex-col gap-1">
                   {allSources.map((source) => (
@@ -315,6 +313,16 @@ function TreeNode({ layout, depth = 0, onToggle }){
             </>
           )}
         </div>
+        {hasChildren && (
+          <button
+            type="button"
+            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            onClick={() => onToggle(key)}
+          >
+            <HeroIcon icon={expanded ? 'ChevronUpIcon' : 'ChevronDownIcon'} className="h-3.5 w-3.5" />
+            <span>{expanded ? 'Collapse' : 'Expand'}</span>
+          </button>
+        )}
       </div>
       {showEditor && (
         <Popup showCancel={true} setOpen={setShowEditor} title={`Edit filters — ${title}`} width="max-w-3xl">

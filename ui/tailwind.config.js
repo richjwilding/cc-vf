@@ -91,6 +91,9 @@ module.exports = {
         border: 'border 2s ease infinite',
         'ripple-color': 'rippleColor 2s ease-in-out infinite',
       },
+      fontSize: {
+        'xxs': ['0.625rem', { lineHeight: '0.875rem' }],
+      },
       "keyframes": {
         border: {
           '0%, 100%': { backgroundPosition: '0% 50%' },
