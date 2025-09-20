@@ -202,6 +202,116 @@ Each section of the of the output should be an element of an array. If a section
     }
 }
 
+export function parseOutputSchemaFromPrompt(output){
+    if( typeof(output) !== "string" ){
+        return
+    }
+    const start = output.indexOf("{")
+    if( start === -1 ){
+        return
+    }
+    try{
+        const schema = JSON.parse(output.slice(start))
+        const prefix = output.slice(0, start)
+        return {prefix, schema}
+    }catch(err){
+        console.warn("Unable to parse structured output schema for subquery planning", err)
+    }
+}
+
+export function shouldSplitIntoSubqueries(structure){
+    if( !Array.isArray(structure) || structure.length < 2 ){
+        return false
+    }
+    return structure.every(section => !section || !Array.isArray(section.subsections) || section.subsections.length === 0)
+}
+
+function cloneStructureSection(section){
+    return JSON.parse(JSON.stringify(section))
+}
+
+async function rewriteTaskForSection(baseTask, heading, section, options = {}){
+    if( !baseTask ){
+        return undefined
+    }
+    const engine = options.engine ?? "gpt4o";
+    const sectionJson = JSON.stringify(section ?? {}, null, 2);
+    try{
+        const rewriteResult = await processPromptOnText([baseTask], {
+            opener: "You are rewriting a structured summarisation task prompt. Here is the original task:",
+            prompt: `Rewrite the original task so it only requests the deliverable for the section titled "${heading}".\n\nRequirements:\n- Preserve every piece of contextual framing, constraints, and tone from the original task.\n- Keep any placeholder tokens such as {example} exactly as they appear.\n- Remove or adjust references to other sections so the request is solely about this section.\n- Maintain the same overall structure (including headings like \"### Task\") except where changes are needed to limit the scope.\n- The rewritten task must still be a complete prompt ready to send to the model.\n\nTarget section definition:\n${sectionJson}\n\nRespond with a JSON object containing a field named \"rewrite\" with the full rewritten task string.`,
+            output: 'Return the rewritten task in a json object with a single field "rewrite" whose value is the full prompt string.',
+            engine,
+            field: "rewrite",
+            keepLineBreaks: true
+        });
+        if(rewriteResult?.success){
+            const candidate = rewriteResult.output?.[0];
+            if(typeof candidate === "string" && candidate.trim()){
+                return candidate;
+            }
+            if(candidate && typeof candidate.rewrite === "string" && candidate.rewrite.trim()){
+                return candidate.rewrite;
+            }
+        }
+    }catch(err){
+        console.warn(`Failed to rewrite task for subquery section "${heading}"`, err);
+    }
+    return undefined;
+}
+
+export async function buildStoredSubqueriesForRevised(revised, options = {}){
+    if( !revised ){
+        return undefined
+    }
+    if( !shouldSplitIntoSubqueries(revised.structure) ){
+        return undefined
+    }
+    const schemaInfo = parseOutputSchemaFromPrompt(revised.output)
+    if( !schemaInfo ){
+        return undefined
+    }
+    const baseTask = revised.task
+    const engine = options.engine ?? "gpt4o"
+    const stored = []
+    for(let index = 0; index < revised.structure.length; index++){
+        const section = revised.structure[index]
+        const heading = section?.heading ?? `Section ${index + 1}`
+        const structureClone = cloneStructureSection(section)
+        const schemaClone = JSON.parse(JSON.stringify(schemaInfo.schema))
+        schemaClone.structure = [structureClone]
+        let rewrittenTask = await rewriteTaskForSection(baseTask, heading, section, {engine})
+        if( !rewrittenTask ){
+            const focusInstruction = `\n\nFocus exclusively on fulfilling the section titled "${heading}". Do not generate any other sections.`
+            rewrittenTask = `${baseTask}${focusInstruction}`
+        }
+        stored.push({
+            index,
+            heading,
+            task: rewrittenTask,
+            output: `${schemaInfo.prefix}${JSON.stringify(schemaClone)}`,
+            structure: [structureClone]
+        })
+    }
+    return stored
+}
+
+export async function buildRuntimeSubqueries(subqueries, substituteFn){
+    if( !Array.isArray(subqueries) || subqueries.length === 0 ){
+        return undefined
+    }
+    const runtime = []
+    for(const sub of subqueries){
+        const clone = JSON.parse(JSON.stringify(sub))
+        if( typeof substituteFn === "function" ){
+            clone.task = await substituteFn(clone.task)
+            clone.output = await substituteFn(clone.output)
+        }
+        runtime.push(clone)
+    }
+    return runtime
+}
+
 export function findEntries(obj, entry, out = []) {
     // Check if the object has a 'heading' key and delete it
     if (obj.hasOwnProperty(entry)) {
