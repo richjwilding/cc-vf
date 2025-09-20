@@ -9,7 +9,7 @@ import { getLogger } from "./logger";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
 import { analyzeListAgainstTopics, buildEmbeddings, processInChunk, processPromptOnText, summarizeMultiple } from "./openai_helper";
-import { findEntries, removeEntries, reviseUserRequest } from "./prompt_helper";
+import { findEntries, removeEntries, reviseUserRequest, buildStoredSubqueriesForRevised, buildRuntimeSubqueries } from "./prompt_helper";
 import axios from 'axios';
 
 const parser = PrimitiveParser()
@@ -1830,7 +1830,7 @@ export async function oneShotQuery( primitive, primitiveConfig, options = {}){
 export async function substitutePlaceholders( prompt, primitive, segmentName, mergedInputs){
     if(prompt.indexOf("{") == -1){
         return prompt
-    }        
+    }
     if( !mergedInputs){
         let parentInputs = {}
         const configParentId = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives[d].includes("primitives.config"))?.[0]
@@ -1864,11 +1864,12 @@ export async function substitutePlaceholders( prompt, primitive, segmentName, me
 export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, options = {}){
     const doUpdate = !options.overridePrompt
     let revised
+    let storedSubqueries
 
     let prompt = options.overridePrompt ?? primitiveConfig.prompt ?? primitiveConfig.query
 
     let segmentName
-    if( prompt.includes("{focus}") || prompt.includes("{segment}")){
+    if( prompt?.includes("{focus}") || prompt?.includes("{segment}")){
         const segmentSource = primitive.primitives?.imports?.[0]
         if( segmentSource ){
             console.log(`getting ${segmentSource}`)
@@ -1878,9 +1879,17 @@ export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, o
             }
         }
     }
+
     if(options.overridePrompt ){
         console.log(`---> Overriding prompt`)
         revised = await reviseUserRequest(options.overridePrompt)
+        if( primitiveConfig?.subquerySplit ){
+            storedSubqueries = await buildStoredSubqueriesForRevised(revised)
+        }
+        revised = JSON.parse(JSON.stringify(revised))
+        if( storedSubqueries ){
+            storedSubqueries = JSON.parse(JSON.stringify(storedSubqueries))
+        }
     }else{
         if( !primitiveConfig ){
             primitiveConfig = await getConfig(primitive)
@@ -1888,38 +1897,86 @@ export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, o
         if( !prompt ){
             logger.info(`No prompt to process for ${primitive.id} / ${primitive.plainId}`)
         }
-        revised = primitiveConfig.revised_query?.structure
 
+        const cached = primitiveConfig.revised_query ?? {}
+        if( cached.structure ){
+            revised = JSON.parse(JSON.stringify(cached.structure))
+        }
+        if( cached.subqueries ){
+            storedSubqueries = JSON.parse(JSON.stringify(cached.subqueries))
+        }
 
-
-        if( !revised || primitiveConfig.revised_query.cache !== prompt){
+        if( !revised || cached.cache !== prompt){
             revised = await reviseUserRequest(prompt, primitiveConfig)
             if( !revised ){
                 logger.warn(`Could not create revised query`)
                 return
             }
+            if( primitiveConfig.subquerySplit ){
+                storedSubqueries = await buildStoredSubqueriesForRevised(revised)
+            }else{
+                storedSubqueries = undefined
+            }
             if( doUpdate ){
                 const configParent = await getConfigParentForTerm(primitive, "prompt")
                 if( configParent ){
                     logger.info(`Revised query built for top level query - storing to ${configParent.id}`)
-                    await dispatchControlUpdate( configParent.id, "referenceParameters.revised_query", {structure: revised, cache: prompt})
+                    await dispatchControlUpdate( configParent.id, "referenceParameters.revised_query", {
+                        structure: revised,
+                        cache: prompt,
+                        subqueries: storedSubqueries ?? []
+                    })
                 }
+            }
+            revised = JSON.parse(JSON.stringify(revised))
+            if( storedSubqueries ){
+                storedSubqueries = JSON.parse(JSON.stringify(storedSubqueries))
+            }
+        }else{
+            if( primitiveConfig.subquerySplit ){
+                if( !storedSubqueries || storedSubqueries.length === 0 ){
+                    storedSubqueries = await buildStoredSubqueriesForRevised(revised)
+                }
+            }else{
+                storedSubqueries = undefined
             }
         }
     }
-    
+
+    if( !revised ){
+        return
+    }
+
     revised.task = await substitutePlaceholders(revised.task, primitive, segmentName)
+
+    let runtimeSubqueries
+    if( primitiveConfig.subquerySplit && storedSubqueries?.length ){
+        const substituteFn = async (text)=> await substitutePlaceholders(text, primitive, segmentName)
+        runtimeSubqueries = await buildRuntimeSubqueries(storedSubqueries, substituteFn)
+    }
 
     if( segmentName ){
         revised.task = revised.task.replaceAll(/\{focus\}/gi, segmentName);
         revised.task = revised.task.replaceAll(/\{segment\}/gi, segmentName);
-        
+
         revised.output = revised.output.replaceAll(/\{focus\}/gi, segmentName);
         revised.output = revised.output.replaceAll(/\{segment\}/gi, segmentName);
         logger.info(`Applied local mod {segment} -> ${segmentName}`)
     }
 
-    
+    if( runtimeSubqueries?.length ){
+        if( segmentName ){
+            runtimeSubqueries = runtimeSubqueries.map(sub => {
+                sub.task = sub.task.replaceAll(/\{focus\}/gi, segmentName)
+                sub.task = sub.task.replaceAll(/\{segment\}/gi, segmentName)
+                sub.output = sub.output.replaceAll(/\{focus\}/gi, segmentName)
+                sub.output = sub.output.replaceAll(/\{segment\}/gi, segmentName)
+                return sub
+            })
+        }
+        revised.subqueries = runtimeSubqueries
+    }
+
     return revised
 }
 
@@ -2037,205 +2094,362 @@ export async function summarizeWithQuery( primitive, options = {} ){
     return await buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig)
 }
 
+function parseIdsList(value){
+    if( Array.isArray(value) ){
+        return value.map(entry => {
+            if( typeof(entry) === "string" ){
+                const parsed = parseInt(entry, 10)
+                return Number.isNaN(parsed) ? entry : parsed
+            }
+            return entry
+        })
+    }
+    if( typeof(value) === "string" ){
+        return value.replaceAll("[","").replaceAll("]","").split(",").map(d=>{
+            const trimmed = d.trim()
+            if( trimmed.length === 0 ){
+                return undefined
+            }
+            const parsed = parseInt(trimmed, 10)
+            return Number.isNaN(parsed) ? undefined : parsed
+        }).filter(d=>d !== undefined)
+    }
+    return []
+}
+
+function remapStructureIdsToOriginal(nodeResult, partialItems, originalIndexLookup){
+    if( !Array.isArray(nodeResult) ){
+        return
+    }
+    const partialIndexMap = partialItems.map(item => originalIndexLookup.get(item.id))
+    modiftyEntries(nodeResult, "ids", entry => {
+        const ids = parseIdsList(entry.ids)
+        const remapped = ids.map(idx => {
+            if( typeof(idx) === "string" ){
+                const parsed = parseInt(idx, 10)
+                if( Number.isNaN(parsed) ){
+                    logger.warn(`Unable to parse fragment reference ${idx}`)
+                    return undefined
+                }
+                idx = parsed
+            }
+            const originalIdx = partialIndexMap[idx]
+            if( originalIdx === undefined ){
+                logger.warn(`Could not remap fragment index ${idx} to original items list`)
+                return undefined
+            }
+            return originalIdx
+        }).filter((d,i,a)=>d !== undefined && a.indexOf(d) === i)
+        return remapped
+    })
+}
+
+async function executeStructuredQuery({ primitive, revised, items, toSummarize, toProcess, primitiveConfig, refetchFragments, progressCallback, forceBatchMerge = false }){
+    let workingItems = Array.isArray(items) ? [...items] : []
+    let workingSummaries = Array.isArray(toSummarize) ? [...toSummarize] : []
+    let workingProcess = Array.isArray(toProcess) ? [...toProcess] : []
+
+    const emit = (message)=>{
+        if( typeof(progressCallback) !== "function" ){
+            return
+        }
+        if( typeof(message) === "string" ){
+            progressCallback({text: message})
+            return
+        }
+        if( message ){
+            progressCallback(message)
+        }
+    }
+
+    const results = await summarizeMultiple( workingProcess,{
+        workspaceId: primitive.workspaceId,
+        usageId: primitive.id,
+        functionName: "queryWithStructure",
+        prompt: revised.task,
+        output: revised.output,
+        types: "fragments",
+        focus: primitiveConfig.focus,
+        markPass: true,
+        batch: workingProcess.length > 1000 ? 50 : undefined,
+        temperature: primitiveConfig.temperature,
+        markdown: primitiveConfig.markdown,
+        heading: primitiveConfig.heading,
+        wholeResponse: true,
+        scored: primitiveConfig.scored,
+        engine: primitiveConfig.engine ?? "gpt-4o",
+        progressCallback: (status)=>{
+            if( status === undefined ){
+                return
+            }
+            if( typeof(status) === "string" ){
+                emit(status)
+                return
+            }
+            if( typeof(status.percentage) === "number" ){
+                emit({text: status.text ?? `Analyzing ${(status.percentage * 100).toFixed(0)}%`, percentage: status.percentage})
+            }else if( typeof(status.completed) === "number" && typeof(status.total) === "number" && status.total !== 0 ){
+                const percentage = status.completed / status.total
+                emit({text: `Analyzing ${(percentage * 100).toFixed(0)}%`, percentage})
+            }else{
+                emit(status)
+            }
+        },
+        merge: false,
+        debug: true,
+        debug_content:false
+    })
+
+    if( results.shouldMerge ){
+        if( primitiveConfig.split && !forceBatchMerge ){
+            console.log(`Split into multiple responses`)
+        }else{
+            let flatten = results.summary.flatMap(d=>d.structure)
+            console.log(`Need to merge multiple responses to structured output -  have ${flatten.length}`)
+            emit({text: "Finalizing..."})
+
+            const activeIds = extractFlatNodes(flatten).flatMap(entry=>{
+                const mapped = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>!isNaN(d)) : entry.ids
+                console.log(mapped)
+                return mapped
+            }).filter((d,i,a)=>d && a.indexOf(d)===i)
+            console.log(`-- Got ${activeIds.length} active fragments, collecting and regenerating`)
+
+            if( refetchFragments ){
+                const activeFragments = activeIds.map(d=>workingItems[d])
+                workingItems = await expandFragmentsForContext( activeFragments )
+                workingSummaries = workingItems.map(d=>d.text);
+                workingProcess = workingSummaries
+            }else{
+
+                let combined = activeIds.map(idx => {
+                    if(workingItems[idx] && workingSummaries[idx]){
+                        return {
+                            item:      workingItems[idx],
+                            summary:   workingSummaries[idx]
+                        }
+                    }
+                    logger.warning(`Couldnt find item / summary at idx ${idx}`)
+                    return undefined
+                }).filter(Boolean);
+
+                combined.sort((a, b) => {
+                    if (a.item.id === b.item.id) {
+                        return a.item.part - b.item.part;
+                    }
+                    return a.item.id.localeCompare(b.item.id);
+                });
+
+                workingItems       = combined.map(pair => pair.item);
+                workingSummaries = combined.map(pair => pair.summary);
+                workingProcess = workingSummaries.map(d=>Array.isArray(d) ? d.join(", ") : d)
+            }
+
+            console.log(`- rebuilt to ${workingItems.length} / ${workingSummaries.length} / ${workingProcess.length}`)
+
+            const reworked = await summarizeMultiple( workingProcess,{
+                workspaceId: primitive.workspaceId,
+                usageId: primitive.id,
+                functionName: "queryWithStructureCombine",
+                prompt: revised.task,
+                output: revised.output,
+                types: "fragments",
+                focus: primitiveConfig.focus,
+                batch: false,
+                temperature: primitiveConfig.temperature,
+                markdown: primitiveConfig.markdown,
+                heading: primitiveConfig.heading,
+                wholeResponse: true,
+                scored: primitiveConfig.scored,
+                engine: primitiveConfig.engine ?? "gpt-4o",
+                merge: false,
+                debug: true,
+                debug_content:true
+            })
+            if( reworked ){
+                console.log(`Got revised back`)
+                if( reworked?.summary?.structure){
+                    results.summary.structure = reworked.summary.structure
+                }else if( Array.isArray(reworked?.summary)){
+                    let flatten = reworked.summary.flatMap(d=>d.structure)
+                    console.log(`Need to merge multiple responses to structured output -  have ${flatten.length}`)
+                    emit({text: "Finalizing..."})
+
+                    flatten = flatten.filter(d=>{
+                        const idsForSection = extractFlatNodes([d]).flatMap(d=>d.ids)
+                        return idsForSection.length > 0
+                    })
+                    console.log(`-- Filtered to ${flatten.length} with actual results (based on ids)`)
+                    if( flatten.length === 0){
+                        return {nodeResult: [], items: workingItems, toSummarize: workingSummaries, toProcess: workingProcess}
+                    }
+                    const idsList = {}
+                    let idGroup = 1
+                    modiftyEntries( flatten, "ids", entry=>{
+                        const ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)) : entry.ids
+                        const idKey = `g${idGroup}`
+                        idsList[idKey] = ids
+                        idGroup++
+                        return idKey
+                    } )
+
+
+                    const outputFormat = revised.output.replaceAll("List the numbers associated with all of the fragments of text used for this section", "List each and every item in the 'ids' field of each of the source summaries which you have rationalized into this new item - you MUST include ALL items from the relevant source summaries")
+
+                    const consolidated = await processInChunk( flatten,
+                        [
+                            {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
+                            {"role": "user", "content": `Here is a list of summaries:`}],
+                            [
+                                {"role": "user", "content":  `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. Be incredibly careful to maintain the integrity and validaity of what you are writing - dont conflate or confuse items. You MUST ONLY use the data I provided to compelte this task - DO NOT use your own knowledge. If asked to include quotes use a selection of the quotes stated in the interim results.  ${revised.task}`},
+                                {"role": "user", "content": outputFormat},
+                            ],
+                            {
+                                engine: primitiveConfig.engine ?? "gpt-4o",
+                                workspaceId: primitive.workspaceId,
+                                usageId: primitive.id,
+                                functionName: "queryWithStructure_merge",
+                                wholeResponse: true,
+                                field: undefined,
+                                debug: true,
+                                debug_content: true
+                            })
+
+                    if( Object.hasOwn(consolidated, "success")){
+                        logger.error(`Error in merging responses for summarizeWithQuery`, consolidated)
+                        throw "Error in merging responses for summarizeWithQuery"
+                    }
+                    if( consolidated.length > 1){
+                        logger.error(`Merged responses has multiple passes - unexpected`)
+                    }
+                    const refined = consolidated[0]?.structure
+                    if( refined ){
+                        modiftyEntries( refined, "ids", entry=>{
+                            const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>d.trim()) : entry.ids
+                            const remapped = ids.flatMap(d=>{
+                                const mapped = idsList[d]
+                                if( !mapped ){
+                                    logger.error(`Couldnt find ${d} in mapped Ids`)
+                                    return undefined
+                                }
+                                return mapped
+                            }).filter((d,i,a)=>d !== undefined && a.indexOf(d)===i)
+                            return remapped
+                        })
+                        results.summary.structure = refined
+                    }
+
+                }else{
+                    logger.error(`Cant find result `, reworked)
+                }
+            }
+        }
+    }
+
+    return {nodeResult: results?.summary?.structure, items: workingItems, toSummarize: workingSummaries, toProcess: workingProcess}
+}
+
 export async function buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig, refetchFragments = false, progressCallback ){
     try{
             let toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
             if( typeof(progressCallback) !== "function"){
                 progressCallback = ()=>{}
             }
-            
-            const results = await summarizeMultiple( toProcess,{
-                workspaceId: primitive.workspaceId,
-                usageId: primitive.id,
-                functionName: "queryWithStructure",
-                prompt: revised.task,
-                output: revised.output,
-                types: "fragments",
-                focus: primitiveConfig.focus, 
-                markPass: true,
-                batch: toProcess.length > 1000 ? 50 : undefined,
-                temperature: primitiveConfig.temperature,
-                //allow_infer: true,
-                markdown: primitiveConfig.markdown, 
-                heading: primitiveConfig.heading,
-                wholeResponse: true,
-                scored: primitiveConfig.scored,
-                engine: primitiveConfig.engine ?? "gpt-4o",
-                progressCallback: (status)=>{
-                    const percentage = status.completed / status.total
-                    const message = {text: `Analyzing ${(percentage * 100).toFixed(0)}%`, percentage}
-                    progressCallback( message )
-                },
-                merge: false,
-                debug: true, 
-                debug_content:false
-            })
 
+            const useSubqueries = primitiveConfig.subquerySplit && Array.isArray(revised.subqueries) && revised.subqueries.length > 0
+            let nodeResult
 
-            if( results.shouldMerge){
-                if( primitiveConfig.split  ){
-                    console.log(`Split into multiple responses`)
-                }else{
-                    let flatten = results.summary.flatMap(d=>d.structure)
-                    console.log(`Need to merge multiple responses to structured output -  have ${flatten.length}`)
-                    progressCallback( "Finalizing..." )
-                    
-                    const activeIds = extractFlatNodes(flatten).flatMap(entry=>{
-                        const mapped = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>!isNaN(d)) : entry.ids
-                        console.log(mapped)
-                        return mapped
-                    }).filter((d,i,a)=>d && a.indexOf(d)===i)
-                    console.log(`-- Got ${activeIds.length} active fragments, collecting and regenerating`)
+            if( useSubqueries ){
+                const orderedSubqueries = [...revised.subqueries].sort((a,b)=> (a.index ?? 0) - (b.index ?? 0))
+                const originalIndexLookup = new Map(items.map((item, idx)=>[item.id, idx]))
+                const combinedStructure = []
+                const totalSubqueries = orderedSubqueries.length
 
-                    if( refetchFragments ){
-                        const activeFragments = activeIds.map(d=>items[d])
-                        items = await expandFragmentsForContext( activeFragments )
-                        toSummarize = items.map(d=>d.text);
-                        toProcess = toSummarize
-                    }else{
-
-                        
-                        let combined = activeIds.map(idx => {
-                            if(items[idx] && toSummarize[idx]){
-                                return {
-                                    item:      items[idx],
-                                    summary:   toSummarize[idx]
-                                }
-                            }
-                            logger.warning(`Couldnt find item / summary at idx ${idx}`)
-                            return undefined
-                        }).filter(Boolean);
-                        
-                        combined.sort((a, b) => {
-                            if (a.item.id === b.item.id) {
-                                return a.item.part - b.item.part;
-                            }
-                            return a.item.id.localeCompare(b.item.id);
-                        });
-                        
-                        items       = combined.map(pair => pair.item);
-                        toSummarize = combined.map(pair => pair.summary);
-                        toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
-                    }
-                        
-                    console.log(`- rebuilt to ${items.length} / ${toSummarize.length} / ${toProcess.length}`)
-
-                    const reworked = await summarizeMultiple( toProcess,{
-                        workspaceId: primitive.workspaceId,
-                        usageId: primitive.id,
-                        functionName: "queryWithStructureCombine",
-                        prompt: revised.task,
-                        output: revised.output,
-                        types: "fragments",
-                        focus: primitiveConfig.focus, 
-                        batch: false,
-                        temperature: primitiveConfig.temperature,
-                        //allow_infer: true,
-                        markdown: primitiveConfig.markdown, 
-                        heading: primitiveConfig.heading,
-                        wholeResponse: true,
-                        scored: primitiveConfig.scored,
-                        engine: primitiveConfig.engine ?? "gpt-4o",
-                        merge: false,
-                        debug: true, 
-                        debug_content:true
-                    })
-                    if( reworked ){
-                        console.log(`Got revised back`)
-                        if( reworked?.summary?.structure){
-                            results.summary.structure = reworked.summary.structure
-                        }else if( Array.isArray(reworked?.summary)){
-                            let flatten = reworked.summary.flatMap(d=>d.structure)
-                            console.log(`Need to merge multiple responses to structured output -  have ${flatten.length}`)
-                            progressCallback( "Finalizing..." )
-
-                            flatten = flatten.filter(d=>{
-                                const idsForSection = extractFlatNodes([d]).flatMap(d=>d.ids)
-                                return idsForSection.length > 0
-                            })
-                            console.log(`-- Filtered to ${flatten.length} with actual results (based on ids)`)
-                            if( flatten.length === 0){
-                                return ""
-                            }
-                            const idsList = {}
-                            let idGroup = 1
-                            modiftyEntries( flatten, "ids", entry=>{
-                                const ids = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)) : entry.ids
-                                const idKey = `g${idGroup}`
-                                idsList[idKey] = ids
-                                idGroup++
-                                return idKey
-                            } )
-
-
-                            const outputFormat = revised.output.replaceAll("List the numbers associated with all of the fragments of text used for this section", "List each and every item in the 'ids' field of each of the source summaries which you have rationalized into this new item - you MUST include ALL items from the relevant source summaries")
-
-                            const consolidated = await processInChunk( flatten, 
-                                [
-                                    {"role": "system", "content": "You are analysing data for a computer program to process.  Responses must be in json format"},
-                                    {"role": "user", "content": `Here is a list of summaries:`}],
-                                    [
-                                        {"role": "user", "content":  `Rationalize these summaries into a single response to address this original prompt. Be careful to note which summaries you are merging together. Be incredibly careful to maintain the integrity and validaity of what you are writing - dont conflate or confuse items. You MUST ONLY use the data I provided to compelte this task - DO NOT use your own knowledge. If asked to include quotes use a selection of the quotes stated in the interim results.  ${revised.task}`
-                                    },
-                                    {"role": "user", "content": outputFormat},
-                                ],
-                                {
-                                    engine: primitiveConfig.engine ?? "gpt-4o",
-                                    workspaceId: primitive.workspaceId,
-                                    usageId: primitive.id,
-                                    functionName: "queryWithStructure_merge",
-                                    wholeResponse: true,
-                                    field: undefined,
-                                    debug: true,
-                                    debug_content: true
-                                })
-                            
-                            if( Object.hasOwn(consolidated, "success")){
-                                logger.error(`Error in merging responses for summarizeWithQuery`, consolidated)
-                                throw "Error in merging responses for summarizeWithQuery"
-                            }
-                            if( consolidated.length > 1){
-                                logger.error(`Merged responses has multiple passes - unexpected`)
-                            }
-                            const refined = consolidated[0]?.structure
-                            if( refined ){
-                                modiftyEntries( refined, "ids", entry=>{
-                                    const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>d.trim()) : entry.ids
-                                    const remapped = ids.flatMap(d=>{
-                                        const mapped = idsList[d]
-                                        if( !mapped ){
-                                            logger.error(`Couldnt find ${d} in mapped Ids`)
-                                            return undefined
-                                        }
-                                        return mapped
-                                    }).filter((d,i,a)=>d !== undefined && a.indexOf(d)===i)
-                                    return remapped
-                                })
-                                results.summary.structure = refined                
-                            }
-
-                        }else{
-                            logger.error(`Cant find result `, reworked)
+                for(let idx = 0; idx < orderedSubqueries.length; idx++){
+                    const subquery = orderedSubqueries[idx]
+                    const step = 1 / totalSubqueries
+                    const subProgress = (status)=>{
+                        if( typeof(progressCallback) !== "function" ){
+                            return
                         }
+                        if( status === undefined ){
+                            return
+                        }
+                        let percentage = 0
+                        let text
+                        if( typeof(status) === "string" ){
+                            text = status
+                        }else if( typeof(status.percentage) === "number" ){
+                            percentage = status.percentage
+                            text = status.text
+                        }else if( typeof(status.completed) === "number" && typeof(status.total) === "number" && status.total !== 0 ){
+                            percentage = status.completed / status.total
+                            text = status.text
+                        }
+                        const overall = Math.min(1, (idx * step) + (percentage * step))
+                        const messageText = text ?? `Analyzing ${(percentage * 100).toFixed(0)}%`
+                        progressCallback({text: `Subquery ${idx + 1}/${totalSubqueries}: ${messageText}`, percentage: overall})
                     }
-                    
-                    
+
+                    const subResult = await executeStructuredQuery({
+                        primitive,
+                        revised: {
+                            ...revised,
+                            task: subquery.task,
+                            output: subquery.output,
+                            structure: subquery.structure,
+                            subqueries: undefined
+                        },
+                        items: items.slice(),
+                        toSummarize: toSummarize.slice(),
+                        toProcess: toProcess.slice(),
+                        primitiveConfig,
+                        refetchFragments,
+                        progressCallback: subProgress,
+                        forceBatchMerge: true
+                    })
+
+                    if( !subResult?.nodeResult || subResult.nodeResult.length === 0 ){
+                        continue
+                    }
+                    remapStructureIdsToOriginal(subResult.nodeResult, subResult.items, originalIndexLookup)
+                    combinedStructure.push(...subResult.nodeResult)
                 }
+                nodeResult = combinedStructure
+            }else{
+                const execResult = await executeStructuredQuery({
+                    primitive,
+                    revised,
+                    items: items.slice(),
+                    toSummarize: toSummarize.slice(),
+                    toProcess: toProcess.slice(),
+                    primitiveConfig,
+                    refetchFragments,
+                    progressCallback
+                })
+
+                if( !execResult?.nodeResult ){
+                    return ""
+                }
+                nodeResult = execResult.nodeResult
+                items = execResult.items
+                toSummarize = execResult.toSummarize
+                toProcess = execResult.toProcess
             }
 
+            if( !nodeResult || nodeResult.length === 0 ){
+                return ""
+            }
 
-            if( results?.summary?.structure ){
-                let nodeStruct = revised.structure
-                let nodeResult = results?.summary?.structure
+            let nodeStruct = revised.structure
 
-                if( primitiveConfig.verify ){
-                    const validated = await validateResponse( revised.task, results?.summary?.structure, nodeStruct, toProcess, {}, revised.output)
-                    
-                    if( validated ){
-                        nodeResult = validated.response
-                    }
+            if( primitiveConfig.verify ){
+                const validated = await validateResponse( revised.task, nodeResult, nodeStruct, toProcess, {}, revised.output)
+
+                if( validated ){
+                    nodeResult = validated.response
                 }
-
+            }
 
                 let asList, outputList = []
                 if( primitiveConfig.split ){
@@ -2299,8 +2513,7 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                 }
 
                 return outputList
-            }
-            
+
     }catch(error){
         logger.error(error)
         throw error
