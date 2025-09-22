@@ -407,110 +407,143 @@ router.get('/primitives', async function(req, res, next) {
     let workspaceId = req.query.workspace
     const owns = req.query.owns
 
-
-
     try {
-        const workspaces = req.user.workspaceIds
-      let query = {
-                $and: [
-                    { workspaceId: { $in: workspaces }},
-                    { type: { $in: ['activity','experiment','venture', 'board','working'] }},
-                    { deleted: {$exists: false}}
-                ]
-            }
-    
+        const workspaces = req.user.workspaceIds ?? []
+        const ownedWorkspaceIds = workspaces.map(d => `${d}`)
+
         if( owns !== undefined ){
             let primitive
             try{
                 primitive = await Primitive.findOne({"_id": new ObjectId(owns)})
-            }catch{
+            }catch(err){
                 primitive = await Primitive.findOne({"plainId": parseInt(owns)})
             }
             workspaceId = primitive?.workspaceId
-
         }
 
-        if( !workspaces.includes(workspaceId)){
+        if( workspaceId && !ownedWorkspaceIds.includes(`${workspaceId}`)){
             workspaceId = undefined
         }
 
-        
-      if( workspaceId !== undefined){
-        query = {
-                        $and: [
-                            {$or: [
-                                {workspaceId: workspaceId},
-                                query
-                            ]},
-                            { deleted: {$exists: false}}
-                        ]
-                    }
-        /*if( workspaceId === "all"){
-            query = { 
-                $and: [
-                    {workspaceId: { $in: workspaces }},
-                    { deleted: {$exists: false}}
-                ]
-            }
-        }*/
-      }
-        
-        console.log(`Doing fetch....`)
-        let results
-        if( workspaceId ){
-            if( true ){
-                async function getData(hexChar){
-                    if( hexChar === "-"){
-                        let query = {
-                                        $and: [
-                                            { workspaceId: { $in: workspaces.filter(d=>d !== workspaceId) }},
-                                            { type: { $in: ['activity','experiment','venture', 'board','working'] }},
-                                            { deleted: {$exists: false}}
-                                        ]                                            
-                        }
-                        return await Primitive.find(query, DONT_LOAD_UI)
-                    }
-//                    return await fetchPrimitives(undefined, { "_id": { "$regex": `[${hexChar}]$`}, "workspaceId": workspaceId }, DONT_LOAD)
-                    const set = await Primitive.aggregate([
-                        { "$match": { "workspaceId": workspaceId,  "deleted": {$exists: false}} },
-                        { "$addFields": { "_idStr": { "$toString": "$_id" } } },
-                        { "$match": { "_idStr": { "$regex": `${hexChar}$` } } },
-                        { "$project": DONT_LOAD_UI }
-                    ])
-                    return set
-                }
-                const {results:data} = await executeConcurrently(["-",0,1,2,3,4,5,6,7,8,9,"a","b","c","d","e","f"], getData, undefined, undefined, 8)
+        const loadFromOtherWorkspaces = workspaceId !== undefined
+        const projection = workspaceId !== undefined
+            ? DONT_LOAD_UI
+            : {crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0}
+        const batchSize = Math.max(100, Math.min(parseInt(req.query.batchSize, 10) || 500, 2000))
 
-                results = data.flat()
-                
+        const accessibleTypes = ['activity','experiment','venture', 'board','working']
 
-            }else{
-                const ids = (await Primitive.find(query,{_id: 1})).map(d=>d.id)
-                const chunks = [], chunkCount = 2000, len = ids.length
-                for(let i = 0; i < len; i+= chunkCount){
-                    chunks.push(ids.slice(i, i + chunkCount))
-                }
-                console.log(`Got ${ids.length} - split to ${chunks.length}`)
-                async function getData(ids){
-                    return await fetchPrimitives(ids, undefined, DONT_LOAD)
-                }
-                const {results:data} = await executeConcurrently(chunks, getData, undefined, undefined, 10)
-                results = data.flat()
-            }
-            console.log(`Back with ${results.length}`)
-        }else{
-            results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0})
+        const workspaceQuery = workspaceId !== undefined ? {
+            workspaceId,
+            deleted: {$exists: false}
+        } : undefined
+
+        const otherWorkspaceIds = loadFromOtherWorkspaces ? ownedWorkspaceIds.filter(d => `${d}` !== `${workspaceId}`) : ownedWorkspaceIds
+        const otherWorkspaceQuery = otherWorkspaceIds.length > 0 ? {
+            workspaceId: { $in: otherWorkspaceIds },
+            type: { $in: accessibleTypes },
+            deleted: { $exists: false }
+        } : undefined
+
+        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
+        res.setHeader('Cache-Control', 'no-store')
+        res.setHeader('Transfer-Encoding', 'chunked')
+        if( typeof res.flushHeaders === 'function'){
+            res.flushHeaders()
         }
 
-        console.log(`Packing....`)
-        //res.json(results)
+        let isClosed = false
+        res.on('close', () => {
+            isClosed = true
+        })
 
-        res.setHeader('Content-Type', 'application/msgpack');
-        res.send(pack(results));
+        const countPromises = []
+        if( workspaceQuery ){
+            countPromises.push(Primitive.countDocuments(workspaceQuery))
+        }
+        if( otherWorkspaceQuery ){
+            countPromises.push(Primitive.countDocuments(otherWorkspaceQuery))
+        }
+        const totals = await Promise.all(countPromises)
+        const totalItems = totals.reduce((sum, value) => sum + value, 0)
+
+        res.write(JSON.stringify({type: 'meta', total: totalItems}) + '\n')
+
+        const buildCursor = (query) => query ? Primitive.find(query, projection).lean().cursor({batchSize}) : undefined
+        const cursors = []
+        if( otherWorkspaceQuery ){
+            cursors.push(buildCursor(otherWorkspaceQuery))
+        }
+        if( workspaceQuery ){
+            cursors.push(buildCursor(workspaceQuery))
+        }
+
+        const normalisePrimitive = (doc) => {
+            if( doc === undefined || doc === null ){
+                return doc
+            }
+            if( doc._id && typeof doc._id !== 'string'){
+                doc._id = doc._id.toString()
+            }
+            if( !doc.id ){
+                doc.id = doc._id
+            }
+            if( doc.__v !== undefined ){
+                delete doc.__v
+            }
+            return doc
+        }
+
+        for(const cursor of cursors){
+            if( !cursor || isClosed){
+                continue
+            }
+
+            let batch = []
+            try{
+                for await (let doc of cursor){
+                    if( isClosed ){
+                        break
+                    }
+                    doc = normalisePrimitive(doc)
+                    if( doc ){
+                        batch.push(doc)
+                    }
+                    if( batch.length >= batchSize ){
+                        res.write(JSON.stringify({type: 'batch', items: batch}) + '\n')
+                        batch = []
+                    }
+                }
+            } finally {
+                if( typeof cursor.close === 'function'){
+                    await cursor.close().catch(()=>{})
+                }
+            }
+
+            if( isClosed ){
+                break
+            }
+
+            if( batch.length > 0 ){
+                res.write(JSON.stringify({type: 'batch', items: batch}) + '\n')
+            }
+        }
+
+        if( !isClosed ){
+            res.write(JSON.stringify({type: 'end', total: totalItems}) + '\n')
+        }
+        res.end()
 
       } catch (err) {
         console.log(err)
-        res.json({error: err})
+        if( res.headersSent ){
+            try{
+                res.end()
+            }catch(e){
+            }
+        }else{
+            res.status(500).json({error: err?.message ?? err})
+        }
       }
 
 })
