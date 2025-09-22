@@ -492,87 +492,77 @@ router.get('/primitives', async function(req, res, next) {
             }
         })
 
-        const countPromises = []
+        let workspaceStats
+        let workspaceTotal = 0
         if( workspaceQuery ){
-            countPromises.push(Primitive.countDocuments(workspaceQuery))
+            console.time('COUNT')
+            const [stats] = await Primitive.aggregate([
+                { $match: workspaceQuery },
+                {
+                    $facet: {
+                        first: [ { $sort: { _id: 1 } }, { $limit: 1 }, { $project: { _id: 1 } } ],
+                        last:  [ { $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } } ],
+                        totals: [ { $count: 'count' } ]
+                    }
+                },
+                {
+                    $project: {
+                        minId: { $first: '$first._id' },
+                        maxId: { $first: '$last._id' },
+                        totalCount: { $ifNull: [ { $first: '$totals.count' }, 0 ] }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        totalCount: 1,
+                        minSeconds: {
+                            $cond: [
+                                { $ifNull: ['$minId', false] },
+                                { $toInt: { $divide: [ { $toLong: { $toDate: '$minId' } }, 1000 ] } },
+                                null
+                            ]
+                        },
+                        maxSeconds: {
+                            $cond: [
+                                { $ifNull: ['$maxId', false] },
+                                { $toInt: { $divide: [ { $toLong: { $toDate: '$maxId' } }, 1000 ] } },
+                                null
+                            ]
+                        }
+                    }
+                }
+            ])
+            console.timeEnd('COUNT')
+            workspaceStats = stats
+            workspaceTotal = stats?.totalCount ?? 0
         }
+
+        let otherWorkspaceTotal = 0
         if( otherWorkspaceQuery ){
-            countPromises.push(Primitive.countDocuments(otherWorkspaceQuery))
+            otherWorkspaceTotal = await Primitive.countDocuments(otherWorkspaceQuery)
         }
-        const totals = await Promise.all(countPromises)
-        const totalItems = totals.reduce((sum, value) => sum + value, 0)
+
+        const totalItems = workspaceTotal + otherWorkspaceTotal
 
         const streamConcurrency = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_CONCURRENCY, 10) || 8, 16))
         const partitionCount = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_PARTITIONS, 10) || 16, 64))
         let timePartitionStarts
 
-        if (workspaceQuery) {
-            try {
-        console.time("COUNT")
-                const [bounds] = await Primitive.aggregate(
-                    
-                    [
-                        { $match: workspaceQuery },
+        if( workspaceQuery && typeof workspaceStats?.minSeconds === 'number' && typeof workspaceStats?.maxSeconds === 'number' ){
+            const span = Math.max(1, workspaceStats.maxSeconds - workspaceStats.minSeconds + 1)
+            const step = Math.max(1, Math.ceil(span / partitionCount))
+            timePartitionStarts = []
 
-                        // do two tiny seeks via index
-                        {
-                            $facet: {
-                            first: [ { $sort: { _id: 1 } },  { $limit: 1 }, { $project: { _id: 1 } } ],
-                            last:  [ { $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } } ]
-                            }
-                        },
-                        {
-                            $project: {
-                            minId: { $first: "$first._id" },
-                            maxId: { $first: "$last._id" }
-                            }
-                        },
-                        {
-                            $project: {
-                            _id: 0,
-                            minSeconds: { $toInt: { $divide: [ { $toLong: { $toDate: "$minId" } }, 1000 ] } },
-                            maxSeconds: { $toInt: { $divide: [ { $toLong: { $toDate: "$maxId" } }, 1000 ] } },
-                            }
-                        }
-                    ]
-                    /*[
-                    { $match: workspaceQuery },
-                    {
-                        $group: {
-                            _id: null,
-                            minDate: { $min: { $toDate: '$_id' } },
-                            maxDate: { $max: { $toDate: '$_id' } },
-                        },
-                    },
-                    {
-                        $project: {
-                            _id: 0,
-                            minSeconds: { $toInt: { $divide: [{ $toLong: '$minDate' }, 1000] } },
-                            maxSeconds: { $toInt: { $divide: [{ $toLong: '$maxDate' }, 1000] } },
-                        },
-                    },
-                    ]*/
-                )
-        console.timeEnd("COUNT")
-
-                if (bounds?.minSeconds !== undefined && bounds?.maxSeconds !== undefined) {
-                    const span = Math.max(1, bounds.maxSeconds - bounds.minSeconds + 1)
-                    const step = Math.max(1, Math.ceil(span / partitionCount))
-                    timePartitionStarts = []
-
-                    for (let idx = 0; idx < partitionCount; idx++) {
-                        const start = bounds.minSeconds + idx * step
-                        if (start > bounds.maxSeconds) {
-                            break
-                        }
-                        timePartitionStarts.push(start)
-                    }
+            for (let idx = 0; idx < partitionCount; idx++) {
+                const start = workspaceStats.minSeconds + idx * step
+                if (start > workspaceStats.maxSeconds) {
+                    break
                 }
-            } catch (error) {
-                console.warn('Unable to determine primitive time partitions', error)
-                timePartitionStarts = undefined
+                timePartitionStarts.push(start)
             }
         }
+
         const partitionIndices = timePartitionStarts?.length ? timePartitionStarts.map((_, idx) => idx) : [0]
 
         const normalisePrimitive = (doc) => {
