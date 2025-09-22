@@ -465,11 +465,54 @@ router.get('/primitives', async function(req, res, next) {
         if( otherWorkspaceQuery ){
             countPromises.push(Primitive.countDocuments(otherWorkspaceQuery))
         }
+        console.time("COUNT")
         const totals = await Promise.all(countPromises)
+        console.timeEnd("COUNT")
         const totalItems = totals.reduce((sum, value) => sum + value, 0)
 
         const streamConcurrency = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_CONCURRENCY, 10) || 8, 16))
-        const hexPartitions = ['0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f']
+        const partitionCount = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_PARTITIONS, 10) || 16, 64))
+        let timePartitionStarts
+
+        if (workspaceQuery) {
+            try {
+                const [bounds] = await Primitive.aggregate([
+                    { $match: workspaceQuery },
+                    {
+                        $group: {
+                            _id: null,
+                            minDate: { $min: { $toDate: '$_id' } },
+                            maxDate: { $max: { $toDate: '$_id' } },
+                        },
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            minSeconds: { $toInt: { $divide: [{ $toLong: '$minDate' }, 1000] } },
+                            maxSeconds: { $toInt: { $divide: [{ $toLong: '$maxDate' }, 1000] } },
+                        },
+                    },
+                ])
+
+                if (bounds?.minSeconds !== undefined && bounds?.maxSeconds !== undefined) {
+                    const span = Math.max(1, bounds.maxSeconds - bounds.minSeconds + 1)
+                    const step = Math.max(1, Math.ceil(span / partitionCount))
+                    timePartitionStarts = []
+
+                    for (let idx = 0; idx < partitionCount; idx++) {
+                        const start = bounds.minSeconds + idx * step
+                        if (start > bounds.maxSeconds) {
+                            break
+                        }
+                        timePartitionStarts.push(start)
+                    }
+                }
+            } catch (error) {
+                console.warn('Unable to determine primitive time partitions', error)
+                timePartitionStarts = undefined
+            }
+        }
+        const partitionIndices = timePartitionStarts?.length ? timePartitionStarts.map((_, idx) => idx) : [0]
 
         const normalisePrimitive = (doc) => {
             if( doc === undefined || doc === null ){
@@ -514,21 +557,22 @@ router.get('/primitives', async function(req, res, next) {
 
         await writeJSONLine({type: 'meta', total: totalItems})
 
-        const makePartitionQuery = (hexChar) => {
+        const makePartitionQuery = (partitionIndex) => {
             if( !workspaceQuery ){
                 return undefined
             }
             const partitionQuery = {...workspaceQuery}
-            const index = hexPartitions.indexOf(hexChar)
-            if( index === -1 ){
+            if( !timePartitionStarts?.length ){
                 return partitionQuery
             }
-            const startHex = hexChar.padEnd(24, '0')
-            const startId = new ObjectId(startHex)
-            const nextHex = hexPartitions[index + 1]
-            if( nextHex ){
-                const endHex = nextHex.padEnd(24, '0')
-                const endId = new ObjectId(endHex)
+            const startSeconds = timePartitionStarts[partitionIndex]
+            if( startSeconds === undefined ){
+                return partitionQuery
+            }
+            const startId = ObjectId.createFromTime(startSeconds)
+            const nextStartSeconds = timePartitionStarts[partitionIndex + 1]
+            if( nextStartSeconds !== undefined ){
+                const endId = ObjectId.createFromTime(nextStartSeconds)
                 partitionQuery._id = { $gte: startId, $lt: endId }
             }else{
                 partitionQuery._id = { $gte: startId }
@@ -543,9 +587,9 @@ router.get('/primitives', async function(req, res, next) {
         }
 
         if( workspaceQuery ){
-            for (const hexChar of hexPartitions){
+            for (const partitionIndex of partitionIndices){
                 cursorFactories.push(() => {
-                    const partitionQuery = makePartitionQuery(hexChar)
+                    const partitionQuery = makePartitionQuery(partitionIndex)
                     if( !partitionQuery ){
                         return undefined
                     }
