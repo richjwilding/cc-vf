@@ -1,5 +1,8 @@
 import express, { query } from 'express';
 import { once } from 'events';
+import { PassThrough } from 'stream';
+import { pipeline } from 'stream/promises';
+import { createBrotliCompress, constants as zlibConstants } from 'zlib';
 import User from '../model/User';
 import Company from '../model/Company';
 import AssessmentFramework from '../model/AssessmentFramework';
@@ -15,7 +18,7 @@ import { encode } from 'gpt-3-encoder';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
 import axios from 'axios';
-import { unpack, pack } from 'msgpackr';
+import { pack } from 'msgpackr';
 import { findCompanyURLByNameLogoDev } from '../task_processor';
 import { compareTwoStrings } from '../actions/SharedTransforms';
 import { replicateWorkflow } from '../workflow';
@@ -446,16 +449,47 @@ router.get('/primitives', async function(req, res, next) {
             deleted: { $exists: false }
         } : undefined
 
-        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
+        const acceptsEncoding = req.headers['accept-encoding'] || ''
+        const useBrotli = acceptsEncoding.includes('br')
+
+        res.setHeader('Content-Type', 'application/msgpack')
         res.setHeader('Cache-Control', 'no-store')
-        res.setHeader('Transfer-Encoding', 'chunked')
+        if( useBrotli ){
+            res.setHeader('Content-Encoding', 'br')
+        }
         if( typeof res.flushHeaders === 'function'){
             res.flushHeaders()
         }
 
         let isClosed = false
+        const passThrough = new PassThrough()
+        const finalStream = useBrotli ? createBrotliCompress({
+            chunkSize: 64 * 1024,
+            params: {
+                [zlibConstants.BROTLI_PARAM_QUALITY]: 4,
+            }
+        }) : null
+
+        pipeline(passThrough, ...(useBrotli ? [finalStream, res] : [res])).catch((err)=>{
+            if( !isClosed ){
+                console.warn('Primitive stream pipeline error', err)
+            }
+        })
+
+        const flushCompressor = useBrotli ? (()=>{
+            try{
+                finalStream.flush(zlibConstants.BROTLI_OPERATION_FLUSH)
+            }catch(err){
+                // ignore flush errors (stream may be closed)
+            }
+        }) : undefined
+
         res.on('close', () => {
             isClosed = true
+            passThrough.destroy()
+            if( useBrotli ){
+                finalStream?.destroy()
+            }
         })
 
         const countPromises = []
@@ -465,9 +499,7 @@ router.get('/primitives', async function(req, res, next) {
         if( otherWorkspaceQuery ){
             countPromises.push(Primitive.countDocuments(otherWorkspaceQuery))
         }
-        console.time("COUNT")
         const totals = await Promise.all(countPromises)
-        console.timeEnd("COUNT")
         const totalItems = totals.reduce((sum, value) => sum + value, 0)
 
         const streamConcurrency = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_CONCURRENCY, 10) || 8, 16))
@@ -476,7 +508,34 @@ router.get('/primitives', async function(req, res, next) {
 
         if (workspaceQuery) {
             try {
-                const [bounds] = await Primitive.aggregate([
+        console.time("COUNT")
+                const [bounds] = await Primitive.aggregate(
+                    
+                    [
+                        { $match: workspaceQuery },
+
+                        // do two tiny seeks via index
+                        {
+                            $facet: {
+                            first: [ { $sort: { _id: 1 } },  { $limit: 1 }, { $project: { _id: 1 } } ],
+                            last:  [ { $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } } ]
+                            }
+                        },
+                        {
+                            $project: {
+                            minId: { $first: "$first._id" },
+                            maxId: { $first: "$last._id" }
+                            }
+                        },
+                        {
+                            $project: {
+                            _id: 0,
+                            minSeconds: { $toInt: { $divide: [ { $toLong: { $toDate: "$minId" } }, 1000 ] } },
+                            maxSeconds: { $toInt: { $divide: [ { $toLong: { $toDate: "$maxId" } }, 1000 ] } },
+                            }
+                        }
+                    ]
+                    /*[
                     { $match: workspaceQuery },
                     {
                         $group: {
@@ -492,7 +551,9 @@ router.get('/primitives', async function(req, res, next) {
                             maxSeconds: { $toInt: { $divide: [{ $toLong: '$maxDate' }, 1000] } },
                         },
                     },
-                ])
+                    ]*/
+                )
+        console.timeEnd("COUNT")
 
                 if (bounds?.minSeconds !== undefined && bounds?.maxSeconds !== undefined) {
                     const span = Math.max(1, bounds.maxSeconds - bounds.minSeconds + 1)
@@ -530,15 +591,30 @@ router.get('/primitives', async function(req, res, next) {
             return doc
         }
 
-        const writeJSONLine = async (payload) => {
+        let pendingDrain
+        const writeTarget = passThrough
+
+        const writeFrame = async (payload) => {
             if( isClosed ){
                 return
             }
-            const line = JSON.stringify(payload) + '\n'
+            let frame = pack(payload, { useRecords: false })
+            if( !Buffer.isBuffer(frame) ){
+                frame = Buffer.from(frame)
+            }
+            const header = Buffer.allocUnsafe(4)
+            header.writeUInt32BE(frame.length, 0)
+            const out = Buffer.concat([header, frame])
             try{
-                const canContinue = res.write(line)
+                const canContinue = writeTarget.write(out)
                 if( canContinue === false ){
-                    await once(res, 'drain')
+                    if( !pendingDrain ){
+                        pendingDrain = once(writeTarget, 'drain').finally(()=>{ pendingDrain = undefined })
+                    }
+                    await pendingDrain
+                }
+                if( flushCompressor ){
+                    flushCompressor()
                 }
             }catch(err){
                 isClosed = true
@@ -551,11 +627,11 @@ router.get('/primitives', async function(req, res, next) {
             if( isClosed || !items.length ){
                 return
             }
-            await writeJSONLine({type: 'batch', items})
+            await writeFrame({type: 'batch', items})
             loaded += items.length
         }
 
-        await writeJSONLine({type: 'meta', total: totalItems})
+        await writeFrame({type: 'meta', total: totalItems})
 
         const makePartitionQuery = (partitionIndex) => {
             if( !workspaceQuery ){
@@ -662,8 +738,8 @@ router.get('/primitives', async function(req, res, next) {
         await runWithConcurrency(cursorFactories, streamConcurrency)
 
         if( !isClosed ){
-            await writeJSONLine({type: 'end', total: totalItems || loaded, loaded})
-            res.end()
+            await writeFrame({type: 'end', total: totalItems || loaded, loaded})
+            passThrough.end()
         }
 
       } catch (err) {

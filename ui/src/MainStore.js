@@ -5,7 +5,7 @@ import {default as PrimitiveConfig} from "./PrimitiveConfig";
 import AssessmentAnalyzer from "./AssessmentAnalyzer";
 import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
-import { unpack, pack } from 'msgpackr';
+import { Unpackr } from 'msgpackr';
 import CollectionUtils from "./CollectionHelper";
 import { findFilterMatches } from "./SharedTransforms";
 import { progress } from "framer-motion";
@@ -3545,25 +3545,6 @@ function MainStore (prims){
         const contentType = response.headers.get('content-type') || ''
         updateProgress({message: 'Loading primitives...', current: 0, total: 0})
 
-        if( contentType.includes('application/msgpack') ){
-            const buffer = await response.arrayBuffer()
-            const data = unpack(new Uint8Array(buffer))
-            applyBatch(Array.isArray(data) ? data : [])
-            updateProgress({current: data.length ?? 0, total: data.length ?? 0, message: `Loaded ${data.length ?? 0} primitives`})
-            return Array.isArray(data) ? data.length : 0
-        }
-
-        if( !response.body || typeof response.body.getReader !== 'function' ){
-            const data = await response.json().catch(()=>[])
-            const list = Array.isArray(data) ? data : (data?.items ?? [])
-            applyBatch(list)
-            updateProgress({current: list.length ?? 0, total: list.length ?? 0, message: `Loaded ${list.length ?? 0} primitives`})
-            return list.length ?? 0
-        }
-
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let bufferText = ''
         let total = 0
         let loaded = 0
 
@@ -3595,6 +3576,88 @@ function MainStore (prims){
                     break
             }
         }
+
+        if( contentType.includes('application/msgpack') ){
+            const unpackr = new Unpackr({ mapsAsObjects: true })
+            let pending = new Uint8Array(0)
+
+            const appendChunk = (chunk)=>{
+                if( !chunk || chunk.length === 0 ){
+                    return
+                }
+                const incoming = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+                if( pending.length ){
+                    const merged = new Uint8Array(pending.length + incoming.length)
+                    merged.set(pending, 0)
+                    merged.set(incoming, pending.length)
+                    pending = merged
+                }else{
+                    pending = incoming
+                }
+
+                let offset = 0
+                while((pending.length - offset) >= 4){
+                    const frameSize = new DataView(pending.buffer, pending.byteOffset + offset, 4).getUint32(0)
+                    const available = pending.length - offset - 4
+                    if( available < frameSize ){
+                        break
+                    }
+                    const start = offset + 4
+                    const end = start + frameSize
+                    const payloadBytes = pending.slice(start, end)
+                    try{
+                        const payload = unpackr.unpack(payloadBytes)
+                        handlePayload(payload)
+                    }catch(err){
+                        console.error('Failed to unpack primitives frame', err)
+                    }
+                    offset = end
+                }
+
+                if( offset > 0 ){
+                    pending = pending.slice(offset)
+                }
+            }
+
+            if( response.body && typeof response.body.getReader === 'function'){
+                const reader = response.body.getReader()
+                try{
+                    while(true){
+                        const {value, done} = await reader.read()
+                        if( done ){
+                            break
+                        }
+                        appendChunk(value)
+                    }
+                } finally {
+                    reader.releaseLock?.()
+                }
+            }else{
+                appendChunk(new Uint8Array(await response.arrayBuffer()))
+            }
+
+            if( pending.length ){
+                // Incomplete frame remains
+                console.warn('Discarding incomplete msgpack frame for primitives stream')
+            }
+
+            if( trackProgress && total === 0 ){
+                updateProgress({message: `Loaded ${loaded} primitives`, current: loaded, total: loaded})
+            }
+            return loaded
+        }
+
+        if( !response.body || typeof response.body.getReader !== 'function' ){
+            const data = await response.json().catch(()=>[])
+            const list = Array.isArray(data) ? data : (data?.items ?? [])
+            applyBatch(list)
+            updateProgress({current: list.length ?? 0, total: list.length ?? 0, message: `Loaded ${list.length ?? 0} primitives`})
+            return list.length ?? 0
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let bufferText = ''
 
         try{
             while(true){
