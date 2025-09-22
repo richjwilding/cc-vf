@@ -1807,7 +1807,7 @@ export async function oneShotQuery( primitive, primitiveConfig, options = {}){
     const importIds = parentForScope.primitives?.imports
 
 
-    const fragments = await getFragmentsForQuery(
+    /*const fragments = await getFragmentsForQuery(
                                 primitive, 
                                 queryData.task, {
                                     fromPrimitive: true
@@ -1824,6 +1824,10 @@ export async function oneShotQuery( primitive, primitiveConfig, options = {}){
         console.log(result)
         return result
     }
+    */
+        const result = await buildStructuredSummary( primitive, queryData, undefined, undefined, primitiveConfig, true, progressCallback)
+        console.log(result)
+        return result
 }
 
 
@@ -1885,6 +1889,7 @@ export async function getRevisedQueryWithLocalMods(primitive, primitiveConfig, o
         revised = await reviseUserRequest(options.overridePrompt)
         if( primitiveConfig?.subquerySplit ){
             storedSubqueries = await buildStoredSubqueriesForRevised(revised)
+            logger.ingo(`Got subqueries`, storedSubqueries)
         }
         revised = JSON.parse(JSON.stringify(revised))
         if( storedSubqueries ){
@@ -1994,8 +1999,7 @@ export async function getFragmentsForQuery( primitive, query,  {sourceIds = [], 
         prompt: buildPrompt,
         output: `Return the result in a json object called "result" with a field called 'prompts' containing the keyword and phrases list as an array`,
         engine: "o4-mini",
-        debug: true,
-        debug_content: true,
+        debug: false,
         field: "result"
     })
     if( !_prompts?.success ){
@@ -2117,32 +2121,6 @@ function parseIdsList(value){
     return []
 }
 
-function remapStructureIdsToOriginal(nodeResult, partialItems, originalIndexLookup){
-    if( !Array.isArray(nodeResult) ){
-        return
-    }
-    const partialIndexMap = partialItems.map(item => originalIndexLookup.get(item.id))
-    modiftyEntries(nodeResult, "ids", entry => {
-        const ids = parseIdsList(entry.ids)
-        const remapped = ids.map(idx => {
-            if( typeof(idx) === "string" ){
-                const parsed = parseInt(idx, 10)
-                if( Number.isNaN(parsed) ){
-                    logger.warn(`Unable to parse fragment reference ${idx}`)
-                    return undefined
-                }
-                idx = parsed
-            }
-            const originalIdx = partialIndexMap[idx]
-            if( originalIdx === undefined ){
-                logger.warn(`Could not remap fragment index ${idx} to original items list`)
-                return undefined
-            }
-            return originalIdx
-        }).filter((d,i,a)=>d !== undefined && a.indexOf(d) === i)
-        return remapped
-    })
-}
 
 async function executeStructuredQuery({ primitive, revised, items, toSummarize, toProcess, primitiveConfig, refetchFragments, progressCallback, forceBatchMerge = false }){
     let workingItems = Array.isArray(items) ? [...items] : []
@@ -2264,7 +2242,7 @@ async function executeStructuredQuery({ primitive, revised, items, toSummarize, 
                 engine: primitiveConfig.engine ?? "gpt-4o",
                 merge: false,
                 debug: true,
-                debug_content:true
+                debug_content:false
             })
             if( reworked ){
                 console.log(`Got revised back`)
@@ -2312,7 +2290,7 @@ async function executeStructuredQuery({ primitive, revised, items, toSummarize, 
                                 wholeResponse: true,
                                 field: undefined,
                                 debug: true,
-                                debug_content: true
+                                debug_content: false
                             })
 
                     if( Object.hasOwn(consolidated, "success")){
@@ -2351,7 +2329,7 @@ async function executeStructuredQuery({ primitive, revised, items, toSummarize, 
 
 export async function buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig, refetchFragments = false, progressCallback ){
     try{
-            let toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
+            let toProcess = toSummarize ? toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d) : undefined
             if( typeof(progressCallback) !== "function"){
                 progressCallback = ()=>{}
             }
@@ -2361,7 +2339,6 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
 
             if( useSubqueries ){
                 const orderedSubqueries = [...revised.subqueries].sort((a,b)=> (a.index ?? 0) - (b.index ?? 0))
-                const originalIndexLookup = new Map(items.map((item, idx)=>[item.id, idx]))
                 const combinedStructure = []
                 const totalSubqueries = orderedSubqueries.length
 
@@ -2391,6 +2368,24 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                         progressCallback({text: `Subquery ${idx + 1}/${totalSubqueries}: ${messageText}`, percentage: overall})
                     }
 
+                    logger.info(`Fetching fragments for subquery`)
+                     items = await getFragmentsForQuery(
+                                primitive, 
+                                subquery.task, 
+                                {
+                                    fromPrimitive: true
+                                }, {
+                                    lookupCount: primitiveConfig.lookupCount,
+                                    searchTerms: primitiveConfig.candidateCount,
+                                    scanRatio: primitiveConfig.scanRatio
+                                }, progressCallback)
+
+                    toSummarize = items.map(d=>d.text)
+                    toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d) 
+
+                    const toShow = items.map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i).slice(0,10)
+                    console.log(`>>> ids of fragment srouce: ${toShow.join(", ")}`)
+                    
                     const subResult = await executeStructuredQuery({
                         primitive,
                         revised: {
@@ -2401,8 +2396,8 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                             subqueries: undefined
                         },
                         items: items.slice(),
-                        toSummarize: toSummarize.slice(),
-                        toProcess: toProcess.slice(),
+                        toSummarize,
+                        toProcess,
                         primitiveConfig,
                         refetchFragments,
                         progressCallback: subProgress,
@@ -2412,11 +2407,35 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                     if( !subResult?.nodeResult || subResult.nodeResult.length === 0 ){
                         continue
                     }
-                    remapStructureIdsToOriginal(subResult.nodeResult, subResult.items, originalIndexLookup)
+                    inlineMapResponseIdsToInputs(subResult.nodeResult, subResult.items)
+                    console.log(...subResult.nodeResult)
                     combinedStructure.push(...subResult.nodeResult)
                 }
                 nodeResult = combinedStructure
+
+                nodeResult = await reduceSubqueryDuplicationAcrossSections({
+                    nodeResult,
+                    revised,
+                    primitive,
+                    primitiveConfig,
+                    progressCallback,
+                })
             }else{
+                if( !items ){
+                    items = await getFragmentsForQuery(
+                                primitive, 
+                                revised.task, 
+                                {
+                                    fromPrimitive: true
+                                }, {
+                                    lookupCount: primitiveConfig.lookupCount,
+                                    searchTerms: primitiveConfig.candidateCount,
+                                    scanRatio: primitiveConfig.scanRatio
+                                }, progressCallback)
+
+                    toSummarize = items.map(d=>d.text)
+                    toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
+                }
                 const execResult = await executeStructuredQuery({
                     primitive,
                     revised,
@@ -2444,10 +2463,14 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
             let nodeStruct = revised.structure
 
             if( primitiveConfig.verify ){
-                const validated = await validateResponse( revised.task, nodeResult, nodeStruct, toProcess, {}, revised.output)
-
-                if( validated ){
-                    nodeResult = validated.response
+                if( useSubqueries ){
+                    logger.warn("VERIFICATION NOT IMPLEMENTED FOR SUBQUERY")
+                }else{
+                    const validated = await validateResponse( revised.task, nodeResult, nodeStruct, toProcess, {}, revised.output)
+                    
+                    if( validated ){
+                        nodeResult = validated.response
+                    }
                 }
             }
 
@@ -2508,7 +2531,15 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
 
                 for( const {heading, nodeResult} of asList){
                     let out = flattenStructuredResponse( nodeResult, nodeStruct, primitiveConfig.heading !== false)
-                    const allIds = inlineMapResponseIdsToInputs( nodeResult, items)
+                    let allIds 
+                    
+                    if( useSubqueries ){
+                        const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
+                        allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
+                    }else{
+                        allIds = inlineMapResponseIdsToInputs( nodeResult, items)
+                    }
+                    
                     outputList.push({plain:out, heading: heading, structured: nodeResult, sourceIds: allIds})
                 }
 
@@ -2536,6 +2567,182 @@ export function inlineMapResponseIdsToInputs( nodeResult, mapList){
     const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
     const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
     return allIds
+}
+
+async function reduceSubqueryDuplicationAcrossSections({ nodeResult, revised, primitive, primitiveConfig, progressCallback }) {
+    if (!Array.isArray(nodeResult) || nodeResult.length <= 1) {
+        return nodeResult;
+    }
+
+    try {
+        progressCallback?.({ text: 'Reducing duplication between subquery sections...' });
+    } catch (_) {
+        /* ignore progress errors */
+    }
+
+    try {
+        const clone = JSON.parse(JSON.stringify(nodeResult));
+        const targetStructure = Array.isArray(revised?.structure)
+            ? JSON.parse(JSON.stringify(revised.structure))
+            : undefined;
+        const fragmentMap = {};
+        let counter = 1;
+
+        modiftyEntries(clone, "ids", entry => {
+            const ids = entry.ids;
+            if (!ids) {
+                return ids;
+            }
+            const normalized = Array.isArray(ids)
+                ? ids.filter(Boolean)
+                : String(ids)
+                    .replaceAll("[", "")
+                    .replaceAll("]", "")
+                    .split(",")
+                    .map(s => s.trim())
+                    .filter(Boolean);
+            if (!normalized.length) {
+                return ids;
+            }
+            const key = `g${counter++}`;
+            fragmentMap[key] = normalized;
+            return key;
+        });
+
+        if (Object.keys(fragmentMap).length === 0) {
+            return nodeResult;
+        }
+
+        const payload = [{
+            task: revised.task,
+            structure: clone,
+            fragment_map: fragmentMap,
+            target_structure: targetStructure,
+        }];
+
+        const systemMessages = [
+            {
+                role: 'system',
+                content:
+                    'You deduplicate structured JSON research summaries. Work only with the provided data and always reply with valid JSON.',
+            },
+            {
+                role: 'user',
+                content:
+                    'The JSON payload contains fields task, structure, and fragment_map. Reduce duplication across sections, merge overlapping content, and keep factual accuracy. Use only fragment ids already present. Do not invent ids or content.',
+            },
+        ];
+
+        const userMessages = [
+            {
+                role: 'user',
+                content: targetStructure
+                    ? 'Return JSON in the exact shape {"structure":[...]} preserving schema (headings, subsections, ids, etc.). Use target_structure as the template for final section ordering, headings, and any length or formatting constraints—revert any doubled word counts to match the template. If you merge sections, update their ids to include the combined fragment references.'
+                    : 'Return JSON in the exact shape {"structure":[...]} preserving schema (headings, subsections, ids, etc.). If you merge sections, update their ids to include the combined fragment references.',
+            },
+        ];
+
+        const consolidated = await processInChunk(payload, systemMessages, userMessages, {
+            engine: primitiveConfig.engine ?? 'gpt-4o',
+            workspaceId: primitive.workspaceId,
+            usageId: primitive.id,
+            functionName: 'queryWithStructure_subquery_dedupe',
+            wholeResponse: true,
+            debug: true,
+            debug_content: false
+        });
+
+        if (Object.hasOwn(consolidated, 'success')) {
+            logger.error('Error reducing duplication across sections', consolidated);
+            return nodeResult;
+        }
+
+        let dedupedStructure;
+        if (Array.isArray(consolidated) && consolidated[0]?.structure) {
+            dedupedStructure = consolidated[0].structure;
+        } else if (consolidated?.structure) {
+            dedupedStructure = consolidated.structure;
+        } else if (Array.isArray(consolidated) && typeof consolidated[0] === 'string') {
+            try {
+                const parsed = JSON.parse(consolidated[0]);
+                dedupedStructure = parsed.structure;
+            } catch (error) {
+                logger.warn('Unable to parse deduplicated structure response', error);
+            }
+        }
+
+        if (!Array.isArray(dedupedStructure) || !dedupedStructure.length) {
+            return nodeResult;
+        }
+
+        modiftyEntries(dedupedStructure, "ids", entry => {
+            const ids = entry.ids;
+            if (!ids) {
+                return ids;
+            }
+            const normalized = Array.isArray(ids)
+                ? ids
+                : String(ids)
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean);
+
+            const expanded = normalized
+                .flatMap(token => fragmentMap[token] ?? token)
+                .filter((value, idx, arr) => value !== undefined && arr.indexOf(value) === idx)
+                .map(value => {
+                    if (typeof value === 'string' && /^\d+$/.test(value)) {
+                        const parsed = Number(value);
+                        return Number.isNaN(parsed) ? value : parsed;
+                    }
+                    return value;
+                });
+
+            return expanded.length ? expanded : ids;
+        });
+
+        if (Array.isArray(dedupedStructure) && targetStructure) {
+            // Align deduplicated output to the template ordering/shape without overwriting content.
+            const alignToTemplate = (resultNodes, templateNodes) => {
+                if (!Array.isArray(resultNodes) || !Array.isArray(templateNodes)) {
+                    return resultNodes;
+                }
+                const max = Math.min(resultNodes.length, templateNodes.length);
+                const aligned = [];
+                for (let idx = 0; idx < max; idx++) {
+                    const resultNode = resultNodes[idx] ?? {};
+                    const templateNode = templateNodes[idx] ?? {};
+                    const merged = {
+                        ...templateNode,
+                        ...resultNode,
+                    };
+                    if (templateNode.subsections || resultNode.subsections) {
+                        merged.subsections = alignToTemplate(
+                            resultNode.subsections,
+                            templateNode.subsections,
+                        );
+                    }
+                    aligned.push(merged);
+                }
+                if (resultNodes.length > max) {
+                    aligned.push(...resultNodes.slice(max));
+                }
+                return aligned;
+            };
+            dedupedStructure = alignToTemplate(dedupedStructure, targetStructure);
+        }
+
+        return dedupedStructure;
+    } catch (error) {
+        logger.warn('Failed to deduplicate subquery sections', error);
+        return nodeResult;
+    } finally {
+        try {
+            progressCallback?.({ text: 'Duplication check complete' });
+        } catch (_) {
+            /* ignore */
+        }
+    }
 }
 function removeOmittedItemsFromStructure(nodeResult){
     let out = []
@@ -2575,7 +2782,6 @@ export function extractFlatNodes(nodeResult, types = ["markdown formatted string
 
 export function hasMeaningfulContent( sections ){
     const contentSections = extractFlatNodes(sections).map(d=>d.content).filter(Boolean)
-    console.log(contentSections)
     if( contentSections === 0 || contentSections.every(d=>d.match(/No relevant data/i)) ){
         console.log(`RESULT HAS NO USEFUL CONTENT`)
         return false

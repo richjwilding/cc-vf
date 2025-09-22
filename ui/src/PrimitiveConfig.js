@@ -2266,7 +2266,7 @@ export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings 
             }
         }
         if( nextR?.content ){
-            if( nextR?.type?.match(/list/) ){
+            if( nextR?.type?.match(/list/) || nextR.content.trim().startsWith("- ")){
                 let asArray = nextR.content ?? []
 
                 if( typeof(nextR.content) === "string"){
@@ -2284,9 +2284,9 @@ export function flattenStructuredResponse(nodeResult, nodeStruct, allowHeadings 
                 }).join("\n") + "\n"
             }else{
                 let val = nextR.content
-                if(val.trim().startsWith("- ")){
+                /*if(val.trim().startsWith("- ")){
                     val = val.slice(1).trim()
-                }
+                }*/
                 out += `${val}\n`
             }
         }

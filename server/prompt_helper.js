@@ -234,30 +234,97 @@ async function rewriteTaskForSection(baseTask, heading, section, options = {}){
     if( !baseTask ){
         return undefined
     }
-    const engine = options.engine ?? "gpt4o";
-    const sectionJson = JSON.stringify(section ?? {}, null, 2);
+    const engine = options.engine ?? "gpt4o"
+    const doubleWordcount = options.doubleWordcount ?? true
+    const sectionJson = JSON.stringify(section ?? {}, null, 2)
+    const requirements = [
+        "- Preserve every piece of contextual framing, constraints, and tone from the original task.",
+        "- Keep any placeholder tokens such as {example} exactly as they appear.",
+        "- Remove or adjust references to other sections so the request is solely about this section.",
+        doubleWordcount
+            ? "- Maintain the same overall structure (including headings like \"### Task\") except where changes are needed to limit the scope, and double any explicit word-count or length constraints requested for this section so the model can provide richer content."
+            : "- Maintain the same overall structure (including headings like \"### Task\") except where changes are needed to limit the scope, and keep any explicit word-count or length constraints unchanged." ,
+        "- The rewritten task must still be a complete prompt ready to send to the model."
+    ].join("\n")
+
+    const promptLines = [
+        `Rewrite the original task so it only requests the deliverable for the section titled "${heading}".`,
+        "",
+        "Requirements:",
+        requirements,
+        "",
+        "Existing section schema (JSON) that defines the expected output for this section:",
+        sectionJson
+    ]
+
+    if( doubleWordcount ){
+        promptLines.push(
+            "",
+            "Update the schema so that any explicit word-count limits are doubled while preserving its shape, keys, and descriptive text. Only adjust numeric values (e.g. \"150 words\" becomes \"300 words\").",
+            "If no explicit word-count limit exists, return the schema unchanged.",
+            "Respond with a JSON object containing:",
+            "- \"rewrite\": the full rewritten task string.",
+            "- \"structure\": the updated section schema JSON object with doubled word-count limits.",
+            "Do not include additional commentary or fields."
+        )
+    }else{
+        promptLines.push(
+            "",
+            "Respond with a JSON object containing a field named \"rewrite\" whose value is the full rewritten task string. Do not include additional fields."
+        )
+    }
+
     try{
-        const rewriteResult = await processPromptOnText([baseTask], {
+        const requestOptions = {
             opener: "You are rewriting a structured summarisation task prompt. Here is the original task:",
-            prompt: `Rewrite the original task so it only requests the deliverable for the section titled "${heading}".\n\nRequirements:\n- Preserve every piece of contextual framing, constraints, and tone from the original task.\n- Keep any placeholder tokens such as {example} exactly as they appear.\n- Remove or adjust references to other sections so the request is solely about this section.\n- Maintain the same overall structure (including headings like \"### Task\") except where changes are needed to limit the scope.\n- The rewritten task must still be a complete prompt ready to send to the model.\n\nTarget section definition:\n${sectionJson}\n\nRespond with a JSON object containing a field named \"rewrite\" with the full rewritten task string.`,
-            output: 'Return the rewritten task in a json object with a single field "rewrite" whose value is the full prompt string.',
+            prompt: promptLines.join("\n"),
+            output: doubleWordcount
+                ? 'Provide your answer as a JSON object with fields "rewrite" and "structure". Do not include any other keys or text.'
+                : 'Return the rewritten task in a json object with a single field "rewrite" whose value is the full prompt string.',
             engine,
-            field: "rewrite",
             keepLineBreaks: true
-        });
+        }
+
+        if( doubleWordcount ){
+            requestOptions.wholeResponse = true
+        }else{
+            requestOptions.field = "rewrite"
+        }
+
+        const rewriteResult = await processPromptOnText([baseTask], requestOptions)
         if(rewriteResult?.success){
-            const candidate = rewriteResult.output?.[0];
-            if(typeof candidate === "string" && candidate.trim()){
-                return candidate;
-            }
-            if(candidate && typeof candidate.rewrite === "string" && candidate.rewrite.trim()){
-                return candidate.rewrite;
+            const candidate = rewriteResult.output?.[0]
+            if( doubleWordcount ){
+                if(candidate && typeof candidate === "object" ){
+                    const rewrite = typeof candidate.rewrite === "string" ? candidate.rewrite : undefined
+                    const updatedStructure = candidate.structure
+                    if( rewrite && rewrite.trim() ){
+                        return {rewrite, structure: updatedStructure}
+                    }
+                }
+                if(typeof candidate === "string" && candidate.trim()){
+                    try{
+                        const parsed = JSON.parse(candidate)
+                        if(parsed?.rewrite){
+                            return {rewrite: parsed.rewrite, structure: parsed.structure}
+                        }
+                    }catch(err){
+                        // fallthrough to undefined
+                    }
+                }
+            }else{
+                if(typeof candidate === "string" && candidate.trim()){
+                    return {rewrite: candidate}
+                }
+                if(candidate && typeof candidate.rewrite === "string" && candidate.rewrite.trim()){
+                    return {rewrite: candidate.rewrite}
+                }
             }
         }
     }catch(err){
-        console.warn(`Failed to rewrite task for subquery section "${heading}"`, err);
+        console.warn(`Failed to rewrite task for subquery section "${heading}"`, err)
     }
-    return undefined;
+    return undefined
 }
 
 export async function buildStoredSubqueriesForRevised(revised, options = {}){
@@ -273,24 +340,53 @@ export async function buildStoredSubqueriesForRevised(revised, options = {}){
     }
     const baseTask = revised.task
     const engine = options.engine ?? "gpt4o"
+    const doubleWordcount = options.doubleWordcount ?? true
     const stored = []
     for(let index = 0; index < revised.structure.length; index++){
         const section = revised.structure[index]
         const heading = section?.heading ?? `Section ${index + 1}`
         const structureClone = cloneStructureSection(section)
-        const schemaClone = JSON.parse(JSON.stringify(schemaInfo.schema))
-        schemaClone.structure = [structureClone]
-        let rewrittenTask = await rewriteTaskForSection(baseTask, heading, section, {engine})
+        const rewriteOutcome = await rewriteTaskForSection(baseTask, heading, structureClone, {engine, doubleWordcount})
+        let rewrittenTask
+        let updatedStructure
+        if( typeof rewriteOutcome === "string" ){
+            rewrittenTask = rewriteOutcome
+        }else if( rewriteOutcome ){
+            rewrittenTask = typeof rewriteOutcome.rewrite === "string" ? rewriteOutcome.rewrite : undefined
+            updatedStructure = rewriteOutcome.structure
+        }
+
+        if( typeof updatedStructure === "string" ){
+            try{
+                updatedStructure = JSON.parse(updatedStructure)
+            }catch(err){
+                updatedStructure = undefined
+            }
+        }
+
+        if( updatedStructure && typeof updatedStructure === "object" ){
+            updatedStructure = cloneStructureSection(updatedStructure)
+        }else{
+            updatedStructure = undefined
+        }
+
         if( !rewrittenTask ){
             const focusInstruction = `\n\nFocus exclusively on fulfilling the section titled "${heading}". Do not generate any other sections.`
             rewrittenTask = `${baseTask}${focusInstruction}`
+            if( doubleWordcount ){
+                updatedStructure = updatedStructure ?? structureClone
+            }
         }
+
+        const structureForOutput = updatedStructure ?? structureClone
+        const schemaClone = JSON.parse(JSON.stringify(schemaInfo.schema))
+        schemaClone.structure = [structureForOutput]
         stored.push({
             index,
             heading,
             task: rewrittenTask,
             output: `${schemaInfo.prefix}${JSON.stringify(schemaClone)}`,
-            structure: [structureClone]
+            structure: [structureForOutput]
         })
     }
     return stored

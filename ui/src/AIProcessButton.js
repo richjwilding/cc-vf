@@ -66,12 +66,20 @@ export default function AIProcessButton({primitive, ...props}){
         active = false
         error = true
       }else if(active){
-        const progress = primitive.processing[props.active]?.progress
+        let progress = primitive.processing[props.active]?.progress
+        console.log(progress)
         const percent = progress?.percentage ?? progress
         if( !isNaN(percent) || percent === undefined ){
           const percentage = parseInt((percent ?? 0) * 100) + "%"
           title = <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin mr-1"/>{props.small ? "" :" Processing " + percentage}</div>
         }else{
+          if( typeof(progress) === "object" ){
+            if( progress.text ){
+              progress = progress.text
+            }else{
+              progress = JSON.stringify(progress)
+            }
+          }
           title = <div className=''><FontAwesomeIcon icon='spinner' className="animate-spin mr-1"/>{props.small ? "" : progress}</div>
         }
         //action = (e)=>{e.stopPropagation();}

@@ -941,9 +941,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
                 d.original = {
                     parent: d.parent,
-                    x: d.x(),
-                    y: d.y(),
-                    s: d.scaleX(),
+                    //x: d.x(),
+                    //y: d.y(),
+                    //s: d.scaleX(),
+                    x: d.attrs.x,
+                    y: d.attrs.y,
+                    s: d.attrs.scaleX
                 }
 
                 d.remove()
@@ -2289,7 +2292,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         alignViewport(x,y, myState.current.viewport?.scale ?? 1)
 
         if( state.last ){
-            let [px, py] = convertStageCoordToScene(state.event.layerX, state.event.layerY)
+            let [px, py] = convertEventToScene(state.event)
             processHighlights(px,py)
             myState.current.wasPanning = false
             myState.current.panForDrag = false
@@ -3175,7 +3178,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         function processMouseMove(e){
             if( myState.current.frameSelect?.transforming){return}
             let cursor = ""            
-            let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
+            let [x, y] = convertEventToScene(e)
             if( processHighlights(x,y) ){
                 cursor = "pointer"
             }else{
@@ -3368,7 +3371,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 myState.current.ignoreClick = false
                 return
             }
-            let [x, y] = convertStageCoordToScene(e.evt.layerX, e.evt.layerY)
+            let [x, y] = convertEventToScene(e)
             const clickable_names = ["widget", "inf_track", "frame_label",...Object.keys(props.selectable), ...Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
             if( clickable_names.length === 0 ){
                 return
@@ -3834,7 +3837,69 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 stageRef.current.batchDraw()
             }
             
-        }        
+        }
+        function getEventStagePosition(eventLike){
+            const evt = eventLike?.evt ?? eventLike;
+            if (!evt) {
+                return [0, 0];
+            }
+            const container = stageRef.current?.container?.();
+            const rect = container?.getBoundingClientRect?.();
+
+            let clientX;
+            let clientY;
+
+            if (evt.touches?.length) {
+                clientX = evt.touches[0].clientX;
+                clientY = evt.touches[0].clientY;
+            } else if (evt.changedTouches?.length) {
+                clientX = evt.changedTouches[0].clientX;
+                clientY = evt.changedTouches[0].clientY;
+            } else if (typeof evt.clientX === 'number' && typeof evt.clientY === 'number') {
+                clientX = evt.clientX;
+                clientY = evt.clientY;
+            } else if (typeof evt.pageX === 'number' && typeof evt.pageY === 'number') {
+                const scrollX = window.scrollX ?? window.pageXOffset ?? 0;
+                const scrollY = window.scrollY ?? window.pageYOffset ?? 0;
+                clientX = evt.pageX - scrollX;
+                clientY = evt.pageY - scrollY;
+            } else if (typeof evt.x === 'number' && typeof evt.y === 'number') {
+                clientX = evt.x;
+                clientY = evt.y;
+            }
+
+            if (typeof clientX === 'number' && typeof clientY === 'number') {
+                let localX = clientX;
+                let localY = clientY;
+
+                if (rect) {
+                    localX -= rect.left;
+                    localY -= rect.top;
+                }
+
+                const stageTransform = myState.current.stageTransform ?? {};
+                const scaleAdjust = stageTransform.s || 1;
+                localX /= scaleAdjust;
+                localY /= scaleAdjust;
+
+                if (stageTransform.x) {
+                    localX += stageTransform.x;
+                }
+                if (stageTransform.y) {
+                    localY += stageTransform.y;
+                }
+
+                return [localX, localY];
+            }
+
+            const fallbackX = evt.layerX ?? evt.offsetX ?? 0;
+            const fallbackY = evt.layerY ?? evt.offsetY ?? 0;
+            return [fallbackX, fallbackY];
+        }
+        function convertEventToScene(eventLike){
+            const [cx, cy] = getEventStagePosition(eventLike);
+            return convertStageCoordToScene(cx, cy);
+        }
         function convertSceneCoordToScreen(fx, fy){
             if( enableFlipping ){
                 const ox = -parseInt(myState.current.viewport?.x ?? 0);
