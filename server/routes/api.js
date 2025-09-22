@@ -1,4 +1,8 @@
 import express, { query } from 'express';
+import { once } from 'events';
+import { PassThrough } from 'stream';
+import { pipeline } from 'stream/promises';
+import { createBrotliCompress, constants as zlibConstants } from 'zlib';
 import User from '../model/User';
 import Company from '../model/Company';
 import AssessmentFramework from '../model/AssessmentFramework';
@@ -14,7 +18,7 @@ import { encode } from 'gpt-3-encoder';
 import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
 import axios from 'axios';
-import { unpack, pack } from 'msgpackr';
+import { pack } from 'msgpackr';
 import { findCompanyURLByNameLogoDev } from '../task_processor';
 import { compareTwoStrings } from '../actions/SharedTransforms';
 import { replicateWorkflow } from '../workflow';
@@ -407,110 +411,337 @@ router.get('/primitives', async function(req, res, next) {
     let workspaceId = req.query.workspace
     const owns = req.query.owns
 
-
-
     try {
-        const workspaces = req.user.workspaceIds
-      let query = {
-                $and: [
-                    { workspaceId: { $in: workspaces }},
-                    { type: { $in: ['activity','experiment','venture', 'board','working'] }},
-                    { deleted: {$exists: false}}
-                ]
-            }
-    
+        const workspaces = req.user.workspaceIds ?? []
+        const ownedWorkspaceIds = workspaces.map(d => `${d}`)
+
         if( owns !== undefined ){
             let primitive
             try{
                 primitive = await Primitive.findOne({"_id": new ObjectId(owns)})
-            }catch{
+            }catch(err){
                 primitive = await Primitive.findOne({"plainId": parseInt(owns)})
             }
             workspaceId = primitive?.workspaceId
-
         }
 
-        if( !workspaces.includes(workspaceId)){
+        if( workspaceId && !ownedWorkspaceIds.includes(`${workspaceId}`)){
             workspaceId = undefined
         }
 
-        
-      if( workspaceId !== undefined){
-        query = {
-                        $and: [
-                            {$or: [
-                                {workspaceId: workspaceId},
-                                query
-                            ]},
-                            { deleted: {$exists: false}}
-                        ]
-                    }
-        /*if( workspaceId === "all"){
-            query = { 
-                $and: [
-                    {workspaceId: { $in: workspaces }},
-                    { deleted: {$exists: false}}
-                ]
-            }
-        }*/
-      }
-        
-        console.log(`Doing fetch....`)
-        let results
-        if( workspaceId ){
-            if( true ){
-                async function getData(hexChar){
-                    if( hexChar === "-"){
-                        let query = {
-                                        $and: [
-                                            { workspaceId: { $in: workspaces.filter(d=>d !== workspaceId) }},
-                                            { type: { $in: ['activity','experiment','venture', 'board','working'] }},
-                                            { deleted: {$exists: false}}
-                                        ]                                            
-                        }
-                        return await Primitive.find(query, DONT_LOAD_UI)
-                    }
-//                    return await fetchPrimitives(undefined, { "_id": { "$regex": `[${hexChar}]$`}, "workspaceId": workspaceId }, DONT_LOAD)
-                    const set = await Primitive.aggregate([
-                        { "$match": { "workspaceId": workspaceId,  "deleted": {$exists: false}} },
-                        { "$addFields": { "_idStr": { "$toString": "$_id" } } },
-                        { "$match": { "_idStr": { "$regex": `${hexChar}$` } } },
-                        { "$project": DONT_LOAD_UI }
-                    ])
-                    return set
-                }
-                const {results:data} = await executeConcurrently(["-",0,1,2,3,4,5,6,7,8,9,"a","b","c","d","e","f"], getData, undefined, undefined, 8)
+        const loadFromOtherWorkspaces = workspaceId !== undefined
+        const projection = workspaceId !== undefined
+            ? DONT_LOAD_UI
+            : {crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0}
+        const batchSize = Math.max(100, Math.min(parseInt(req.query.batchSize, 10) || 500, 2000))
 
-                results = data.flat()
-                
+        const accessibleTypes = ['activity','experiment','venture', 'board','working']
 
-            }else{
-                const ids = (await Primitive.find(query,{_id: 1})).map(d=>d.id)
-                const chunks = [], chunkCount = 2000, len = ids.length
-                for(let i = 0; i < len; i+= chunkCount){
-                    chunks.push(ids.slice(i, i + chunkCount))
-                }
-                console.log(`Got ${ids.length} - split to ${chunks.length}`)
-                async function getData(ids){
-                    return await fetchPrimitives(ids, undefined, DONT_LOAD)
-                }
-                const {results:data} = await executeConcurrently(chunks, getData, undefined, undefined, 10)
-                results = data.flat()
-            }
-            console.log(`Back with ${results.length}`)
-        }else{
-            results = await Primitive.find(query,{crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0})
+        const workspaceQuery = workspaceId !== undefined ? {
+            workspaceId,
+            deleted: {$exists: false}
+        } : undefined
+
+        const otherWorkspaceIds = loadFromOtherWorkspaces ? ownedWorkspaceIds.filter(d => `${d}` !== `${workspaceId}`) : ownedWorkspaceIds
+        const otherWorkspaceQuery = otherWorkspaceIds.length > 0 ? {
+            workspaceId: { $in: otherWorkspaceIds },
+            type: { $in: accessibleTypes },
+            deleted: { $exists: false }
+        } : undefined
+
+        const acceptsEncoding = req.headers['accept-encoding'] || ''
+        const useBrotli = acceptsEncoding.includes('br')
+
+        res.setHeader('Content-Type', 'application/msgpack')
+        res.setHeader('Cache-Control', 'no-store')
+        if( useBrotli ){
+            res.setHeader('Content-Encoding', 'br')
+        }
+        if( typeof res.flushHeaders === 'function'){
+            res.flushHeaders()
         }
 
-        console.log(`Packing....`)
-        //res.json(results)
+        let isClosed = false
+        const passThrough = new PassThrough()
+        const finalStream = useBrotli ? createBrotliCompress({
+            chunkSize: 64 * 1024,
+            params: {
+                [zlibConstants.BROTLI_PARAM_QUALITY]: 4,
+            }
+        }) : null
 
-        res.setHeader('Content-Type', 'application/msgpack');
-        res.send(pack(results));
+        pipeline(passThrough, ...(useBrotli ? [finalStream, res] : [res])).catch((err)=>{
+            if( !isClosed ){
+                console.warn('Primitive stream pipeline error', err)
+            }
+        })
+
+        const flushCompressor = useBrotli ? (()=>{
+            try{
+                finalStream.flush(zlibConstants.BROTLI_OPERATION_FLUSH)
+            }catch(err){
+                // ignore flush errors (stream may be closed)
+            }
+        }) : undefined
+
+        res.on('close', () => {
+            isClosed = true
+            passThrough.destroy()
+            if( useBrotli ){
+                finalStream?.destroy()
+            }
+        })
+
+        let workspaceStats
+        let workspaceTotal = 0
+        if( workspaceQuery ){
+            console.time('COUNT')
+            const [stats] = await Primitive.aggregate([
+                { $match: workspaceQuery },
+                {
+                    $facet: {
+                        first: [ { $sort: { _id: 1 } }, { $limit: 1 }, { $project: { _id: 1 } } ],
+                        last:  [ { $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } } ],
+                        totals: [ { $count: 'count' } ]
+                    }
+                },
+                {
+                    $project: {
+                        minId: { $first: '$first._id' },
+                        maxId: { $first: '$last._id' },
+                        totalCount: { $ifNull: [ { $first: '$totals.count' }, 0 ] }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        totalCount: 1,
+                        minSeconds: {
+                            $cond: [
+                                { $ifNull: ['$minId', false] },
+                                { $toInt: { $divide: [ { $toLong: { $toDate: '$minId' } }, 1000 ] } },
+                                null
+                            ]
+                        },
+                        maxSeconds: {
+                            $cond: [
+                                { $ifNull: ['$maxId', false] },
+                                { $toInt: { $divide: [ { $toLong: { $toDate: '$maxId' } }, 1000 ] } },
+                                null
+                            ]
+                        }
+                    }
+                }
+            ])
+            console.timeEnd('COUNT')
+            workspaceStats = stats
+            workspaceTotal = stats?.totalCount ?? 0
+        }
+
+        let otherWorkspaceTotal = 0
+        if( otherWorkspaceQuery ){
+            otherWorkspaceTotal = await Primitive.countDocuments(otherWorkspaceQuery)
+        }
+
+        const totalItems = workspaceTotal + otherWorkspaceTotal
+
+        const streamConcurrency = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_CONCURRENCY, 10) || 8, 16))
+        const partitionCount = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_PARTITIONS, 10) || 16, 64))
+        let timePartitionStarts
+
+        if( workspaceQuery && typeof workspaceStats?.minSeconds === 'number' && typeof workspaceStats?.maxSeconds === 'number' ){
+            const span = Math.max(1, workspaceStats.maxSeconds - workspaceStats.minSeconds + 1)
+            const step = Math.max(1, Math.ceil(span / partitionCount))
+            timePartitionStarts = []
+
+            for (let idx = 0; idx < partitionCount; idx++) {
+                const start = workspaceStats.minSeconds + idx * step
+                if (start > workspaceStats.maxSeconds) {
+                    break
+                }
+                timePartitionStarts.push(start)
+            }
+        }
+
+        const partitionIndices = timePartitionStarts?.length ? timePartitionStarts.map((_, idx) => idx) : [0]
+
+        const normalisePrimitive = (doc) => {
+            if( doc === undefined || doc === null ){
+                return doc
+            }
+            if( doc._id && typeof doc._id !== 'string'){
+                doc._id = doc._id.toString()
+            }
+            if( !doc.id ){
+                doc.id = doc._id
+            }
+            if( doc.__v !== undefined ){
+                delete doc.__v
+            }
+            return doc
+        }
+
+        let pendingDrain
+        const writeTarget = passThrough
+
+        const writeFrame = async (payload) => {
+            if( isClosed ){
+                return
+            }
+            let frame = pack(payload, { useRecords: false })
+            if( !Buffer.isBuffer(frame) ){
+                frame = Buffer.from(frame)
+            }
+            const header = Buffer.allocUnsafe(4)
+            header.writeUInt32BE(frame.length, 0)
+            const out = Buffer.concat([header, frame])
+            try{
+                const canContinue = writeTarget.write(out)
+                if( canContinue === false ){
+                    if( !pendingDrain ){
+                        pendingDrain = once(writeTarget, 'drain').finally(()=>{ pendingDrain = undefined })
+                    }
+                    await pendingDrain
+                }
+                if( flushCompressor ){
+                    flushCompressor()
+                }
+            }catch(err){
+                isClosed = true
+                throw err
+            }
+        }
+
+        let loaded = 0
+        const flushBatch = async (items = []) => {
+            if( isClosed || !items.length ){
+                return
+            }
+            await writeFrame({type: 'batch', items})
+            loaded += items.length
+        }
+
+        await writeFrame({type: 'meta', total: totalItems})
+
+        const makePartitionQuery = (partitionIndex) => {
+            if( !workspaceQuery ){
+                return undefined
+            }
+            const partitionQuery = {...workspaceQuery}
+            if( !timePartitionStarts?.length ){
+                return partitionQuery
+            }
+            const startSeconds = timePartitionStarts[partitionIndex]
+            if( startSeconds === undefined ){
+                return partitionQuery
+            }
+            const startId = ObjectId.createFromTime(startSeconds)
+            const nextStartSeconds = timePartitionStarts[partitionIndex + 1]
+            if( nextStartSeconds !== undefined ){
+                const endId = ObjectId.createFromTime(nextStartSeconds)
+                partitionQuery._id = { $gte: startId, $lt: endId }
+            }else{
+                partitionQuery._id = { $gte: startId }
+            }
+            return partitionQuery
+        }
+
+        const cursorFactories = []
+
+        if( otherWorkspaceQuery ){
+            cursorFactories.push(() => Primitive.find(otherWorkspaceQuery, projection).lean().cursor({batchSize}))
+        }
+
+        if( workspaceQuery ){
+            for (const partitionIndex of partitionIndices){
+                cursorFactories.push(() => {
+                    const partitionQuery = makePartitionQuery(partitionIndex)
+                    if( !partitionQuery ){
+                        return undefined
+                    }
+                    return Primitive.find(partitionQuery, projection).lean().cursor({batchSize})
+                })
+            }
+        }
+
+        const processCursor = async (cursorPromise) => {
+            if( isClosed ){
+                return
+            }
+            const cursor = await cursorPromise
+            if( !cursor ){
+                return
+            }
+            let batch = []
+            try{
+                for await (let doc of cursor){
+                    if( isClosed ){
+                        break
+                    }
+                    doc = normalisePrimitive(doc)
+                    if( !doc ){
+                        continue
+                    }
+                    batch.push(doc)
+                    if( batch.length >= batchSize ){
+                        const payload = batch
+                        batch = []
+                        await flushBatch(payload)
+                    }
+                }
+            } finally {
+                if( typeof cursor.close === 'function'){
+                    await cursor.close().catch(()=>{})
+                }
+            }
+
+            if( !isClosed && batch.length > 0 ){
+                await flushBatch(batch)
+            }
+        }
+
+        const runWithConcurrency = async (factories, limit) => {
+            const queue = [...factories]
+            let error
+            const workers = new Array(Math.min(limit, queue.length)).fill(null).map(async () => {
+                while(!isClosed){
+                    const factory = queue.shift()
+                    if( !factory ){
+                        return
+                    }
+                    try{
+                        const cursorPromise = factory()
+                        await processCursor(cursorPromise)
+                    }catch(err){
+                        error = err
+                        isClosed = true
+                        return
+                    }
+                }
+            })
+            await Promise.all(workers)
+            if( error ){
+                throw error
+            }
+        }
+
+        await runWithConcurrency(cursorFactories, streamConcurrency)
+
+        if( !isClosed ){
+            await writeFrame({type: 'end', total: totalItems || loaded, loaded})
+            passThrough.end()
+        }
 
       } catch (err) {
         console.log(err)
-        res.json({error: err})
+        if( res.headersSent ){
+            try{
+                res.end()
+            }catch(e){
+            }
+        }else{
+            res.status(500).json({error: err?.message ?? err})
+        }
       }
 
 })

@@ -5,7 +5,7 @@ import {default as PrimitiveConfig} from "./PrimitiveConfig";
 import AssessmentAnalyzer from "./AssessmentAnalyzer";
 import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
-import { unpack, pack } from 'msgpackr';
+import { Unpackr } from 'msgpackr';
 import CollectionUtils from "./CollectionHelper";
 import { findFilterMatches } from "./SharedTransforms";
 import { progress } from "framer-motion";
@@ -1312,6 +1312,15 @@ function MainStore (prims){
         id:  Math.floor(Math.random() * 99999),
         callbacks: {},
         types: PrimitiveConfig.types,
+        loadStatus: {phase: 'idle', message: '', current: 0, total: 0},
+        onLoadProgress: undefined,
+        updateLoadStatus(update = {}) {
+            const nextStatus = {...this.loadStatus, ...update}
+            this.loadStatus = nextStatus
+            if( typeof this.onLoadProgress === 'function'){
+                this.onLoadProgress(nextStatus)
+            }
+        },
         waitForPrimitive:async function(id, count = 1){
             console.log(`checking for ${id}`)
             const primitive = obj.primitive(id)
@@ -1325,44 +1334,32 @@ function MainStore (prims){
             }
             return primitive
         },
-        loadHomeScreenPrimitives:async function(id){
-            return new Promise((resolve)=>{
-                obj.loadControl(false)
-                const users = fetch(`/api/primitives`).then(response => {
-                    response.arrayBuffer().then(buffer => {
-                        const data = unpack(new Uint8Array(buffer))
-                        obj.data.primitives ||= {}
-                        data.forEach((d)=>obj.data.primitives[d._id] = primitive_access(d, "primitive"))
-                        obj.loadControl(true)
-                        obj.homescreenReady = true
-                        resolve(true)
-                    })
-                })
-            })
+        loadHomeScreenPrimitives: async function(id){
+            obj.loadControl(false)
+            const response = await fetch(`/api/primitives`)
+            await obj.consumePrimitiveStream(response, {reset: false, trackProgress: true})
+            obj.loadControl(true)
+            obj.homescreenReady = true
+            obj.updateLoadStatus({phase: 'idle', message: '', current: 0, total: 0})
+            return true
         },
         loadWorkspaceFor:async function(id){
             console.log(`will load`)
-            return new Promise((resolve)=>{
-                const users = fetch(`/api/primitives?owns=${id}`).then(response => {
-                    response.arrayBuffer().then(buffer => {
-                        const data = unpack(new Uint8Array(buffer))
+            const response = await fetch(`/api/primitives?owns=${id}`)
+            await obj.consumePrimitiveStream(response, {reset: true, trackProgress: true})
 
-                        obj.data.primitives = data.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
-                        
-                        let primitive = obj.primitive(id)
-                        if( primitive === undefined){
-                            primitive = obj.primitiveByPlain(parseInt(id))
-                            if( primitive === undefined){
-                                throw `Couldnt load ${id}`
-                            }
-                        }
-                        obj.activeWorkspaceId = primitive.workspaceId
-                        obj.loadedWorkspaceId = primitive.workspaceId
-                        obj.joinChannel(obj.activeWorkspaceId)
-                        resolve(true)
-                    })
-                })
-            })
+            let primitive = obj.primitive(id)
+            if( primitive === undefined){
+                primitive = obj.primitiveByPlain(parseInt(id))
+                if( primitive === undefined){
+                    throw `Couldnt load ${id}`
+                }
+            }
+            obj.activeWorkspaceId = primitive.workspaceId
+            obj.loadedWorkspaceId = primitive.workspaceId
+            obj.joinChannel(obj.activeWorkspaceId)
+            obj.updateLoadStatus({phase: 'idle', message: '', current: 0, total: 0})
+            return true
         },
         joinChannel:async function(newChannel){
             if( obj.socket ){
@@ -1409,21 +1406,16 @@ function MainStore (prims){
             obj.activeWorkspaceId = id
             console.log(`Workspace set to ${obj.workspace(obj.activeWorkspaceId).title}`)
 
-            const toPurge = obj.primitives().filter((d)=>this.workspaceId != obj.activeWorkspaceId)
-            console.log(`Removing ${toPurge.length} items`)
-
-            const response = await fetch(`/api/primitives?workspace=${obj.activeWorkspaceId}`)
-            console.log(`Got primitives step 1`)
-            const buffer =  await response.arrayBuffer()
-            console.log(`Got primitives step 2`)
-            const data = unpack(new Uint8Array(buffer))
-            console.log(`Got primitives step 3`)
-            obj.data.primitives = data.reduce((o,d)=>{o[d._id] = primitive_access(d, "primitive"); return o}, {})
-            console.log(`Got primitives step 4`)
-
-            obj.joinChannel(obj.activeWorkspaceId)
-            obj.loadControl(true)
-            obj.loadedWorkspaceId = id
+            obj.updateLoadStatus({phase: 'primitives', message: 'Loading workspace data...', current: 0, total: 0})
+            try{
+                const response = await fetch(`/api/primitives?workspace=${obj.activeWorkspaceId}`)
+                await obj.consumePrimitiveStream(response, {reset: true, trackProgress: true})
+                obj.joinChannel(obj.activeWorkspaceId)
+                obj.loadedWorkspaceId = id
+            }finally{
+                obj.loadControl(true)
+                obj.updateLoadStatus({phase: 'idle', message: '', current: 0, total: 0})
+            }
 
         },
         processServerActions( list ){
@@ -3502,7 +3494,211 @@ function MainStore (prims){
             }
         })
         return primObj
-    }    
+    }
+    obj.consumePrimitiveStream = async function(response, options = {}){
+        const {reset = false, trackProgress = true} = options
+        const store = this
+        if( !response?.ok ){
+            if( trackProgress ){
+                store.updateLoadStatus({phase: 'primitives', message: `Failed to load primitives (${response?.status})`})
+            }
+            throw new Error(`Failed to load primitives (${response?.status})`)
+        }
+        if( reset ){
+            store.data.primitives = {}
+        }else{
+            store.data.primitives ||= {}
+        }
+
+        const updateProgress = (update = {}) => {
+            if( !trackProgress ){
+                return
+            }
+            store.updateLoadStatus({phase: 'primitives', ...update})
+        }
+
+        const normaliseItem = (item) => {
+            if( !item ){
+                return undefined
+            }
+            if( item._id && typeof item._id === 'object' && item._id.$oid ){
+                item._id = item._id.$oid
+            }else if( item._id && typeof item._id !== 'string'){
+                try{
+                    item._id = item._id.toString()
+                }catch(e){
+                }
+            }
+            return item
+        }
+
+        const applyBatch = (items = []) => {
+            for(const item of items){
+                const normalised = normaliseItem(item)
+                if( !normalised ){
+                    continue
+                }
+                store.data.primitives[normalised._id] = primitive_access(normalised, "primitive")
+            }
+        }
+
+        const contentType = response.headers.get('content-type') || ''
+        updateProgress({message: 'Loading primitives...', current: 0, total: 0})
+
+        let total = 0
+        let loaded = 0
+
+        const handlePayload = (payload) => {
+            if( !payload || typeof payload !== 'object'){
+                return
+            }
+            switch(payload.type){
+                case 'meta':
+                    if( payload.total !== undefined ){
+                        total = payload.total
+                    }
+                    updateProgress({message: total ? `Loading primitives (${loaded}/${total})` : 'Loading primitives...', current: loaded, total})
+                    break
+                case 'batch':{
+                    const items = Array.isArray(payload.items) ? payload.items : []
+                    applyBatch(items)
+                    loaded += items.length
+                    updateProgress({message: total ? `Loading primitives (${loaded}/${total})` : `Loaded ${loaded} primitives`, current: loaded, total})
+                    break
+                }
+                case 'end':
+                    if( payload.total !== undefined && !total ){
+                        total = payload.total
+                    }
+                    updateProgress({message: total ? `Loaded ${loaded}/${total} primitives` : `Loaded ${loaded} primitives`, current: loaded, total: total || payload.total || loaded})
+                    break
+                default:
+                    break
+            }
+        }
+
+        if( contentType.includes('application/msgpack') ){
+            const unpackr = new Unpackr({ mapsAsObjects: true })
+            let pending = new Uint8Array(0)
+
+            const appendChunk = (chunk)=>{
+                if( !chunk || chunk.length === 0 ){
+                    return
+                }
+                const incoming = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+                if( pending.length ){
+                    const merged = new Uint8Array(pending.length + incoming.length)
+                    merged.set(pending, 0)
+                    merged.set(incoming, pending.length)
+                    pending = merged
+                }else{
+                    pending = incoming
+                }
+
+                let offset = 0
+                while((pending.length - offset) >= 4){
+                    const frameSize = new DataView(pending.buffer, pending.byteOffset + offset, 4).getUint32(0)
+                    const available = pending.length - offset - 4
+                    if( available < frameSize ){
+                        break
+                    }
+                    const start = offset + 4
+                    const end = start + frameSize
+                    const payloadBytes = pending.slice(start, end)
+                    try{
+                        const payload = unpackr.unpack(payloadBytes)
+                        handlePayload(payload)
+                    }catch(err){
+                        console.error('Failed to unpack primitives frame', err)
+                    }
+                    offset = end
+                }
+
+                if( offset > 0 ){
+                    pending = pending.slice(offset)
+                }
+            }
+
+            if( response.body && typeof response.body.getReader === 'function'){
+                const reader = response.body.getReader()
+                try{
+                    while(true){
+                        const {value, done} = await reader.read()
+                        if( done ){
+                            break
+                        }
+                        appendChunk(value)
+                    }
+                } finally {
+                    reader.releaseLock?.()
+                }
+            }else{
+                appendChunk(new Uint8Array(await response.arrayBuffer()))
+            }
+
+            if( pending.length ){
+                // Incomplete frame remains
+                console.warn('Discarding incomplete msgpack frame for primitives stream')
+            }
+
+            if( trackProgress && total === 0 ){
+                updateProgress({message: `Loaded ${loaded} primitives`, current: loaded, total: loaded})
+            }
+            return loaded
+        }
+
+        if( !response.body || typeof response.body.getReader !== 'function' ){
+            const data = await response.json().catch(()=>[])
+            const list = Array.isArray(data) ? data : (data?.items ?? [])
+            applyBatch(list)
+            updateProgress({current: list.length ?? 0, total: list.length ?? 0, message: `Loaded ${list.length ?? 0} primitives`})
+            return list.length ?? 0
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let bufferText = ''
+
+        try{
+            while(true){
+                const {value, done} = await reader.read()
+                if( done ){
+                    break
+                }
+                bufferText += decoder.decode(value, {stream: true})
+                const parts = bufferText.split('\n')
+                bufferText = parts.pop() ?? ''
+                for(const part of parts){
+                    const trimmed = part.trim()
+                    if( !trimmed ){
+                        continue
+                    }
+                    try{
+                        handlePayload(JSON.parse(trimmed))
+                    }catch(err){
+                        console.error('Failed to parse primitive chunk', err)
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock?.()
+        }
+
+        const remaining = bufferText.trim()
+        if( remaining ){
+            try{
+                handlePayload(JSON.parse(remaining))
+            }catch(err){
+                console.error('Failed to parse trailing primitive chunk', err)
+            }
+        }
+
+        if( trackProgress && total === 0 ){
+            updateProgress({message: `Loaded ${loaded} primitives`, current: loaded, total: loaded})
+        }
+
+        return loaded
+    }
     obj.data = {
         primitives:{}
     }
@@ -3528,69 +3724,75 @@ function MainStore (prims){
 
     obj.loadData = async function(){
         obj.loadProgress = []
-            const status = await fetch('/api/status').then(response => response.json())
-            if( !status.logged_in ){
-                if( window.location.pathname !== "/signup" && !window.location.pathname.startsWith("/reset") && window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
-                    window.location.href = `/login?post=${encodeURI(window.location.pathname)}`
-                }
-                obj.data.categories = []
-                obj.data.primitives = {}
-                obj.activeUser = {}
-                obj.data.workspaces = []
-                obj.data.users = []
-                obj.data.organizations = []
-                obj.data.frameworks = []
-                obj.data.templates = {}
-                return
+        obj.updateLoadStatus({phase: 'boot', message: 'Checking account status...', current: 0, total: 0})
+        const status = await fetch('/api/status').then(response => response.json())
+        if( !status.logged_in ){
+            if( window.location.pathname !== "/signup" && !window.location.pathname.startsWith("/reset") && window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
+                window.location.href = `/login?post=${encodeURI(window.location.pathname)}`
             }
-                obj.activeUser = status.user
+            obj.data.categories = []
+            obj.data.primitives = {}
+            obj.activeUser = {}
+            obj.data.workspaces = []
+            obj.data.users = []
+            obj.data.organizations = []
+            obj.data.frameworks = []
+            obj.data.templates = {}
+            obj.updateLoadStatus({phase: 'idle', message: '', current: 0, total: 0})
+            return
+        }
+        obj.activeUser = status.user
+        obj.env = status.env
 
-                obj.env = status.env
+        const fetchTargets = [
+            ['users', '/api/users'],
+            ['categories', '/api/categories'],
+            ['workspaces', '/api/workspaces'],
+            ['templates', '/api/templates'],
+            ['organizations', '/api/organizations']
+        ]
+        let completed = 0
+        obj.updateLoadStatus({phase: 'boot', message: 'Loading account data...', current: 0, total: fetchTargets.length})
 
+        const results = await Promise.all(fetchTargets.map(async ([key, url]) => {
+            const response = await fetch(url)
+            const data = await response.json()
+            obj.loadProgress.push(key)
+            completed += 1
+            obj.updateLoadStatus({phase: 'boot', message: `Loaded ${key}`, current: completed, total: fetchTargets.length})
+            return [key, data]
+        }))
 
-        return new Promise((resolve)=>{
-            const users = fetch('/api/users').then(response => {obj.loadProgress.push('users');return response.json()})
-            //const companies = fetch('/api/companies').then(response => {obj.loadProgress.push('companies');return response.json()})
-            //const contacts = fetch('/api/contacts').then(response => {obj.loadProgress.push('contacts');return response.json()})
-            const categories = fetch('/api/categories').then(response => {obj.loadProgress.push('categories');return response.json()})
-            const workspaces = fetch('/api/workspaces').then(response => {obj.loadProgress.push('workspaces');return response.json()})
-            const templates = fetch('/api/templates').then(response => {obj.loadProgress.push('templates');return response.json()})
-            const organizations = fetch('/api/organizations').then(response => {obj.loadProgress.push('organizations');return response.json()})
-            //const frameworks = fetch('/api/frameworks').then(response => {obj.loadProgress.push('frameworks');return response.json()})
-            
-            //Promise.all([users,companies,contacts,categories,workspaces,frameworks]).then(([users, companies,contacts, categories,workspaces,frameworks])=>{
-            Promise.all([users,categories,workspaces, templates, organizations]).then(([users, categories,workspaces,templates, organizations])=>{
-                obj.data.users = users.map((d)=>{
-                    return {...d, id: d.id || d._id}
-                })
-                /*obj.data.companies = companies
-                obj.data.contacts = contacts.map((d)=>{
-                    d.id = d.id !== undefined ? d.id : d._id; 
-                    if( d.avatarPresent){
-                        d.avatarUrl = `/api/avatarImage/${d.id}?${d.updatedAt ? new Date(d.updatedAt).getTime() : ""}`
-                    }
-                    return d} )*/
-                obj.data.categories = categories.reduce((o,d)=>{o[d.id] = d; return o}, {})
-                obj.data.primitives = {}
-                obj.data.organizations = organizations.reduce((a,c)=>{a[c.id] = c; return a}, {})
-                obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})
-                obj.data.templates = templates.reduce((a,c)=>{
-                    c.id = c._id
-                    c.isTemplate = true
-                    a[c.id] = c
-                    return a
-                }, {})
-                
-                obj.activeUser.info = obj.users().find((d)=>d._id === obj.activeUser._id)
-                obj.activeUser.id = obj.activeUser._id
+        const dataMap = Object.fromEntries(results)
+        const users = dataMap.users ?? []
+        const categories = dataMap.categories ?? []
+        const workspaces = dataMap.workspaces ?? []
+        const templates = dataMap.templates ?? []
+        const organizations = dataMap.organizations ?? []
 
-                obj.activeOrganization = Object.values(obj.data.organizations)[0]
-                const roleInOrg = obj.activeOrganization.members.find(d=>d.userId === obj.activeUser.id)?.role ?? "guest"
-                obj.activeUser.role = roleInOrg
-
-                resolve(true)
-            })
+        obj.data.users = users.map((d)=>{
+            return {...d, id: d.id || d._id}
         })
+        obj.data.categories = categories.reduce((o,d)=>{o[d.id] = d; return o}, {})
+        obj.data.primitives = {}
+        obj.data.organizations = organizations.reduce((a,c)=>{a[c.id] = c; return a}, {})
+        obj.data.workspaces = workspaces.map((d)=>{d.id = d._id; return d})
+        obj.data.templates = templates.reduce((a,c)=>{
+            c.id = c._id
+            c.isTemplate = true
+            a[c.id] = c
+            return a
+        }, {})
+
+        obj.activeUser.info = obj.users().find((d)=>d._id === obj.activeUser._id)
+        obj.activeUser.id = obj.activeUser._id
+
+        obj.activeOrganization = Object.values(obj.data.organizations)[0]
+        const roleInOrg = obj.activeOrganization?.members?.find(d=>d.userId === obj.activeUser.id)?.role ?? "guest"
+        obj.activeUser.role = roleInOrg
+
+        obj.updateLoadStatus({phase: 'boot', message: 'Core data loaded', current: completed, total: fetchTargets.length})
+        return true
     }
     obj.refreshUser = async function(){
         await fetch('/api/refresh')

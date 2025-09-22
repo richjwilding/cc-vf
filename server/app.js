@@ -378,9 +378,9 @@ app.use(
         }
 
         const contentType = res.getHeader('Content-Type') || '';
-        
+
         if (contentType.includes('application/msgpack')) {
-          return true;
+          return false;
         }
         return compression.filter(req, res);
       }
