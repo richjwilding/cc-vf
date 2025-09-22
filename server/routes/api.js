@@ -1,4 +1,5 @@
 import express, { query } from 'express';
+import { once } from 'events';
 import User from '../model/User';
 import Company from '../model/Company';
 import AssessmentFramework from '../model/AssessmentFramework';
@@ -467,16 +468,8 @@ router.get('/primitives', async function(req, res, next) {
         const totals = await Promise.all(countPromises)
         const totalItems = totals.reduce((sum, value) => sum + value, 0)
 
-        res.write(JSON.stringify({type: 'meta', total: totalItems}) + '\n')
-
-        const buildCursor = (query) => query ? Primitive.find(query, projection).lean().cursor({batchSize}) : undefined
-        const cursors = []
-        if( otherWorkspaceQuery ){
-            cursors.push(buildCursor(otherWorkspaceQuery))
-        }
-        if( workspaceQuery ){
-            cursors.push(buildCursor(workspaceQuery))
-        }
+        const streamConcurrency = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_CONCURRENCY, 10) || 8, 16))
+        const hexPartitions = ['0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f']
 
         const normalisePrimitive = (doc) => {
             if( doc === undefined || doc === null ){
@@ -494,11 +487,81 @@ router.get('/primitives', async function(req, res, next) {
             return doc
         }
 
-        for(const cursor of cursors){
-            if( !cursor || isClosed){
-                continue
+        const writeJSONLine = async (payload) => {
+            if( isClosed ){
+                return
             }
+            const line = JSON.stringify(payload) + '\n'
+            try{
+                const canContinue = res.write(line)
+                if( canContinue === false ){
+                    await once(res, 'drain')
+                }
+            }catch(err){
+                isClosed = true
+                throw err
+            }
+        }
 
+        let loaded = 0
+        const flushBatch = async (items = []) => {
+            if( isClosed || !items.length ){
+                return
+            }
+            await writeJSONLine({type: 'batch', items})
+            loaded += items.length
+        }
+
+        await writeJSONLine({type: 'meta', total: totalItems})
+
+        const makePartitionQuery = (hexChar) => {
+            if( !workspaceQuery ){
+                return undefined
+            }
+            const partitionQuery = {...workspaceQuery}
+            const index = hexPartitions.indexOf(hexChar)
+            if( index === -1 ){
+                return partitionQuery
+            }
+            const startHex = hexChar.padEnd(24, '0')
+            const startId = new ObjectId(startHex)
+            const nextHex = hexPartitions[index + 1]
+            if( nextHex ){
+                const endHex = nextHex.padEnd(24, '0')
+                const endId = new ObjectId(endHex)
+                partitionQuery._id = { $gte: startId, $lt: endId }
+            }else{
+                partitionQuery._id = { $gte: startId }
+            }
+            return partitionQuery
+        }
+
+        const cursorFactories = []
+
+        if( otherWorkspaceQuery ){
+            cursorFactories.push(() => Primitive.find(otherWorkspaceQuery, projection).lean().cursor({batchSize}))
+        }
+
+        if( workspaceQuery ){
+            for (const hexChar of hexPartitions){
+                cursorFactories.push(() => {
+                    const partitionQuery = makePartitionQuery(hexChar)
+                    if( !partitionQuery ){
+                        return undefined
+                    }
+                    return Primitive.find(partitionQuery, projection).lean().cursor({batchSize})
+                })
+            }
+        }
+
+        const processCursor = async (cursorPromise) => {
+            if( isClosed ){
+                return
+            }
+            const cursor = await cursorPromise
+            if( !cursor ){
+                return
+            }
             let batch = []
             try{
                 for await (let doc of cursor){
@@ -506,12 +569,14 @@ router.get('/primitives', async function(req, res, next) {
                         break
                     }
                     doc = normalisePrimitive(doc)
-                    if( doc ){
-                        batch.push(doc)
+                    if( !doc ){
+                        continue
                     }
+                    batch.push(doc)
                     if( batch.length >= batchSize ){
-                        res.write(JSON.stringify({type: 'batch', items: batch}) + '\n')
+                        const payload = batch
                         batch = []
+                        await flushBatch(payload)
                     }
                 }
             } finally {
@@ -520,19 +585,42 @@ router.get('/primitives', async function(req, res, next) {
                 }
             }
 
-            if( isClosed ){
-                break
-            }
-
-            if( batch.length > 0 ){
-                res.write(JSON.stringify({type: 'batch', items: batch}) + '\n')
+            if( !isClosed && batch.length > 0 ){
+                await flushBatch(batch)
             }
         }
+
+        const runWithConcurrency = async (factories, limit) => {
+            const queue = [...factories]
+            let error
+            const workers = new Array(Math.min(limit, queue.length)).fill(null).map(async () => {
+                while(!isClosed){
+                    const factory = queue.shift()
+                    if( !factory ){
+                        return
+                    }
+                    try{
+                        const cursorPromise = factory()
+                        await processCursor(cursorPromise)
+                    }catch(err){
+                        error = err
+                        isClosed = true
+                        return
+                    }
+                }
+            })
+            await Promise.all(workers)
+            if( error ){
+                throw error
+            }
+        }
+
+        await runWithConcurrency(cursorFactories, streamConcurrency)
 
         if( !isClosed ){
-            res.write(JSON.stringify({type: 'end', total: totalItems}) + '\n')
+            await writeJSONLine({type: 'end', total: totalItems || loaded, loaded})
+            res.end()
         }
-        res.end()
 
       } catch (err) {
         console.log(err)
