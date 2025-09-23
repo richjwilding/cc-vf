@@ -3,6 +3,7 @@ import { getLogger } from "../../logger.js";
 import { buildCategories } from "../../openai_helper.js";
 import { dispatchControlUpdate } from "../../SharedFunctions.js";
 import { getDataForAgentAction } from "../utils.js";
+import { expandSlideOutlines, getAnalysisContext } from "./slide_section_designer.js";
 const logger = getLogger("agent_module_slides", "debug", 0);
 
 // Small helpers
@@ -36,6 +37,29 @@ function normalizeSections(sections = []) {
     ...s,
     id: s.id ?? (i + 1)
   }));
+}
+
+function prepareSectionRequests(entries = []) {
+  const prepared = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const targetId = Number.isInteger(entry.target_section_id)
+      ? entry.target_section_id
+      : Number.isInteger(entry.section_id)
+        ? entry.section_id
+        : null;
+    const insertAt = Number.isInteger(entry.insert_at) ? entry.insert_at : null;
+
+    const { outline: explicitOutline, target_section_id, section_id, insert_at, action, mode, ...rest } = entry;
+    let base = explicitOutline && typeof explicitOutline === "object" ? explicitOutline : rest;
+    if (!base || typeof base !== "object" || Object.keys(base).length === 0) continue;
+
+    const outline = JSON.parse(JSON.stringify(base));
+    if (targetId != null && outline.id == null) outline.id = targetId;
+
+    prepared.push({ outline, targetId, insertAt });
+  }
+  return prepared;
 }
 
 /* ===========================
@@ -158,6 +182,138 @@ export const update_slide_layout = {
     sess.data.slideSpec.layout = params.layout;
     touch(scope);
     return { preview: sess.data.slideSpec };
+  }
+};
+
+export const design_slide_sections = {
+  definition: {
+    name: "design_slide_sections",
+    description: "Use AI to design one or more sections and apply them to the current slide draft.",
+    parameters: {
+      type: "object",
+      required: ["id", "goal", "sections"],
+      properties: {
+        id: { type: "string" },
+        goal: { type: "string" },
+        title: { type: "string" },
+        layout: { type: "string", enum: ["full_page", "left_summary"] },
+        sections: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            properties: {
+              outline: { type: "object" },
+              target_section_id: { type: "number" },
+              section_id: { type: "number" },
+              insert_at: { type: "number" }
+            },
+            additionalProperties: true
+          }
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  implementation: async (params, scope, notify) => {
+    const requests = prepareSectionRequests(params.sections);
+    if (requests.length === 0) {
+      return { error: "No valid section outlines provided." };
+    }
+
+    let sess = scope.workSession;
+    if (!sess || sess.flow !== "slides") {
+      if (typeof scope.beginWorkSession === "function") {
+        sess = scope.beginWorkSession("slides", { suggestions: [] });
+        sess.state = "list";
+      } else {
+        throw new Error("No active slides session. Say 'work on slides' first.");
+      }
+    }
+
+    sess.data ||= {};
+    let spec = sess.data.slideSpec;
+    if (!spec) {
+      spec = {
+        title: params.title || params.goal || "",
+        layout: params.layout || "full_page",
+        defs: {},
+        sections: []
+      };
+      sess.data.slideSpec = spec;
+      sess.state = "preview";
+    } else {
+      if (params.title) spec.title = params.title;
+      else if (!spec.title && params.goal) spec.title = params.goal;
+      if (params.layout) spec.layout = params.layout;
+    }
+
+    spec.defs = spec.defs || {};
+    spec.defs.filters = spec.defs.filters || {};
+    spec.defs.categorizations = spec.defs.categorizations || {};
+    spec.sections = Array.isArray(spec.sections) ? spec.sections : [];
+
+    const existingContext = sess.data.analysisContext || {};
+    const context = await getAnalysisContext(params, scope, existingContext);
+    sess.data.analysisContext = context;
+
+    const outlineDescription = spec.title || params.goal || "Custom analysis";
+    const outlineLayout = spec.layout || params.layout || "full_page";
+
+    const outlines = requests.map((req, idx) => ({
+      id: idx + 1,
+      description: outlineDescription,
+      layout: outlineLayout,
+      defs: spec.defs,
+      sections: [req.outline]
+    }));
+
+    const expandedResults = await expandSlideOutlines({
+      outlines,
+      context,
+      goal: params.goal,
+      sourceId: params.id,
+      scope
+    });
+
+    const applied = [];
+    for (let i = 0; i < requests.length; i++) {
+      const req = requests[i];
+      const expanded = expandedResults?.[i];
+      const designed = expanded?.sections?.[0];
+      if (!designed) continue;
+
+      const finalSection = { ...designed, sourceId: params.id };
+      if (req.targetId != null) {
+        const idx = spec.sections.findIndex(s => s.id === req.targetId);
+        finalSection.id = req.targetId;
+        if (idx >= 0) {
+          spec.sections[idx] = finalSection;
+          applied.push({ action: "updated", section_id: finalSection.id });
+        } else {
+          spec.sections.push(finalSection);
+          applied.push({ action: "added", section_id: finalSection.id });
+        }
+      } else {
+        const newId = nextSectionId(spec);
+        finalSection.id = newId;
+        if (req.insertAt && req.insertAt > 0 && req.insertAt <= spec.sections.length) {
+          spec.sections.splice(req.insertAt - 1, 0, finalSection);
+        } else {
+          spec.sections.push(finalSection);
+        }
+        applied.push({ action: "added", section_id: finalSection.id });
+      }
+    }
+
+    if (applied.length === 0) {
+      return { error: "Failed to design any sections." };
+    }
+
+    sess.data.slideSpec = spec;
+    notify?.("Applied AI-designed section updates.", true);
+    touch(scope);
+    return { preview: spec, applied_sections: applied };
   }
 };
 
@@ -548,6 +704,7 @@ export const slideTools = [
   design_slide_from_suggestion,
   update_slide_title,
   update_slide_layout,
+  design_slide_sections,
   add_slide_section,
   update_slide_section,
   reorder_slide_sections,
