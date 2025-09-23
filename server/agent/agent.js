@@ -110,6 +110,7 @@ const flows = {
       "update_slide_from_suggestion",
       "update_slide_title",
       "update_slide_layout",
+      "design_slide_sections",
       "add_slide_section",
       "update_slide_section",
       "reorder_slide_sections",
