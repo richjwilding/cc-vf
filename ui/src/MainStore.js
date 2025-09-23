@@ -1520,7 +1520,7 @@ function MainStore (prims){
         },
         loadWorkspaceFor:async function(id){
             console.log(`will load`)
-            const response = await fetch(`/api/primitives?owns=${id}`)
+            const response = await fetch(`/api/primitives?owns=${id}&debug=1`)
             await obj.consumePrimitiveStream(response, {reset: true, trackProgress: true})
 
             let primitive = obj.primitive(id)
