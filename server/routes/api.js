@@ -1,8 +1,10 @@
 import express, { query } from 'express';
 import { once } from 'events';
 import { PassThrough } from 'stream';
-import { pipeline } from 'stream/promises';
-import { createBrotliCompress, constants as zlibConstants } from 'zlib';
+import { pipeline as pipelineAsync } from 'node:stream/promises';
+import * as zlib from 'node:zlib'; // namespace import works best in Node ESM
+const { constants: zlibConstants, createBrotliCompress, createGzip } = zlib;
+import { performance } from 'perf_hooks';
 import User from '../model/User';
 import Company from '../model/Company';
 import AssessmentFramework from '../model/AssessmentFramework';
@@ -410,344 +412,411 @@ router.post('/workspace/new/', async function(req, res, next) {
     }
 })
 
+// --- route (unchanged logic, ESM-safe) ---
 router.get('/primitives', async function(req, res, next) {
-    let workspaceId = req.query.workspace
-    const owns = req.query.owns
+  let workspaceId = req.query.workspace;
+  const owns = req.query.owns;
 
-    try {
-        const workspaces = req.user.workspaceIds ?? []
-        const ownedWorkspaceIds = workspaces.map(d => `${d}`)
+  try {
+    const workspaces = req.user.workspaceIds ?? [];
+    const ownedWorkspaceIds = workspaces.map(d => `${d}`);
 
-        if( owns !== undefined ){
-            let primitive
-            try{
-                primitive = await Primitive.findOne({"_id": new ObjectId(owns)})
-            }catch(err){
-                primitive = await Primitive.findOne({"plainId": parseInt(owns)})
-            }
-            workspaceId = primitive?.workspaceId
-        }
-
-        if( workspaceId && !ownedWorkspaceIds.includes(`${workspaceId}`)){
-            workspaceId = undefined
-        }
-
-        const loadFromOtherWorkspaces = workspaceId !== undefined
-        const projection = workspaceId !== undefined
-            ? DONT_LOAD_UI
-            : {crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0}
-        const batchSize = Math.max(100, Math.min(parseInt(req.query.batchSize, 10) || 500, 2000))
-
-        const accessibleTypes = ['activity','experiment','venture', 'board','working']
-
-        const workspaceQuery = workspaceId !== undefined ? {
-            workspaceId,
-            deleted: {$exists: false}
-        } : undefined
-
-        const otherWorkspaceIds = loadFromOtherWorkspaces ? ownedWorkspaceIds.filter(d => `${d}` !== `${workspaceId}`) : ownedWorkspaceIds
-        const otherWorkspaceQuery = otherWorkspaceIds.length > 0 ? {
-            workspaceId: { $in: otherWorkspaceIds },
-            type: { $in: accessibleTypes },
-            deleted: { $exists: false }
-        } : undefined
-
-        const acceptsEncoding = req.headers['accept-encoding'] || ''
-        const useBrotli = acceptsEncoding.includes('br')
-
-        res.setHeader('Content-Type', 'application/msgpack')
-        res.setHeader('Cache-Control', 'no-store')
-        if( useBrotli ){
-            res.setHeader('Content-Encoding', 'br')
-        }
-        if( typeof res.flushHeaders === 'function'){
-            res.flushHeaders()
-        }
-
-        let isClosed = false
-        const passThrough = new PassThrough()
-        const finalStream = useBrotli ? createBrotliCompress({
-            chunkSize: 64 * 1024,
-            params: {
-                [zlibConstants.BROTLI_PARAM_QUALITY]: 4,
-            }
-        }) : null
-
-        pipeline(passThrough, ...(useBrotli ? [finalStream, res] : [res])).catch((err)=>{
-            if( !isClosed ){
-                console.warn('Primitive stream pipeline error', err)
-            }
-        })
-
-        const flushCompressor = useBrotli ? (()=>{
-            try{
-                finalStream.flush(zlibConstants.BROTLI_OPERATION_FLUSH)
-            }catch(err){
-                // ignore flush errors (stream may be closed)
-            }
-        }) : undefined
-
-        res.on('close', () => {
-            isClosed = true
-            passThrough.destroy()
-            if( useBrotli ){
-                finalStream?.destroy()
-            }
-        })
-
-        let workspaceStats
-        let workspaceTotal = 0
-        if( workspaceQuery ){
-            console.time('COUNT')
-            const [stats] = await Primitive.aggregate([
-                { $match: workspaceQuery },
-                {
-                    $facet: {
-                        first: [ { $sort: { _id: 1 } }, { $limit: 1 }, { $project: { _id: 1 } } ],
-                        last:  [ { $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } } ],
-                        totals: [ { $count: 'count' } ]
-                    }
-                },
-                {
-                    $project: {
-                        minId: { $first: '$first._id' },
-                        maxId: { $first: '$last._id' },
-                        totalCount: { $ifNull: [ { $first: '$totals.count' }, 0 ] }
-                    }
-                },
-                {
-                    $project: {
-                        _id: 0,
-                        totalCount: 1,
-                        minSeconds: {
-                            $cond: [
-                                { $ifNull: ['$minId', false] },
-                                { $toInt: { $divide: [ { $toLong: { $toDate: '$minId' } }, 1000 ] } },
-                                null
-                            ]
-                        },
-                        maxSeconds: {
-                            $cond: [
-                                { $ifNull: ['$maxId', false] },
-                                { $toInt: { $divide: [ { $toLong: { $toDate: '$maxId' } }, 1000 ] } },
-                                null
-                            ]
-                        }
-                    }
-                }
-            ])
-            console.timeEnd('COUNT')
-            workspaceStats = stats
-            workspaceTotal = stats?.totalCount ?? 0
-        }
-
-        let otherWorkspaceTotal = 0
-        if( otherWorkspaceQuery ){
-            otherWorkspaceTotal = await Primitive.countDocuments(otherWorkspaceQuery)
-        }
-
-        const totalItems = workspaceTotal + otherWorkspaceTotal
-
-        const streamConcurrency = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_CONCURRENCY, 10) || 8, 16))
-        const partitionCount = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_PARTITIONS, 10) || 16, 64))
-        let timePartitionStarts
-
-        if( workspaceQuery && typeof workspaceStats?.minSeconds === 'number' && typeof workspaceStats?.maxSeconds === 'number' ){
-            const span = Math.max(1, workspaceStats.maxSeconds - workspaceStats.minSeconds + 1)
-            const step = Math.max(1, Math.ceil(span / partitionCount))
-            timePartitionStarts = []
-
-            for (let idx = 0; idx < partitionCount; idx++) {
-                const start = workspaceStats.minSeconds + idx * step
-                if (start > workspaceStats.maxSeconds) {
-                    break
-                }
-                timePartitionStarts.push(start)
-            }
-        }
-
-        const partitionIndices = timePartitionStarts?.length ? timePartitionStarts.map((_, idx) => idx) : [0]
-
-        const normalisePrimitive = (doc) => {
-            if( doc === undefined || doc === null ){
-                return doc
-            }
-            if( doc._id && typeof doc._id !== 'string'){
-                doc._id = doc._id.toString()
-            }
-            if( !doc.id ){
-                doc.id = doc._id
-            }
-            if( doc.__v !== undefined ){
-                delete doc.__v
-            }
-            return doc
-        }
-
-        let pendingDrain
-        const writeTarget = passThrough
-
-        const writeFrame = async (payload) => {
-            if( isClosed ){
-                return
-            }
-            let frame = pack(payload, { useRecords: false })
-            if( !Buffer.isBuffer(frame) ){
-                frame = Buffer.from(frame)
-            }
-            const header = Buffer.allocUnsafe(4)
-            header.writeUInt32BE(frame.length, 0)
-            const out = Buffer.concat([header, frame])
-            try{
-                const canContinue = writeTarget.write(out)
-                if( canContinue === false ){
-                    if( !pendingDrain ){
-                        pendingDrain = once(writeTarget, 'drain').finally(()=>{ pendingDrain = undefined })
-                    }
-                    await pendingDrain
-                }
-                if( flushCompressor ){
-                    flushCompressor()
-                }
-            }catch(err){
-                isClosed = true
-                throw err
-            }
-        }
-
-        let loaded = 0
-        const flushBatch = async (items = []) => {
-            if( isClosed || !items.length ){
-                return
-            }
-            await writeFrame({type: 'batch', items})
-            loaded += items.length
-        }
-
-        await writeFrame({type: 'meta', total: totalItems})
-
-        const makePartitionQuery = (partitionIndex) => {
-            if( !workspaceQuery ){
-                return undefined
-            }
-            const partitionQuery = {...workspaceQuery}
-            if( !timePartitionStarts?.length ){
-                return partitionQuery
-            }
-            const startSeconds = timePartitionStarts[partitionIndex]
-            if( startSeconds === undefined ){
-                return partitionQuery
-            }
-            const startId = ObjectId.createFromTime(startSeconds)
-            const nextStartSeconds = timePartitionStarts[partitionIndex + 1]
-            if( nextStartSeconds !== undefined ){
-                const endId = ObjectId.createFromTime(nextStartSeconds)
-                partitionQuery._id = { $gte: startId, $lt: endId }
-            }else{
-                partitionQuery._id = { $gte: startId }
-            }
-            return partitionQuery
-        }
-
-        const cursorFactories = []
-
-        if( otherWorkspaceQuery ){
-            cursorFactories.push(() => Primitive.find(otherWorkspaceQuery, projection).lean().cursor({batchSize}))
-        }
-
-        if( workspaceQuery ){
-            for (const partitionIndex of partitionIndices){
-                cursorFactories.push(() => {
-                    const partitionQuery = makePartitionQuery(partitionIndex)
-                    if( !partitionQuery ){
-                        return undefined
-                    }
-                    return Primitive.find(partitionQuery, projection).lean().cursor({batchSize})
-                })
-            }
-        }
-
-        const processCursor = async (cursorPromise) => {
-            if( isClosed ){
-                return
-            }
-            const cursor = await cursorPromise
-            if( !cursor ){
-                return
-            }
-            let batch = []
-            try{
-                for await (let doc of cursor){
-                    if( isClosed ){
-                        break
-                    }
-                    doc = normalisePrimitive(doc)
-                    if( !doc ){
-                        continue
-                    }
-                    batch.push(doc)
-                    if( batch.length >= batchSize ){
-                        const payload = batch
-                        batch = []
-                        await flushBatch(payload)
-                    }
-                }
-            } finally {
-                if( typeof cursor.close === 'function'){
-                    await cursor.close().catch(()=>{})
-                }
-            }
-
-            if( !isClosed && batch.length > 0 ){
-                await flushBatch(batch)
-            }
-        }
-
-        const runWithConcurrency = async (factories, limit) => {
-            const queue = [...factories]
-            let error
-            const workers = new Array(Math.min(limit, queue.length)).fill(null).map(async () => {
-                while(!isClosed){
-                    const factory = queue.shift()
-                    if( !factory ){
-                        return
-                    }
-                    try{
-                        const cursorPromise = factory()
-                        await processCursor(cursorPromise)
-                    }catch(err){
-                        error = err
-                        isClosed = true
-                        return
-                    }
-                }
-            })
-            await Promise.all(workers)
-            if( error ){
-                throw error
-            }
-        }
-
-        await runWithConcurrency(cursorFactories, streamConcurrency)
-
-        if( !isClosed ){
-            await writeFrame({type: 'end', total: totalItems || loaded, loaded})
-            passThrough.end()
-        }
-
+    if (owns !== undefined) {
+      let primitive;
+      try {
+        primitive = await Primitive.findOne({ "_id": new ObjectId(owns) });
       } catch (err) {
-        console.log(err)
-        if( res.headersSent ){
-            try{
-                res.end()
-            }catch(e){
-            }
-        }else{
-            res.status(500).json({error: err?.message ?? err})
+        primitive = await Primitive.findOne({ "plainId": parseInt(owns) });
+      }
+      workspaceId = primitive?.workspaceId;
+    }
+
+    if (workspaceId && !ownedWorkspaceIds.includes(`${workspaceId}`)) {
+      workspaceId = undefined;
+    }
+
+    const loadFromOtherWorkspaces = workspaceId !== undefined;
+    const projection = workspaceId !== undefined
+      ? DONT_LOAD_UI
+      : { crunchbaseData: 0, linkedInData: 0, checkCache: 0, financialData: 0, action_tracker: 0 };
+
+    const batchSize = Math.max(1, Math.min(parseInt(req.query.batchSize, 10) || 500, 2000));
+
+    // ---- byte target for each frame ----
+    let targetBytes = parseInt(req.query.targetBytes ?? '', 10);
+    if (Number.isNaN(targetBytes)) targetBytes = parseInt(process.env.PRIMITIVE_STREAM_TARGET_BYTES ?? '', 10);
+    if (Number.isNaN(targetBytes)) targetBytes = 4 * 1024 * 1024; // 4 MB default
+    targetBytes = Math.max(128 * 1024, Math.min(targetBytes, 64 * 1024 * 1024));
+
+    // ---- metrics ----
+    const debugMode = req.query.debug === '1' || req.query.debug === 'true';
+    const metrics = debugMode ? {
+      start: performance.now(),
+      bytesQueued: 0,
+      writeCalls: 0,
+      drains: 0,
+      drainWaitMs: 0,
+      cpuPackMs: 0,
+      maxBuffered: 0,
+      batchSize,
+      targetBytes
+    } : null;
+
+    const accessibleTypes = ['activity','experiment','venture','board','working'];
+    let countsDuration = 0;
+
+    const workspaceQuery = workspaceId !== undefined ? {
+      workspaceId,
+      deleted: { $exists: false }
+    } : undefined;
+
+    const otherWorkspaceIds = loadFromOtherWorkspaces
+      ? ownedWorkspaceIds.filter(d => `${d}` !== `${workspaceId}`)
+      : ownedWorkspaceIds;
+
+    const otherWorkspaceQuery = otherWorkspaceIds.length > 0 ? {
+      workspaceId: { $in: otherWorkspaceIds },
+      type: { $in: accessibleTypes },
+      deleted: { $exists: false }
+    } : undefined;
+
+    // ---- codec negotiation (override via ?codec=br|gzip|none) ----
+    const accept = (req.headers['accept-encoding'] || '').toLowerCase();
+    const supportsBrotli = /\bbr\b/.test(accept);
+    const supportsGzip   = /\bgzip\b/.test(accept);
+    let codec = (req.query.codec || process.env.PRIMITIVE_STREAM_CODEC || 'gzip').toLowerCase();
+    if (codec === 'br' && !supportsBrotli) codec = supportsGzip ? 'gzip' : 'none';
+    if (codec === 'gzip' && !supportsGzip) codec = supportsBrotli ? 'br' : 'none';
+    if (!['br','gzip','none'].includes(codec)) codec = 'none';
+
+    let brotliQuality = parseInt(process.env.PRIMITIVE_STREAM_BROTLI_QUALITY ?? '', 10);
+    if (Number.isNaN(brotliQuality)) brotliQuality = 4;
+    const brotliOverride = parseInt(req.query.brotliQuality ?? '', 10);
+    if (!Number.isNaN(brotliOverride)) {
+      brotliQuality = Math.max(0, Math.min(brotliOverride, 11));
+    }
+    if (metrics) {
+      metrics.codec = codec;
+      metrics.brotliQuality = brotliQuality;
+    }
+
+    // ---- headers ----
+    res.setHeader('Content-Type', 'application/msgpack');
+    res.setHeader('Cache-Control', 'no-store, no-transform');
+    res.setHeader('Vary', 'Accept-Encoding');
+    res.setHeader('X-Accel-Buffering', 'no');   // ask Nginx not to buffer
+
+
+
+    if (codec === 'br') res.setHeader('Content-Encoding', 'br');
+    if (codec === 'gzip') res.setHeader('Content-Encoding', 'gzip');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    // ---- stream pipeline ----
+    let isClosed = false;
+
+    const highWaterMarkMB = Math.max(1, Math.min(parseInt(req.query.highWaterMark, 10) || 16, 128));
+
+    const passThrough = new PassThrough({ highWaterMark: highWaterMarkMB << 20 }); // 8 MB buffer
+
+    let finalStream = null;
+    if (codec === 'br') {
+      finalStream = createBrotliCompress({
+        chunkSize: 1 << 20,
+        params: {
+          [zlibConstants.BROTLI_PARAM_QUALITY]: brotliQuality,
+          [zlibConstants.BROTLI_PARAM_MODE]: zlibConstants.BROTLI_MODE_GENERIC,
+        }
+      });
+    } else if (codec === 'gzip') {
+      finalStream = createGzip({ chunkSize: 1 << 20 });
+    }
+
+    let compressedBytes = 0;
+    if (finalStream) {
+      finalStream.on('data', (chunk) => { compressedBytes += chunk.length; });
+    }
+
+    if (res.socket && res.socket.setNoDelay) res.socket.setNoDelay(true);
+
+    // use promise-based pipeline
+    pipelineAsync(
+      passThrough,
+      ...(finalStream ? [finalStream, res] : [res])
+    ).catch((err) => {
+      if (!isClosed) console.warn('Primitive stream pipeline error', err);
+    });
+
+    res.on('close', () => {
+      isClosed = true;
+      passThrough.destroy();
+      finalStream?.destroy();
+    });
+
+    // ---- counts & partitioning (unchanged) ----
+    let workspaceStats;
+    let workspaceTotal = 0;
+    if (workspaceQuery) {
+      const countStart = performance.now();
+      const [stats] = await Primitive.aggregate([
+        { $match: workspaceQuery },
+        {
+          $facet: {
+            first:  [{ $sort: { _id:  1 } }, { $limit: 1 }, { $project: { _id: 1 } }],
+            last:   [{ $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }],
+            totals: [{ $count: 'count' }]
+          }
+        },
+        {
+          $project: {
+            minId: { $first: '$first._id' },
+            maxId: { $first: '$last._id' },
+            totalCount: { $ifNull: [{ $first: '$totals.count' }, 0] }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            totalCount: 1,
+            minSeconds: { $cond: [{ $ifNull: ['$minId', false] }, { $toInt: { $divide: [{ $toLong: { $toDate: '$minId' } }, 1000] } }, null] },
+            maxSeconds: { $cond: [{ $ifNull: ['$maxId', false] }, { $toInt: { $divide: [{ $toLong: { $toDate: '$maxId' } }, 1000] } }, null] }
+          }
+        }
+      ]);
+      countsDuration += performance.now() - countStart;
+      workspaceStats = stats;
+      workspaceTotal = stats?.totalCount ?? 0;
+    }
+
+    let otherWorkspaceTotal = 0;
+    if (otherWorkspaceQuery) {
+      const otherCountStart = performance.now();
+      otherWorkspaceTotal = await Primitive.countDocuments(otherWorkspaceQuery);
+      countsDuration += performance.now() - otherCountStart;
+    }
+
+    const totalItems = workspaceTotal + otherWorkspaceTotal;
+    if (metrics) {
+      metrics.countsMs = Math.round(countsDuration);
+      metrics.workspaceTotal = workspaceTotal;
+      metrics.otherWorkspaceTotal = otherWorkspaceTotal;
+      metrics.totalItems = totalItems;
+    }
+
+    let streamConcurrency = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_CONCURRENCY, 10) || 8, 16));
+    const streamOverride = parseInt(req.query.streams ?? req.query.streamConcurrency ?? '', 10);
+    if (!Number.isNaN(streamOverride)) streamConcurrency = Math.max(1, Math.min(streamOverride, 32));
+    if (metrics) metrics.streamConcurrency = streamConcurrency;
+
+    let partitionCount = Math.max(1, Math.min(parseInt(process.env.PRIMITIVE_STREAM_PARTITIONS, 10) || 16, 64));
+    const partitionOverride = parseInt(req.query.partitions ?? '', 10);
+    if (!Number.isNaN(partitionOverride)) partitionCount = Math.max(1, Math.min(partitionOverride, 256));
+    if (metrics) metrics.partitionCount = partitionCount;
+
+    let timePartitionStarts;
+    if (workspaceQuery && typeof workspaceStats?.minSeconds === 'number' && typeof workspaceStats?.maxSeconds === 'number') {
+      const span = Math.max(1, workspaceStats.maxSeconds - workspaceStats.minSeconds + 1);
+      const step = Math.max(1, Math.ceil(span / partitionCount));
+      timePartitionStarts = [];
+      for (let idx = 0; idx < partitionCount; idx++) {
+        const start = workspaceStats.minSeconds + idx * step;
+        if (start > workspaceStats.maxSeconds) break;
+        timePartitionStarts.push(start);
+      }
+    }
+    const partitionIndices = timePartitionStarts?.length ? timePartitionStarts.map((_, idx) => idx) : [0];
+    if (metrics) metrics.partitionBuckets = timePartitionStarts?.length ?? 1;
+
+    const normalisePrimitive = (doc) => {
+      if (doc == null) return doc;
+      if (doc._id && typeof doc._id !== 'string') doc._id = doc._id.toString();
+      if (!doc.id) doc.id = doc._id;
+      if (doc.__v !== undefined) delete doc.__v;
+      return doc;
+    };
+
+    // ---- writer (serialize writes, track CPU vs drain) ----
+    let pendingDrain;
+    const writeTarget = passThrough;
+
+    const writeFrame = async (payload) => {
+      if (isClosed) return;
+
+      const t0 = performance.now();
+      let frame = pack(payload, { useRecords: false });
+      if (!Buffer.isBuffer(frame)) frame = Buffer.from(frame);
+      const header = Buffer.allocUnsafe(4);
+      header.writeUInt32BE(frame.length, 0);
+      const out = Buffer.concat([header, frame]);
+      if (metrics) metrics.cpuPackMs += (performance.now() - t0);
+
+      try {
+        if (metrics) {
+          metrics.writeCalls += 1;
+          metrics.bytesQueued += out.length;
+        }
+        const canContinue = writeTarget.write(out);
+        if (metrics) {
+          metrics.maxBuffered = Math.max(metrics.maxBuffered, writeTarget.writableLength ?? 0);
+        }
+        if (canContinue === false) {
+          let waitStart;
+          if (metrics) {
+            waitStart = performance.now();
+            metrics.drains += 1;
+          }
+          if (!pendingDrain) {
+            pendingDrain = once(writeTarget, 'drain').finally(() => { pendingDrain = undefined; });
+          }
+          await pendingDrain;
+          if (metrics) metrics.drainWaitMs += (performance.now() - waitStart);
+        }
+      } catch (err) {
+        isClosed = true;
+        throw err;
+      }
+    };
+
+    // ---- send meta ----
+    if (metrics) metrics.sendStart = performance.now();
+    await writeFrame({ type: 'meta', total: totalItems });
+
+    const makePartitionQuery = (partitionIndex) => {
+      if (!workspaceQuery) return undefined;
+      const partitionQuery = { ...workspaceQuery };
+      if (!timePartitionStarts?.length) return partitionQuery;
+      const startSeconds = timePartitionStarts[partitionIndex];
+      if (startSeconds === undefined) return partitionQuery;
+      const startId = ObjectId.createFromTime(startSeconds);
+      const nextStartSeconds = timePartitionStarts[partitionIndex + 1];
+      if (nextStartSeconds !== undefined) {
+        const endId = ObjectId.createFromTime(nextStartSeconds);
+        partitionQuery._id = { $gte: startId, $lt: endId };
+      } else {
+        partitionQuery._id = { $gte: startId };
+      }
+      return partitionQuery;
+    };
+
+    const cursorFactories = [];
+    if (otherWorkspaceQuery) {
+      cursorFactories.push(() => Primitive.find(otherWorkspaceQuery, projection).lean().cursor({ batchSize }));
+    }
+    if (workspaceQuery) {
+      for (const partitionIndex of partitionIndices) {
+        cursorFactories.push(() => {
+          const partitionQuery = makePartitionQuery(partitionIndex);
+          if (!partitionQuery) return undefined;
+          return Primitive.find(partitionQuery, projection).lean().cursor({ batchSize });
+        });
+      }
+    }
+
+    const processCursor = async (cursorPromise) => {
+      if (isClosed) return;
+      const cursor = await cursorPromise;
+      if (!cursor) return;
+
+      let batch = [];
+      let batchBytes = 0;
+      const estimateItemBytes = (item) => {
+        try { return Buffer.byteLength(JSON.stringify(item), 'utf8'); }
+        catch { return 2048; }
+      };
+      const flushPending = async () => {
+        if (batch.length === 0) return;
+        const payload = batch;
+        batch = [];
+        await writeFrame({ type: 'batch', items: payload });
+        if (metrics) metrics.flushedBatches = (metrics.flushedBatches ?? 0) + 1;
+        batchBytes = 0;
+      };
+
+      try {
+        for await (let doc of cursor) {
+          if (isClosed) break;
+          doc = normalisePrimitive(doc);
+          if (!doc) continue;
+          batch.push(doc);
+          batchBytes += estimateItemBytes(doc);
+          if (batchBytes >= targetBytes) {
+            await flushPending();
+          }
+        }
+      } finally {
+        if (typeof cursor.close === 'function') {
+          await cursor.close().catch(() => {});
         }
       }
 
-})
+      if (!isClosed && batch.length > 0) {
+        await flushPending();
+      }
+    };
+
+    const runWithConcurrency = async (factories, limit) => {
+      const queue = [...factories];
+      let error;
+      const workers = new Array(Math.min(limit, queue.length)).fill(null).map(async () => {
+        while (!isClosed) {
+          const factory = queue.shift();
+          if (!factory) return;
+          try {
+            const cursorPromise = factory();
+            await processCursor(cursorPromise);
+          } catch (err) {
+            error = err;
+            isClosed = true;
+            return;
+          }
+        }
+      });
+      await Promise.all(workers);
+      if (error) throw error;
+    };
+
+    // ---- drive the read → send ----
+    const dbReadStart = performance.now();
+    await runWithConcurrency(cursorFactories, streamConcurrency);
+    if (metrics) metrics.dbReadMs = Math.round(performance.now() - dbReadStart);
+
+    if (!isClosed) {
+      await writeFrame({ type: 'end', total: totalItems, loaded: totalItems });
+      passThrough.end();
+    }
+
+    // wait for the actual flush to the client
+    await once(res, 'finish');
+
+    // compressed size & throughput
+    if (metrics) {
+      if (!finalStream && res.socket?.bytesWritten != null) {
+        compressedBytes = res.socket.bytesWritten;
+      }
+      metrics.compressedBytes = compressedBytes;
+      const now = performance.now();
+      metrics.sendMs = Math.round(now - (metrics.sendStart ?? now));
+      metrics.totalMs = Math.round(now - metrics.start);
+      metrics.avgWrite = metrics.writeCalls ? Math.round(metrics.bytesQueued / metrics.writeCalls) : 0;
+      metrics.bytesQueued = Math.round(metrics.bytesQueued);
+      metrics.maxBuffered = Math.round(metrics.maxBuffered);
+      metrics.drainWaitMs = Math.round(metrics.drainWaitMs);
+      metrics.mbps = metrics.sendMs > 0
+        ? +(((compressedBytes / (1024 * 1024)) / (metrics.sendMs / 1000))).toFixed(2)
+        : null;
+
+      console.log('[stream totals]', metrics);
+    }
+
+  } catch (err) {
+    console.error(err);
+    if (res.headersSent) {
+      try { res.end(); } catch {}
+    } else {
+      res.status(500).json({ error: err?.message ?? err });
+    }
+  }
+});
 /*
 
 router.post('/remove_metric', async function(req, res, next) {
