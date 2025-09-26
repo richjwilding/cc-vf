@@ -738,7 +738,7 @@ export async function implementation(params, scope, notify){
                 goal: params.goal,
                 sourceId: params.id,
                 categoryData: categoryDefs,
-                sectionRequests: (outline.sections || []).map((sec) => ({ outline: sec })),
+                sectionRequests: (outline.sections || []).map((sec, id) => ({ section_id: id, outline: sec })),
                 slideDefs: outline.defs,
                 sampleData: data,
                 existingCategorizations: categorizations,

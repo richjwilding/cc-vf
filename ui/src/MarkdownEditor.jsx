@@ -286,6 +286,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
       empty:()=>isEditorEmpty( editor ),
       focus:()=>slateRef.current.focus(),
       statusMessage:(status)=>{
+        console.log(`Setting status >> ${status}`)
         if( status ){
           statusMessage.current = [{ type:"paragraph", statusBadge: true, children: [{type: 'badge', badgeType: status, children:[{text: ""}]}]}]
         }else{
@@ -328,6 +329,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
         }
         // insert at the end of the document
         if (slateRef.current && props.scrollToEnd && wasAtTop) {
+          console.log(`--- scroll to bottom`)
           // you can hook into your scroll‐to‐bottom logic here
           setTimeout(() => {
             if( slateRef.current){

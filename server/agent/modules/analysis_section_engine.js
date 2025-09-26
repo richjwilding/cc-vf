@@ -171,8 +171,8 @@ const SECTION_SCHEMAS = {
           sourceId: { type: "string" },
           type: { type: "string", const: "visualization" },
           pre_filter: { $ref: "#/$defs/MaybeFilter" },
-          axis_1: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/AxisDef" }, filter: { $ref: "#/$defs/MaybeFilter" } }, required: ["definition"] },
           split_by: { $ref: "#/$defs/AxisDef" },
+          axis_1: { type: "object", additionalProperties: false, properties: { definition: { $ref: "#/$defs/AxisDef" }, filter: { $ref: "#/$defs/MaybeFilter" } }, required: ["definition"] },
           overview: { type: "string" },
           chart: {
             type: "object", additionalProperties: false,
@@ -187,7 +187,7 @@ const SECTION_SCHEMAS = {
                 type: "object",
                 additionalProperties: false,
                 properties: {
-                  by: { type: "string", const: "split_by" },
+                  by: { type: "string", const: "axis_1" },
                   scale: {
                     type: "object",
                     additionalProperties: false,
@@ -204,7 +204,7 @@ const SECTION_SCHEMAS = {
             required: ["kind","value"]
           }
         },
-        required: ["sourceId","type","overview","axis_1","chart"],
+        required: ["sourceId","type","overview","split_by","chart"],
         $defs: buildSectionBaseDefs()
       }
     }),
@@ -398,7 +398,7 @@ export async function generateDetailedSections({
           if (parsed && typeof parsed === "object") {
             const resolvedSource = request.sourceId || outline.sourceId || request.existingSection?.sourceId || sourceId;
             if (resolvedSource) parsed.sourceId = resolvedSource;
-            if (request.section_id && parsed.id == null) parsed.id = request.section_id;
+            parsed.id = request.section_id;
             outputs.push(parsed);
             continue;
           }

@@ -168,18 +168,29 @@ export function ConvertVisualizationSpecToView( spec, defs ){
                 }
             ]
         }else if( axis.length === 2){
-            columns = {type: "none", filter: []}
-            rows = {type: "none", filter: []}
-            viewFilters = [
-                {
-                    ...axis[0],
-                    treatment: "allocation"
-                },
-                {
-                    ...axis[1],
-                    treatment: "allocation"
-                }
-            ]
+            if( spec.chart.kind === "pie"){
+
+                rows = {type: "none", filter: []}
+                viewFilters = [
+                    {
+                        ...axis[1],
+                        treatment: "allocation"
+                    }
+                ]
+            }else{
+                columns = {type: "none", filter: []}
+                rows = {type: "none", filter: []}
+                viewFilters = [
+                    {
+                        ...axis[1],
+                        treatment: "allocation"
+                    },
+                    {
+                        ...axis[0],
+                        treatment: "allocation"
+                    }
+                ]
+            }
         }
     }
 
