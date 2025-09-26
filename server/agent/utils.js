@@ -187,14 +187,23 @@ export function streamingResponseHandler( notify, fragmentList ){
             return entry._content
         })
         let backup = ""
-        let lastSentLength = lastSent.length
-        if( lastSent.endsWith("]]") && out.slice(lastSentLength - 2) != "]]"){
-            backup = "__SC_BK2__"
-            lastSentLength -= 2
+        let startIdx = 0
+        if( lastSent.length > 0 ){
+            const maxPrefix = Math.min(lastSent.length, out.length)
+            let prefixLen = 0
+            while( prefixLen < maxPrefix && lastSent[prefixLen] === out[prefixLen]){
+                prefixLen++
+            }
+            if( prefixLen < lastSent.length ){
+                const rewindCount = lastSent.length - prefixLen
+                backup = `__SC_BK${rewindCount}__`
+            }
+            startIdx = prefixLen
         }
-        const delta = out.slice(lastSentLength)
-        if( delta.length > 0){
-            notify(backup + delta, false)
+        const delta = out.slice(startIdx)
+        const payload = backup + delta
+        if( payload.length > 0 ){
+            notify(payload, false)
         }
         lastSent = out
 
@@ -236,6 +245,7 @@ export function streamingResponseHandler( notify, fragmentList ){
         jsonParser.on("end", onEnd);
 
         pass.write = (...args)=>{
+            console.log(args)
             pass.pass.write(...args)
         }
         pass.end = ()=>{

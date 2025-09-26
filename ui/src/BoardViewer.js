@@ -1662,7 +1662,9 @@ export default function BoardViewer({primitive,...props}){
                                             const elements = framePrimitive.primitives.origin.allElement
                                             const theme = myState[framePrimitive.id].theme
                                             elements.forEach(d=>myState[d.id].theme = theme)
-                                            needRefresh = [...needRefresh, ...elements.map(d=>d.id)]
+                                            if( needRefresh ){
+                                                needRefresh = [...needRefresh, ...elements.map(d=>d.id)]
+                                            }
                                             doFrame = false
                                         }else{
                                             let dIds = ids.filter(d=>d !== frameId)
@@ -2715,7 +2717,7 @@ export default function BoardViewer({primitive,...props}){
                categoryList = [89, 145]
             }else{
                 categoryList = [
-                    38, 81, 130, 140, 131,142,118, 135,  136, 137,132,133,144,
+                    38, 81, 148, 154, 130, 140, 131,142,118, 135,  136, 137,132,133,144,
                     ...mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
                     ...(addToFlow ? [81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id)),
                 ].flat()
@@ -2951,7 +2953,7 @@ export default function BoardViewer({primitive,...props}){
 
                         if( pages.length > 0){
                             for(const page of pages){
-                                const background = root.find(".background")[0]
+                                const background = page.find(".background")[0]
                                 const backgroundColor = background?.attrs.fill
                                 const childFrames = root.node.find(d=>d.attrs.pageTrack === page.attrs.pageIdx)
                                 const aggNode = new Konva.Group({

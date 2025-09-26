@@ -678,11 +678,11 @@ const actions = {
                             }
                         }
                     }
-                    if( receiver.referenceParameters?.pivot){
-                        if( typeof(receiver.referenceParameters?.pivot) === "number"){
-                            list = list.map(d=>d.originAtLevel(receiver.referenceParameters?.pivot)).flat()
+                    if( params?.pivot){
+                        if( typeof(params?.pivot) === "number"){
+                            list = uniquePrimitives(list.map(d=>d.originAtLevel(params?.pivot)).flat())
                         }else{
-                            list = uniquePrimitives(list.flatMap(d=>d.relationshipAtLevel(receiver.referenceParameters.pivot, receiver.referenceParameters.pivot.length)))
+                            list = uniquePrimitives(list.flatMap(d=>d.relationshipAtLevel(params.pivot, params.pivot.length)))
                         }
                     }
                     fullList = fullList.concat(list) 

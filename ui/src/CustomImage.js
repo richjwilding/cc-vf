@@ -622,7 +622,7 @@ this.maxImage.height = this.attrs.height * rasterScale;
 const ctx = this.maxImage.getContext('2d');
 
 // fill background only if not SVG and no chroma-keying requested
-if (!this.attrs.url.startsWith('svg:') && !this.attrs.colorKey && !this.attrs.clearImg !== false) {
+if (!this.attrs.url.startsWith('svg:') && !this.attrs.colorKey && this.attrs.clearImg !== false) {
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, this.maxImage.width, this.maxImage.height);
 }

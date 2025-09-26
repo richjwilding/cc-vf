@@ -63,7 +63,7 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
     }
     console.log(`Got ${axis.length} axis`)
     
-    let items = await getItemsForQuery(primitive, config)
+    let items = primitive.type === "query" ?  await fetchPrimitives(primitive.primitives.origin ?? [], {workspaceId: primitive.workspaceId}) : await getItemsForQuery(primitive, config)
     
     if( axis.length === 0){
         return [{
@@ -244,7 +244,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
     if( config?.axis ){
         customAxis = Object.values(config.axis  ?? {}).filter(d=>d)
     }else if( config.explore?.axis && !config.legacy){
-        if( primitive.type !== "query"){
+        if( true || primitive.type !== "query"){
             let axis = [
                 config.explore.axis.column,
                 config.explore.axis.row
@@ -338,22 +338,30 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
             if( options.legacySegments){
                 targetSegmentConfig = await getSegemntDefinitions(parent, customAxis)
             }else{
-                targetSegmentConfig = []
-                const imports = primitive.primitives?.imports ?? []
-                logger.info(`Collecting segments from each input ${imports.length}`)
-                if( imports.length > 0 ){
-                    const importPrimitives = await fetchPrimitives( imports )
-                    for( const imp of importPrimitives ){
-                        const thisSet = await getSegemntDefinitions(imp, customAxis) 
-                        for( const thisItem of thisSet ){
-                            const isNull = !thisItem.filters || thisItem.filters.length === 0
-                            let append = true
-                            if( isNull ){
-                                nullItem.push( thisItem )
-                            }else{
-                                targetSegmentConfig.push( thisItem)
-                            }
+
+                function processSet( thisSet ){
+                    for( const thisItem of thisSet ){
+                        const isNull = !thisItem.filters || thisItem.filters.length === 0
+                        let append = true
+                        if( isNull ){
+                            nullItem.push( thisItem )
+                        }else{
+                            targetSegmentConfig.push( thisItem)
                         }
+                    }
+                }
+
+                targetSegmentConfig = []
+                if( primitive.type === "query" ){                    
+                    const thisSet = await getSegemntDefinitions(primitive, customAxis) 
+                    processSet( thisSet )
+                }else{
+                    const imports = primitive.primitives?.imports ?? []
+                    logger.info(`Collecting segments from each input ${imports.length}`)
+                    const importedPrimitives = await fetchPrimitives( imports )
+                    for( const imp of importedPrimitives  ){
+                        const thisSet = await getSegemntDefinitions(imp, customAxis) 
+                        processSet( thisSet )
                     }
                 }
             }

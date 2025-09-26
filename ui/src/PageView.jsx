@@ -43,7 +43,8 @@ export default function PageView({ primitive }) {
         boardStateRef.current = {};
     }, [primitive?.id]);
 
-    const renderedSet = useMemo(() => {
+
+    function buildBoard(){
         if (!primitive) {
             return [];
         }
@@ -60,7 +61,18 @@ export default function PageView({ primitive }) {
         BoardViewer.prepareBoard(primitive, state);
         const view = BoardViewer.renderBoardView(primitive, primitive, state, { theme });
         return view ? [view] : [];
-    }, [primitive?.id, primitive?.renderConfig?.theme, refreshKey]);
+    }
+
+    const renderedSet = useMemo(() => {
+        return buildBoard()
+    }, [primitive?.id]);
+
+    useEffect(()=>{
+        const update = buildBoard()[0]
+        if( update && canvasRef.current){
+            canvasRef.current.refreshFrame( primitive.id, update)
+        }
+    },[primitive?.renderConfig?.theme, refreshKey])
 
     const pinEntries = useMemo(() => {
         if (!primitive) {

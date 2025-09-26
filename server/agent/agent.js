@@ -212,7 +212,7 @@ function getAvailableFlowModes(primitive) {
     return buildFlowSelection(["search", "insights", "slides"]);
   }
 
-  return [];
+  return buildFlowSelection(["search", "insights"]);
 }
 
 const summaryToolNames = new Set(summaryTools.map((tool) => tool.definition.name));
@@ -447,7 +447,7 @@ export async function handleChat(primitive, options, req, res) {
         scope.getStoredModeState = (modeId) => getStoredModeState(session, modeId)
         scope.setStoredModeState = (modeId, state) => setStoredModeState(session, modeId, state)
 
-        const flows = getAvailableFlowModes(immediateContext?.[0])
+        const flows = getAvailableFlowModes(immediateContext?.[0] ?? primitive)
         const modeDescriptors = Object.entries(flows).map(([id, def]) => ({
           id,
           label: def?.label ?? id,
@@ -770,7 +770,7 @@ registerAction( "run_agent_create_one_shot_query", undefined, async (primitive, 
             referenceParameters:{
                 engine: "o4-mini",
                 referenceId: options.referenceId,
-                "prompt": options.query,
+                "query": options.query,
                 lookupCount: 10,
                 searchTerms: 100,
                 scanRatio: 0.12,
