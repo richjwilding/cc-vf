@@ -430,6 +430,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
     function createFrame(options = {}){
         const target = stageRef.current?.children[0]
+        if( !target ){
+            return
+        }
         let frameId = myState.current?.frames?.length ?? 0
         const frame = new Konva.Group({
             x: options.x ?? 0,
@@ -500,7 +503,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 const tick = performance.now()
                 for(const d of myState.current.animationQueue){
                     if(d.callback){
-                        if( d.node.getLayer()){
+                        const l = d.node.getLayer()
+                        const c = l && l.getCanvas()
+
+                        if( c && c.width > 0 && c.height > 0  ){
                             if(d.callback(tick)){
                                 d.node.draw()
                             }
@@ -1650,6 +1656,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
 
     function refreshFrame(id, newItems ){
+        if( !stageRef.current ){
+            return
+        }
         const force = newItems !== undefined
         const item = myState.current.renderList.find(d=>d?.id === id)
         if( item ){

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { getLogger } from "../../logger.js";
+import { createCategorizationTool } from "./create_categorization.js";
 
 const logger = getLogger("agent_module_insights", "debug", 0);
 
@@ -78,6 +79,7 @@ export const insightTools = [
     },
     implementation: prepareCategorizationPreprocessing,
   },
+  createCategorizationTool,
 ];
 
 export const insightMode = {
@@ -85,18 +87,21 @@ export const insightMode = {
   label: "Insight analysis",
   description: "Explores and analyses existing data that the system has already collected",
   toolNames: new Set([
+    "get_connected_data",
     "get_data_sources",
     "one_shot_query",
     "one_shot_summary",
     "parameter_values_for_data",
     "existing_categorizations",
+    "suggest_categories",
+    "create_categorization",
     "sample_data",
     "suggest_analysis",
     "object_params",
     "prepare_categorization_preprocessing",
   ]),
   systemPrompt:
-    "You are in insight mode. Focus on filtering existing data, aggregating results, and running single-shot analyses to answer the user's questions.",
+    "You are in insight mode. Focus on filtering existing data, aggregating results, and running single-shot analyses to answer the user's questions. Prefer calling get_connected_data to inspect already linked sources before calling get_data_sources to discover new ones.",
   enterTriggers: [
     /\b(analyze|analysis|insight|query|filter|aggregate|summarize|what (do|does) the data)\b/i,
   ],
@@ -105,15 +110,16 @@ export const insightMode = {
   ],
   createState: () => ({
     lastAction: null,
+    history: [],
+    categorizations: [],
   }),
   contextName: "INSIGHT_CONTEXT",
   buildContext: (state = {}, scope = {}) => ({
     last_action: state.lastAction,
     selected_sources: scope.immediateContext
-      ?.filter((item) => item.type === "search" || item.type === "view" || item.type === "filter")
+      ?.filter((item) => ["search", "view", "filter", "query", "summary"].includes(item.type))
       ?.map((item) => ({ id: item.id, type: item.type, title: item.title })) ?? [],
   }),
 };
 
 export { prepareCategorizationPreprocessing };
-

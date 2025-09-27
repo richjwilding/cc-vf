@@ -25,6 +25,9 @@ const DEFAULT_MODE_ICON = 'Squares2X2Icon';
 //export default function AgentChat({primitive, ...props}) {
 const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, ...props}, ref){
       const [messages, setMessages] = useState([        
+
+
+        
         /*{
     "hidden": false,
     "role": "assistant",
@@ -162,12 +165,12 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         }
       }, [])
 
-      useEffect(() => {
+/*      useEffect(() => {
         if (insertedCount.current === 0 && messages.length > 0) {
           editorRef.current.appendMessages(messages.filter(d=>!d.hidden))
           insertedCount.current = messages.length
         }
-      }, [messages])
+      }, [messages])*/
     
       // whenever messages grows, append only the tail
       useEffect(() => {
@@ -233,9 +236,9 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         setMessages(h => {
           const lastMsg = h[h.length - 1]
           if (lastMsg.role === 'assistant' && !lastMsg.preview && !lastMsg.context && !other.context){
-                return [...h.slice(0, -1), { hidden, updated: true, role:'assistant', content: text, ...other }];
+                return [...h.slice(0, -1), {...other, updated: true, role:'assistant', content: text, hidden }];
           }
-          return [...h, { hidden, role:'assistant', content: text, ...other }];
+          return [...h, {...other, role:'assistant', content: text, hidden }];
         });
       }
 
@@ -339,7 +342,9 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
                 })
                 contextText = `[[action_item:${itemId}:${text}]]`
               }
-              updateAssistantUI(contextText, payload.context.context?.canCreate ? false :true, payload);
+              const hidden = payload.context.context?.canCreate ? false :true
+              console.log(hidden)
+              updateAssistantUI(contextText, hidden, payload);
                 displayContent = ""
             }else if(payload.preview){
               const {preview, ...other} =  payload

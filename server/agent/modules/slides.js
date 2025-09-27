@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { getLogger } from "../../logger.js";
 import { buildCategories } from "../../openai_helper.js";
 import { dispatchControlUpdate } from "../../SharedFunctions.js";
-import { getDataForAgentAction } from "../utils.js";
+import { getDataForAgentAction, categoryDetailsForAgent } from "../utils.js";
+import { generateDetailedSections, inferChartKindFromText } from "./analysis_section_engine.js";
 
 const logger = getLogger("agent_module_slides", "debug", 0);
 
@@ -80,6 +81,23 @@ function normalizeSections(sections = []) {
     ...s,
     id: s.id ?? (i + 1)
   }));
+}
+
+function mergeDefs(existing = {}, incoming = {}) {
+  const next = { ...(existing || {}) };
+  if (incoming.filters) {
+    next.filters = { ...(existing?.filters || {}), ...(incoming.filters || {}) };
+  }
+  if (incoming.categorizations) {
+    next.categorizations = { ...(existing?.categorizations || {}), ...(incoming.categorizations || {}) };
+  }
+  if (incoming.summaries) {
+    next.summaries = { ...(existing?.summaries || {}), ...(incoming.summaries || {}) };
+  }
+  if (incoming.visuals) {
+    next.visuals = { ...(existing?.visuals || {}), ...(incoming.visuals || {}) };
+  }
+  return next;
 }
 
 /* ===========================
@@ -209,6 +227,238 @@ export const update_slide_layout = {
    3) Section CRUD + reorder
    =========================== */
 
+export const design_slide_sections = {
+  definition: {
+    name: "design_slide_sections",
+    description: "Generate or refresh detailed section configurations for the current slide using the available data source.",
+    parameters: {
+      type: "object",
+      required: ["id", "goal", "sections"],
+      properties: {
+        id: { type: "string", description: "ID of the source data object to analyze." },
+        goal: { type: "string", description: "What the user wants to achieve with the slide." },
+        slide: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            layout: { type: "string", enum: ["full_page", "left_summary"] },
+            defs: {
+              type: "object",
+              properties: {
+                filters: { type: "object", additionalProperties: true },
+                categorizations: { type: "object", additionalProperties: true },
+                summaries: { type: "object", additionalProperties: true },
+                visuals: { type: "object", additionalProperties: true }
+              },
+              additionalProperties: true
+            }
+          },
+          additionalProperties: false
+        },
+        sections: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              section_id: { type: "integer" },
+              sourceId: { type: "string" },
+              outline: { type: "object", additionalProperties: true },
+              type: { type: "string", enum: ["summary", "visualization"] },
+              overview: { type: "string" },
+              chart_kind: { type: "string", enum: ["heatmap", "bubble", "pie", "bar"] },
+              pre_filter: { type: ["string", "object"] },
+              categorization: { type: ["string", "object"] },
+              summarization: { type: ["string", "object"] },
+              visualization: { type: ["string", "object"] },
+              instructions: { type: "string" },
+              context: { type: "string" },
+              goal: { type: "string" },
+              insert_at: { type: "integer", minimum: 1 }
+            },
+            anyOf: [
+              { required: ["outline"] },
+              { required: ["section_id"] },
+              { required: ["type", "overview"] }
+            ]
+          }
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  implementation: async (params, scope, notify) => {
+    const sectionsInput = Array.isArray(params.sections) ? params.sections : [];
+    if (sectionsInput.length === 0) {
+      return { error: "sections must include at least one entry." };
+    }
+
+    let sess = null;
+    if (scope.mode === "slides" && scope.modeState) {
+      sess = scope.modeState;
+    } else if (typeof scope.activateMode === "function") {
+      sess = scope.activateMode("slides");
+    }
+    if (!sess) {
+      return { error: "Slides session is not active." };
+    }
+
+    sess.data = sess.data || {};
+    let spec = sess.data.slideSpec;
+    if (!spec) {
+      spec = {
+        title: params.slide?.title || params.goal || "Untitled Slide",
+        layout: params.slide?.layout || "full_page",
+        defs: mergeDefs({}, params.slide?.defs || {}),
+        sections: []
+      };
+      sess.data.slideSpec = spec;
+      sess.state = "preview";
+    } else {
+      if (params.slide?.title) spec.title = params.slide.title;
+      if (params.slide?.layout) spec.layout = params.slide.layout;
+      if (params.slide?.defs) spec.defs = mergeDefs(spec.defs || {}, params.slide.defs);
+    }
+
+    spec.defs = spec.defs || {};
+    spec.sections = Array.isArray(spec.sections) ? spec.sections : [];
+
+    let sampleData = [];
+    let categoryDefs = [];
+    let existingCategorizations = null;
+
+    try {
+      const sampler = scope.functionMap?.["sample_data"];
+      if (sampler) {
+        const res = await sampler({ id: params.id, limit: 20, forSample: true, withCategory: true }, scope);
+        if (Array.isArray(res?.data)) sampleData = res.data;
+        if (Array.isArray(res?.categories)) {
+          categoryDefs = res.categories.map((d) => categoryDetailsForAgent(d)).filter(Boolean);
+        }
+      }
+    } catch (err) {
+      logger.error("design_slide_sections sample_data error", err);
+    }
+
+    try {
+      const existingFetcher = scope.functionMap?.["existing_categorizations"];
+      if (existingFetcher) {
+        const res = await existingFetcher({ id: params.id, forSample: true, withCategory: true }, scope);
+        if (res?.categories) existingCategorizations = res.categories;
+      }
+    } catch (err) {
+      logger.error("design_slide_sections existing_categorizations error", err);
+    }
+
+    const requests = [];
+    for (const raw of sectionsInput) {
+      const sectionId = Number.isInteger(raw.section_id) ? raw.section_id : null;
+      const existing = sectionId ? (spec.sections || []).find((s) => s.id === sectionId) : null;
+
+      const outline = raw.outline ? { ...raw.outline } : {};
+      if (!outline.type && raw.type) outline.type = raw.type;
+      if (!outline.overview && raw.overview) outline.overview = raw.overview;
+      if (raw.pre_filter !== undefined && outline.pre_filter == null) outline.pre_filter = raw.pre_filter;
+      if (raw.categorization !== undefined && outline.categorization == null) outline.categorization = raw.categorization;
+      if (raw.summarization !== undefined && outline.summarization == null) outline.summarization = raw.summarization;
+      if (raw.visualization !== undefined && outline.visualization == null) outline.visualization = raw.visualization;
+      if (!outline.type && existing) outline.type = existing.type;
+
+      const targetSource = raw.sourceId || existing?.sourceId || params.id;
+      if (!outline.type) {
+        return { error: "Each section must provide a type or reference an existing section." };
+      }
+      if (!targetSource) {
+        return { error: "Unable to determine sourceId for a section." };
+      }
+
+      requests.push({
+        outline,
+        chart_kind: raw.chart_kind,
+        existingSection: existing || undefined,
+        instructions: raw.instructions,
+        context: raw.context,
+        goal: raw.goal,
+        sourceId: targetSource,
+        section_id: sectionId,
+        insert_at: raw.insert_at
+      });
+    }
+
+    const sectionResults = await generateDetailedSections({
+      scope,
+      goal: params.goal,
+      sourceId: params.id,
+      categoryData: categoryDefs,
+      sectionRequests: requests,
+      slideDefs: spec.defs,
+      sampleData,
+      existingCategorizations,
+      usage: {
+        functionName: "agent_module_design_slide_sections",
+        usageId: "agent_module_design_slide_sections_section"
+      }
+    });
+
+    const produced = [];
+    for (let i = 0; i < requests.length; i++) {
+      const req = requests[i];
+      const generated = sectionResults?.[i];
+      if (!generated) continue;
+
+      generated.sourceId = req.sourceId || generated.sourceId || params.id;
+
+      if (req.section_id) {
+        const idx = spec.sections.findIndex((s) => s.id === req.section_id);
+        if (idx >= 0) {
+          spec.sections[idx] = { ...generated, id: req.section_id, sourceId: generated.sourceId };
+        } else {
+          spec.sections.push({ ...generated, id: req.section_id, sourceId: generated.sourceId });
+        }
+        produced.push({ ...generated, id: req.section_id, sourceId: generated.sourceId });
+        continue;
+      }
+
+      if (req.existingSection?.id) {
+        const idx = spec.sections.findIndex((s) => s.id === req.existingSection.id);
+        if (idx >= 0) {
+          spec.sections[idx] = { ...generated, id: req.existingSection.id, sourceId: generated.sourceId };
+        } else {
+          spec.sections.push({ ...generated, id: req.existingSection.id, sourceId: generated.sourceId });
+        }
+        produced.push({ ...generated, id: req.existingSection.id, sourceId: generated.sourceId });
+        continue;
+      }
+
+      const newSection = { ...generated };
+      let assignedId = Number.isInteger(newSection.id) ? newSection.id : null;
+      if (!assignedId || spec.sections.some((s) => s.id === assignedId)) {
+        assignedId = nextSectionId(spec);
+      }
+      newSection.id = assignedId;
+
+      if (req.insert_at && req.insert_at > 0 && req.insert_at <= spec.sections.length) {
+        spec.sections.splice(req.insert_at - 1, 0, newSection);
+      } else {
+        spec.sections.push(newSection);
+      }
+      produced.push(newSection);
+    }
+
+    if (produced.length === 0) {
+      return { error: "No sections were generated." };
+    }
+
+    sess.data.slideSpec = spec;
+    sess.state = "preview";
+    touch(scope);
+    notify?.("Updated slide with generated section details.", true);
+
+    return { preview: spec, sections: produced };
+  }
+};
+
 export const add_slide_section = {
   definition: {
     name: "add_slide_section",
@@ -248,12 +498,12 @@ export const update_slide_section = {
   definition: {
     name: "update_slide_section",
     description:
-      "Update one or more fields on one or more slide sections. " +
-      "Fields must be JSON objects (not strings). If you want to reuse a slide-level def, provide {$ref:'<group>.<key>'}.",
+      "Update or regenerate fields on existing slide sections. " +
+      "When changing chart types, supply either a full visualization object or the desired chart_kind and the agent will regenerate the section.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      required: ["section_ids", "updates"],
+      required: ["updates"],
       properties: {
         section_ids: {
           type: "array",
@@ -262,16 +512,30 @@ export const update_slide_section = {
           items: { type: "integer" },
           minItems: 1
         },
+        selector: {
+          type: "object",
+          description:
+            "Optional helper to locate sections automatically when section_ids are unknown.",
+          additionalProperties: false,
+          properties: {
+            type: { type: "string", enum: ["summary","visualization"] },
+            chart_kind: { type: "string", enum: ["bar","pie","bubble","heatmap"] },
+            overview_contains: { type: "string" },
+            index: { type: "integer", minimum: 1, description: "1-based index within the filtered matches." }
+          }
+        },
         updates: {
           type: "object",
           description:
             "Partial updates to apply to each section. This MUST be a JSON object, not a quoted string. " +
             "Supported keys: pre_filter, categorization, summarization, visualization, post_filter. " +
             "Each key's value can be either a literal string/object, or {$ref:'<group>.<key>'}. " +
-            "Do NOT send JSON-in-a-string; send the object itself." +  
-            "If you are updating a categorization be sure to update the relevant summarization or visualization definition to align with the update",
+            "Use chart_kind to request a different visualization type without supplying the full schema.",
           additionalProperties: true,
           properties: {
+            type: { type: "string", enum: ["summary","visualization"] },
+            overview: { type: "string" },
+            chart_kind: { type: "string", enum: ["bar","pie","bubble","heatmap"] },
             pre_filter: { type: ["string", "object"] },
             categorization: { type: ["string", "object"] },
             summarization: { type: ["string", "object"] },
@@ -291,10 +555,14 @@ export const update_slide_section = {
               "categorization",
               "summarization",
               "visualization",
-              "post_filter"
+              "post_filter",
+              "overview",
+              "type"
             ]
           }
-        }
+        },
+        goal: { type: "string", description: "User goal context to feed into regeneration." },
+        instructions: { type: "string", description: "Additional instructions for regeneration when changing chart types." }
       }
     }
   },
@@ -302,6 +570,9 @@ export const update_slide_section = {
     const sess = requireSlideSession(scope);
     const spec = sess.data.slideSpec;
     if (!spec) return { error: "No slide draft yet." };
+
+    spec.sections = Array.isArray(spec.sections) ? spec.sections : [];
+    const sections = spec.sections;
 
     // --- 1) Coerce any accidental JSON strings into objects ---
     const normalize = (v) => {
@@ -324,18 +595,109 @@ export const update_slide_section = {
       return out;
     };
 
-    let updates = coerceUpdates(params.updates);
-    const only = Array.isArray(params.only_keys) ? new Set(params.only_keys) : null;
-
-    // --- 2) Validate section ids ---
-    const byId = new Map((spec.sections || []).map(s => [s.id, s]));
-    const targetIds = (params.section_ids || []).filter(Number.isInteger);
-    if (targetIds.length === 0) return { error: "No valid section_ids" };
-    for (const id of targetIds) {
-      if (!byId.has(id)) return { error: `Unknown section_id ${id}` };
+    const updates = coerceUpdates(params.updates);
+    if (Object.keys(updates).length === 0) {
+      return { error: "No updates provided." };
     }
 
-    // --- 3) Apply updates with simple merge ---
+    const onlyList = Array.isArray(params.only_keys) ? params.only_keys.filter((k) => typeof k === "string") : null;
+    const only = onlyList ? new Set(onlyList) : null;
+
+    const selector = (params.selector && typeof params.selector === "object") ? params.selector : null;
+    const resolveType = (value) => (value === "summary" || value === "visualization") ? value : null;
+
+    const desiredType = resolveType(updates.type) || resolveType(selector?.type) || (
+      updates.visualization !== undefined || updates.chart_kind ? "visualization" :
+      updates.summarization !== undefined ? "summary" : null
+    );
+
+    const desiredChartKind = updates.chart_kind || updates.visualization?.chart?.kind || updates.visualization?.chart_kind || selector?.chart_kind || null;
+
+    const byId = new Map(sections.map((s) => [s.id, s]));
+    let targetIds = Array.isArray(params.section_ids) ? params.section_ids.filter(Number.isInteger) : [];
+    targetIds = Array.from(new Set(targetIds));
+
+    const instructionsText = typeof params.instructions === "string" ? params.instructions.trim() : "";
+    const goalText = typeof params.goal === "string" ? params.goal : undefined;
+
+    const resolveSections = () => {
+      if (targetIds.length) {
+        const resolved = targetIds.map((id) => {
+          const found = byId.get(id);
+          if (!found) throw new Error(`Unknown section_id ${id}`);
+          return found;
+        });
+        return resolved;
+      }
+
+      let candidates = sections.slice();
+      const typeHint = resolveType(selector?.type) || desiredType;
+      if (typeHint) {
+        candidates = candidates.filter((sec) => sec.type === typeHint);
+      }
+      if (selector?.chart_kind) {
+        candidates = candidates.filter((sec) => (sec.chart?.kind || sec.chart_kind) === selector.chart_kind);
+      }
+      if (!selector?.chart_kind && desiredChartKind && typeHint === "visualization") {
+        const kindMatches = candidates.filter((sec) => (sec.chart?.kind || sec.chart_kind) === desiredChartKind);
+        if (kindMatches.length === 1) {
+          candidates = kindMatches;
+        }
+      }
+      if (selector?.overview_contains) {
+        const needle = selector.overview_contains.toLowerCase();
+        candidates = candidates.filter((sec) => (sec.overview || "").toLowerCase().includes(needle));
+      }
+      if (selector?.index) {
+        const idx = selector.index - 1;
+        if (idx < 0 || idx >= candidates.length) {
+          return { error: "selector.index is out of range for matching sections." };
+        }
+        candidates = [candidates[idx]];
+      }
+
+      if (!candidates.length && typeHint) {
+        const fallback = sections.filter((sec) => sec.type === typeHint);
+        if (fallback.length === 1) return fallback;
+      }
+
+      if (!candidates.length && desiredChartKind) {
+        const kindMatches = sections.filter((sec) => (sec.chart?.kind || sec.chart_kind) === desiredChartKind);
+        if (kindMatches.length === 1) return kindMatches;
+      }
+
+      if (!candidates.length) {
+        return { error: "Unable to determine which section to update. Provide section_ids or selector." };
+      }
+
+      if (candidates.length === 1) return candidates;
+
+      if (typeHint === "visualization") {
+        const viz = sections.filter((sec) => sec.type === "visualization");
+        if (viz.length === 1) return viz;
+      }
+      if (typeHint === "summary") {
+        const summaries = sections.filter((sec) => sec.type === "summary");
+        if (summaries.length === 1) return summaries;
+      }
+
+      return { error: "Multiple sections match the selector. Provide section_ids to disambiguate." };
+    };
+
+    let targetSections;
+    try {
+      const resolved = resolveSections();
+      if (resolved?.error) return resolved;
+      targetSections = resolved;
+      targetIds = targetSections.map((s) => s.id);
+    } catch (err) {
+      return { error: err.message };
+    }
+
+    if (!targetSections.length) {
+      return { error: "No matching sections found." };
+    }
+
     const MERGE_KEYS = [
       "pre_filter",
       "categorization",
@@ -344,25 +706,185 @@ export const update_slide_section = {
       "post_filter"
     ];
 
-    for (const id of targetIds) {
-      const sec = byId.get(id);
-      for (const k of MERGE_KEYS) {
-        if (!(k in updates)) continue;
-        if (only && !only.has(k)) continue;
-
-        const next = updates[k];
-        // If value is an object and not a ref, shallow-merge, else replace
-        if (sec[k] && typeof sec[k] === "object" && next && typeof next === "object" && !("$ref" in next)) {
-          sec[k] = { ...sec[k], ...next };
+    const applyFieldUpdates = (section, sourceUpdates, onlyGuard, options = {}) => {
+      const allowVisualization = options.allowVisualization !== false;
+      const allowType = options.allowType === true;
+      for (const key of MERGE_KEYS) {
+        if (!(key in sourceUpdates)) continue;
+        if (onlyGuard && !onlyGuard.has(key)) continue;
+        if (key === "visualization" && !allowVisualization) continue;
+        const next = sourceUpdates[key];
+        if (section[key] && typeof section[key] === "object" && next && typeof next === "object" && !("$ref" in next)) {
+          section[key] = { ...section[key], ...next };
         } else {
-          sec[k] = next;
+          section[key] = next;
         }
+      }
+      if ("overview" in sourceUpdates && (!onlyGuard || onlyGuard.has("overview"))) {
+        section.overview = sourceUpdates.overview;
+      }
+      if (allowType && "type" in sourceUpdates && (!onlyGuard || onlyGuard.has("type"))) {
+        const nextType = resolveType(sourceUpdates.type);
+        if (nextType) section.type = nextType;
+      }
+    };
+
+    const hasInstructions = Boolean(instructionsText);
+    const needsRegeneration = (section) => {
+      if (resolveType(updates.type) && updates.type !== section.type) return true;
+      if (desiredType === "visualization" && section.type !== "visualization") return true;
+      if (desiredChartKind) {
+        const currentKind = section.chart?.kind || section.chart_kind;
+        if (section.type !== "visualization" || !currentKind || currentKind !== desiredChartKind) {
+          return true;
+        }
+      }
+      const vizUpdate = updates.visualization;
+      if (vizUpdate && typeof vizUpdate === "object" && !("$ref" in vizUpdate)) {
+        const hasChart = vizUpdate.chart && vizUpdate.chart.kind && vizUpdate.chart.value;
+        const hasAxis = vizUpdate.axis_1 || vizUpdate.split_by || vizUpdate.axis_2;
+        if (!hasChart || !hasAxis) return true;
+      }
+      if (hasInstructions) return true;
+      return false;
+    };
+
+    const regenSections = [];
+    const manualSections = [];
+    for (const section of targetSections) {
+      if (needsRegeneration(section)) {
+        regenSections.push(section);
+      } else {
+        manualSections.push(section);
       }
     }
 
-    notify?.("Updated slide section(s).", true);
-    touch(scope); // keep session fresh
-    return { preview: spec };
+    if (manualSections.length && updates.visualization !== undefined) {
+      const bad = manualSections.find((section) => section.type !== "visualization");
+      if (bad) {
+        return { error: `Section ${bad.id} is not a visualization. Use chart_kind/type to regenerate it instead.` };
+      }
+    }
+
+    for (const section of manualSections) {
+      applyFieldUpdates(section, updates, only, { allowVisualization: true, allowType: false });
+    }
+
+    let regenSuccess = 0;
+    if (regenSections.length) {
+      const uniqueSources = Array.from(new Set(regenSections.map((sec) => sec.sourceId).filter(Boolean)));
+      let sampleData = [];
+      let categoryDefs = [];
+      let existingCategorizations = null;
+
+      if (uniqueSources.length === 1) {
+        const sampleSource = uniqueSources[0];
+        try {
+          const sampler = scope.functionMap?.["sample_data"];
+          if (sampler) {
+            const res = await sampler({ id: sampleSource, limit: 20, forSample: true, withCategory: true }, scope);
+            if (Array.isArray(res?.data)) sampleData = res.data;
+            if (Array.isArray(res?.categories)) {
+              categoryDefs = res.categories.map((d) => categoryDetailsForAgent(d)).filter(Boolean);
+            }
+          }
+        } catch (err) {
+          logger.error("update_slide_section sample_data error", err);
+        }
+        try {
+          const existingFetcher = scope.functionMap?.["existing_categorizations"];
+          if (existingFetcher) {
+            const res = await existingFetcher({ id: sampleSource, forSample: true, withCategory: true }, scope);
+            if (res?.categories) existingCategorizations = res.categories;
+          }
+        } catch (err) {
+          logger.error("update_slide_section existing_categorizations error", err);
+        }
+      }
+
+      const sectionRequests = regenSections.map((section) => {
+        const outlineType = resolveType(updates.type) || section.type;
+        const outline = {
+          type: outlineType,
+          overview: updates.overview ?? section.overview
+        };
+        if ("pre_filter" in updates) outline.pre_filter = updates.pre_filter;
+        else if (section.pre_filter != null) outline.pre_filter = section.pre_filter;
+
+        if ("categorization" in updates) outline.categorization = updates.categorization;
+        else if (section.categorization != null) outline.categorization = section.categorization;
+
+        if (outlineType === "summary") {
+          if ("summarization" in updates) outline.summarization = updates.summarization;
+          else if (section.summarization != null) outline.summarization = section.summarization;
+        } else {
+          if (updates.visualization && typeof updates.visualization === "object") {
+            if (updates.visualization.axis_1) outline.axis_1 = updates.visualization.axis_1;
+            if (updates.visualization.axis_2) outline.axis_2 = updates.visualization.axis_2;
+            if (updates.visualization.split_by) outline.split_by = updates.visualization.split_by;
+          } else {
+            if (section.axis_1) outline.axis_1 = section.axis_1;
+            if (section.axis_2) outline.axis_2 = section.axis_2;
+            if (section.split_by) outline.split_by = section.split_by;
+          }
+        }
+
+        const chartKind = desiredChartKind || section.chart?.kind || inferChartKindFromText(outline.overview || "");
+
+        return {
+          outline,
+          chart_kind: chartKind,
+          existingSection: section,
+          instructions: instructionsText || undefined,
+          goal: goalText || undefined,
+          sourceId: section.sourceId,
+          section_id: section.id
+        };
+      });
+
+      const primarySource = uniqueSources[0] || regenSections[0].sourceId || null;
+      const generatedSections = await generateDetailedSections({
+        scope,
+        goal: goalText,
+        sourceId: primarySource,
+        categoryData: categoryDefs,
+        sectionRequests,
+        slideDefs: spec.defs,
+        sampleData,
+        existingCategorizations,
+        usage: {
+          functionName: "agent_module_update_slide_section",
+          usageId: "agent_module_update_slide_section_regen"
+        }
+      });
+
+      regenSections.forEach((section, index) => {
+        const generated = generatedSections?.[index];
+        if (!generated) return;
+        const nextSection = {
+          ...generated,
+          id: section.id,
+          sourceId: generated.sourceId || section.sourceId
+        };
+        applyFieldUpdates(nextSection, updates, only, { allowVisualization: false, allowType: true });
+        const pos = sections.findIndex((s) => s.id === section.id);
+        if (pos >= 0) {
+          sections[pos] = nextSection;
+          regenSuccess += 1;
+        }
+      });
+
+      if (regenSections.length && regenSuccess === 0) {
+        return { error: "Failed to regenerate the requested section(s)." };
+      }
+    }
+
+    sess.data.slideSpec = spec;
+    touch(scope);
+
+    const message = regenSuccess ? "Regenerated slide section(s)." : "Updated slide section(s).";
+    notify?.(message, true);
+    return { preview: spec, updated_section_ids: targetIds };
   }
 };
 export const reorder_slide_sections = {
@@ -465,7 +987,13 @@ export const suggest_section_categorization = {
     spec.defs = spec.defs || {};
     spec.defs.categorizations = spec.defs.categorizations || {};
 
-    let [items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( {...params, sourceIds: [sourceId], limit: 1000}, scope)
+    let items, toSummarize, resolvedSourceIds
+    try {
+      ;[items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( {...params, sourceIds: [sourceId], limit: 1000}, scope)
+    } catch (error) {
+      logger.warn("suggest_section_categorization aborted", { error: error?.message, chatId: scope.chatUUID })
+      return { error: error?.message ?? "Unable to locate connected data" };
+    }
     const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
     const literal = false
 
@@ -593,6 +1121,7 @@ export const slideTools = [
   update_slide_from_suggestion,
   update_slide_title,
   update_slide_layout,
+  design_slide_sections,
   add_slide_section,
   update_slide_section,
   reorder_slide_sections,

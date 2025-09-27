@@ -1359,9 +1359,13 @@ export function primitiveOrigin(primitive ){
     return primitiveWithRelationship(primitive, "origin")
 }
 export async function findPrimitiveOriginParent(primitive, type ){
-    const origin = await Primitive.findOne({_id:  primitiveWithRelationship(primitive, "origin") })
+    const origin = await fetchPrimitive(primitiveWithRelationship(primitive, "origin"), {workspaceId: primitive.workspaceId })
     if( origin ){
-        if( origin.type == type ){
+        if( Array.isArray(type)){
+            if( type.includes( origin.type)){
+                return origin
+            }
+        }else if( origin.type == type ){
             return origin
         }
         return findPrimitiveOriginParent( origin, type )
@@ -2121,12 +2125,12 @@ export async function legacyGetDataForImport( source, cache = {imports: {}, cate
                 }
             }
         }
-        logger.verbose(`Import pivot = ` + source.referenceParameters?.pivot )
-        if( source.referenceParameters?.pivot){
-            if(typeof(source.referenceParameters.pivot ) === "number"){
-                list = await primitiveListOrigin( list, source.referenceParameters.pivot, ["result", "entity"])
+        logger.verbose(`Import pivot = ` + params?.pivot )
+        if( params?.pivot){
+            if(typeof(params.pivot ) === "number"){
+                list = await primitiveListOrigin( list, params.pivot)
             }else{
-                list = uniquePrimitives((await multiPrimitiveAtOrginLevel( list, source.referenceParameters.pivot.length, source.referenceParameters.pivot)).flat())
+                list = uniquePrimitives((await multiPrimitiveAtOrginLevel( list, params.pivot.length, params.pivot)).flat())
             }
         }
         return list
@@ -2235,7 +2239,7 @@ export async function primitiveListOrigin( list, pivot, parentTypes = undefined,
     for( let idx = 0; idx < pivot; idx++ ){
         let originIds 
         
-        if( relationship = "ALL"){
+        if( relationship === "ALL"){
             originIds = list.map(d=>{
                 return d.parentPrimitives ? Object.keys(d.parentPrimitives) : undefined
             }).flat(Infinity).filter((d,i,a)=>d && a.indexOf(d)===i)
