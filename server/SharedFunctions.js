@@ -1372,9 +1372,13 @@ export function primitiveOrigin(primitive ){
     return primitiveWithRelationship(primitive, "origin")
 }
 export async function findPrimitiveOriginParent(primitive, type ){
-    const origin = await Primitive.findOne({_id:  primitiveWithRelationship(primitive, "origin") })
+    const origin = await fetchPrimitive(primitiveWithRelationship(primitive, "origin"), {workspaceId: primitive.workspaceId })
     if( origin ){
-        if( origin.type == type ){
+        if( Array.isArray(type)){
+            if( type.includes( origin.type)){
+                return origin
+            }
+        }else if( origin.type == type ){
             return origin
         }
         return findPrimitiveOriginParent( origin, type )

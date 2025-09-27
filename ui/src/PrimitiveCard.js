@@ -1740,7 +1740,11 @@ const Categories = function({primitive, ...props}){
     }
   }
 
-  let list = props.directOnly ? primitive.primitives.origin.allUniqueCategory : primitive.primitives.allUniqueCategory
+  let list = [
+    ...(props.directOnly ? primitive.primitives.origin.allUniqueCategory : primitive.primitives.allUniqueCategory),
+    ...(primitive.findParentPrimitives({type: ["board", "flow"]}).flatMap(d=>d.primitives.origin.allCategory))
+  ].filter(Boolean)
+  
   if( !props.includeResult ){
     if( primitive.metadata?.resultCategories ){
       const excludeIds = primitive.primitives.results.uniqueAllIds
