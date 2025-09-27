@@ -16,6 +16,7 @@ import {
 import CategoryIdSelector from './@components/CategoryIdSelector'
 import { HeroIcon } from './HeroIcon'
 import { PrimitiveCard } from './PrimitiveCard'
+import PrimitiveDetails from './@components/PrimitiveDetails'
 import useDataEvent from './CustomHook'
 import MainStore from './MainStore'
 import ConfirmationPopup from './ConfirmationPopup'
@@ -255,11 +256,7 @@ export default function GenericEditor({ primitive, ...props }) {
                     Parameters
                   </p>
                   <div className="rounded-large border border-default-200 bg-default-50 p-4">
-                    <PrimitiveCard.Parameters
-                      primitive={primitive}
-                      editing
-                      fullList
-                    />
+                    <PrimitiveDetails primitive={primitive} editing fullList />
                   </div>
                 </div>
               )}

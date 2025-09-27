@@ -1,10 +1,12 @@
 // modules/slides.js
 import { randomUUID } from "node:crypto";
 import { getLogger } from "../../logger.js";
-import { buildCategories } from "../../openai_helper.js";
 import { dispatchControlUpdate } from "../../SharedFunctions.js";
-import { getDataForAgentAction, categoryDetailsForAgent } from "../utils.js";
+import { categoryDetailsForAgent } from "../utils.js";
 import { generateDetailedSections, inferChartKindFromText } from "./analysis_section_engine.js";
+import { implementation as existingCategorizationsImpl } from "./existing_categorizations.js";
+import { implementation as suggestCategoriesImpl } from "./suggest_categories.js";
+import { processAsSingleChunk } from "../../openai_helper.js";
 
 const logger = getLogger("agent_module_slides", "debug", 0);
 
@@ -98,6 +100,136 @@ function mergeDefs(existing = {}, incoming = {}) {
     next.visuals = { ...(existing?.visuals || {}), ...(incoming.visuals || {}) };
   }
   return next;
+}
+
+function clampCategoryCount(value, fallback = 6) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, 2), 20);
+}
+
+function normalizeCategoryItems(input) {
+  if (!input) {
+    return [];
+  }
+  const candidates = Array.isArray(input) ? input.flat(Infinity) : [input];
+  return candidates
+    .map((entry) => {
+      if (!entry) {
+        return null;
+      }
+      if (typeof entry === "string") {
+        return { title: entry };
+      }
+      const title =
+        entry.title ?? entry.name ?? entry.label ?? entry.t ?? entry.heading ?? null;
+      if (!title) {
+        return null;
+      }
+      const description =
+        entry.description ?? entry.detail ?? entry.summary ?? entry.d ?? entry.text ?? null;
+      return description ? { title, description } : { title };
+    })
+    .filter(Boolean);
+}
+
+function extractExistingCategorizations(raw) {
+  if (!raw) {
+    return [];
+  }
+  let parsed = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      return [];
+    }
+  }
+  const candidates = Array.isArray(parsed) ? parsed.flat(Infinity) : [parsed];
+  return candidates
+    .map((entry) => {
+      if (!entry) {
+        return null;
+      }
+      const items = normalizeCategoryItems(entry.categories);
+      if (!items.length) {
+        return null;
+      }
+      return {
+        title: entry.title ?? entry.name ?? entry.label ?? null,
+        description: entry.description ?? entry.summary ?? null,
+        categorizationId: entry.categorization_id ?? entry.id ?? null,
+        source: entry.source ?? entry.parent ?? null,
+        items,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function pickExistingCategorization(goal, candidates, notify) {
+  if (!candidates?.length) {
+    return null;
+  }
+  const goalText = goal?.trim() ? goal.trim() : 'No specific goal provided.';
+
+  const optionText = candidates
+    .map((candidate, idx) => {
+      const header = `${idx + 1}. ${candidate.title ?? 'Untitled categorization'}`;
+      const details = [];
+      if (candidate.description) {
+        details.push(`Summary: ${candidate.description}`);
+      }
+      const categories = candidate.items
+        ?.slice(0, 8)
+        .map((item) => (item.description ? `${item.title} — ${item.description}` : item.title))
+        .join('; ');
+      if (categories) {
+        details.push(`Categories: ${categories}`);
+      }
+      return [header, ...details].join('\n   ');
+    })
+    .join('\n\n');
+
+  const prompt = [
+    'You are choosing the best existing categorization for a slide section.',
+    `Section goal: ${goalText}`,
+    '',
+    'Options:',
+    optionText,
+    '',
+    'Select the single option that best aligns with the goal and provides clear, useful buckets for the section.',
+  ].join('\n');
+
+  const output = `Provide the result as a json object with fields "best" (number) and "reason" (string). The number must be between 1 and ${candidates.length}. Do not include anything else.`;
+
+  let bestIndex = 1;
+  try {
+    const llm = await processAsSingleChunk(prompt, {
+      engine: 'gpt4o-mini',
+      temperature: 0,
+      output,
+      maxTokens: 512,
+    });
+    if (llm?.success && llm.results) {
+      const payload = llm.results;
+      const parsed = parseInt(payload.best ?? payload.Best ?? payload.option ?? payload.choice, 10);
+      if (Number.isInteger(parsed) && parsed >= 1 && parsed <= candidates.length) {
+        bestIndex = parsed;
+        if (payload.reason) {
+          notify?.(`LLM chose option ${bestIndex}: ${payload.reason}`, true);
+        }
+      }
+    }
+  } catch (error) {
+    logger.warn('pickExistingCategorization LLM selection failed', { error: error?.message });
+  }
+
+  const chosen = candidates[bestIndex - 1] ?? candidates[0];
+  const label = chosen.title ? `: ${chosen.title}` : ` option ${bestIndex}`;
+  notify?.(`Using existing categorization${label}.`, true);
+  return chosen;
 }
 
 /* ===========================
@@ -980,49 +1112,122 @@ export const suggest_section_categorization = {
     if (!spec) return { error: "No slide draft yet." };
     const sec = (spec.sections || []).find(s => s.id === params.section_id);
     if (!sec) return { error: "Invalid section_id" };
-    const sourceId = sec.sourceId
+    const sourceId = sec.sourceId;
     if (!sourceId) return { error: "Section has no sourceId" };
-
 
     spec.defs = spec.defs || {};
     spec.defs.categorizations = spec.defs.categorizations || {};
 
-    let items, toSummarize, resolvedSourceIds
-    try {
-      ;[items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( {...params, sourceIds: [sourceId], limit: 1000}, scope)
-    } catch (error) {
-      logger.warn("suggest_section_categorization aborted", { error: error?.message, chatId: scope.chatUUID })
-      return { error: error?.message ?? "Unable to locate connected data" };
+    const parameterName =
+      sec.categorization && typeof sec.categorization === "object" && typeof sec.categorization.parameter === "string"
+        ? sec.categorization.parameter
+        : "context";
+
+    let selectedItems = null;
+    let selectedMeta = null;
+
+    const existingFetcher =
+      scope.functionMap?.["existing_categorizations"] ?? existingCategorizationsImpl;
+
+    if (existingFetcher) {
+      try {
+        const existingRes = await existingFetcher(
+          { id: sourceId, withCategory: true, forSample: true },
+          scope,
+          notify
+        );
+        const existingOptions = extractExistingCategorizations(existingRes?.categories);
+        if (existingOptions.length) {
+          const chosen = await pickExistingCategorization(
+            params.goal || sec.overview,
+            existingOptions,
+            notify
+          );
+          if (chosen?.items?.length) {
+            selectedItems = chosen.items;
+            selectedMeta = chosen;
+          }
+        }
+      } catch (error) {
+        logger.warn("suggest_section_categorization existing_categorizations failed", {
+          error: error?.message,
+          chatId: scope.chatUUID
+        });
+      }
     }
-    const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
-    const literal = false
 
-    notify("Analyzing...")
-    const result = await buildCategories( toProcess, {
-        count: params.number ,
-        types: params.type, 
-        themes: params.theme, 
-        literal,
-        batch: 100,
-        engine:  "o3-mini"
-    }) 
+    if (!selectedItems) {
+      const suggestFn = scope.functionMap?.["suggest_categories"] ?? suggestCategoriesImpl;
+      if (!suggestFn) {
+        return { error: "Categorization helper unavailable." };
+      }
 
-    logger.debug(` -- Got ${result.categories?.length} suggested categories`,  {chatId: scope.chatUUID})
-    const cat = {
+      const numberOfCategories = clampCategoryCount(params.number);
+      const theme =
+        params.goal || sec.goal || sec.overview || `Categorization for section ${sec.id}`;
+      const typeDescription = sec.type || "section items";
+
+      notify?.("Analyzing data to suggest categories...", true);
+      let suggestion;
+      try {
+        suggestion = await suggestFn(
+          {
+            sourceIds: [sourceId],
+            theme,
+            type: typeDescription,
+            field: parameterName,
+            number: numberOfCategories,
+            limit: 500,
+            confirmed: true
+          },
+          scope,
+          notify
+        );
+      } catch (error) {
+        logger.warn("suggest_section_categorization suggest_categories failed", {
+          error: error?.message,
+          chatId: scope.chatUUID
+        });
+        return { error: error?.message ?? "Unable to suggest categories." };
+      }
+
+      const normalized = normalizeCategoryItems(suggestion?.categories);
+      if (!normalized.length) {
+        return { error: "No categories could be suggested." };
+      }
+      selectedItems = normalized;
+    }
+
+    if (!selectedMeta?.categorizationId && (!selectedItems || selectedItems.length === 0)) {
+      return { error: "No categories available for inline definition." };
+    }
+
+    let cat;
+    if (selectedMeta?.categorizationId) {
+      cat = {
+        categorization_id: selectedMeta.categorizationId,
+        title: selectedMeta.title ?? `Existing categorization`,
+      };
+    } else {
+      cat = {
         mode: "inline_explicit",
-        parameter: "context",
-        items: result.categories.map(d=>({title:d.t, description: d.d})),
-
+        parameter: parameterName,
+        items: selectedItems ?? [],
+      };
     }
-    const idx = Object.keys(spec.defs.categorizations).length
-    const key = `category_${idx}`
+
+    const key = `category_${Object.keys(spec.defs.categorizations).length}`;
     spec.defs.categorizations[key] = cat;
     sec.categorization = { $ref: `categorizations.${key}` };
 
-    notify?.("Applied a suitable categorization prompt.", true);
+    notify?.("Applied a suitable categorization.", true);
 
     touch(scope);
-    return { preview: spec, new_categorization_ref: `categorizations.${key}`, new_categorization: cat };
+    return {
+      preview: spec,
+      new_categorization_ref: `categorizations.${key}`,
+      new_categorization: cat
+    };
   }
 };
 
