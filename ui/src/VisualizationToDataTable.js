@@ -182,11 +182,11 @@ export function ConvertVisualizationSpecToView( spec, defs ){
                 rows = {type: "none", filter: []}
                 viewFilters = [
                     {
-                        ...axis[1],
+                        ...axis[0],
                         treatment: "allocation"
                     },
                     {
-                        ...axis[0],
+                        ...axis[1],
                         treatment: "allocation"
                     }
                 ]

@@ -309,7 +309,37 @@ export async function resolveId(id_or_ids, scope){
 }
 export async function getDataForAgentAction(params, scope){
     let items = [], toSummarize = []
-    let sources = await resolveId(params.sourceIds, {...scope, projection: "_id referenceId workspaceId primitives type flowElement"})
+
+    const directTypes = new Set(["view", "query", "filter", "search", "summary"]);
+    let sourceIds = params.sourceIds;
+
+    if (!sourceIds || sourceIds.length === 0) {
+        const connectedIds = new Set();
+        const immediate = scope.immediateContext ?? [];
+
+        for (const item of immediate) {
+            if (!item) continue;
+
+            if (directTypes.has(item.type) && item.id) {
+                connectedIds.add(item.id);
+            }
+
+            const importIds = item.primitives?.imports;
+            if (Array.isArray(importIds)) {
+                importIds.filter(Boolean).forEach((id) => connectedIds.add(id));
+            }
+        }
+
+        if (connectedIds.size > 0) {
+            sourceIds = Array.from(connectedIds);
+        }
+    }
+
+    if (!sourceIds || sourceIds.length === 0) {
+        throw new Error("No connected data sources available. Use get_connected_data or select a view/query (call get_data_sources if nothing is connected).");
+    }
+
+    let sources = await resolveId(sourceIds, {...scope, projection: "_id referenceId workspaceId primitives type flowElement"})
 
     let field = "context"
     if( params.field === "title"){
@@ -349,7 +379,8 @@ export function categoryDetailsForAgent(category){
 }
 export function getCategoryParameterNameForAgent( category, {fallback = false, forSample} = {}){
     const fields = category.parameters
-    let paramsForAgent = Object.keys(fields).filter(d=>forSample ? (fields[d].agent === "sample" || fields[d].agent === true) : fields[d].agent === true) 
+    //let paramsForAgent = Object.keys(fields).filter(d=>forSample ? (fields[d].agent === "sample" || fields[d].agent === true) : fields[d].agent === true) 
+    let paramsForAgent = Object.keys(fields).filter(d=>fields[d].agent) 
     if( paramsForAgent.length === 0 && fallback){
         paramsForAgent = Object.keys(fields)
     }

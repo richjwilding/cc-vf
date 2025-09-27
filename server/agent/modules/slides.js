@@ -987,7 +987,13 @@ export const suggest_section_categorization = {
     spec.defs = spec.defs || {};
     spec.defs.categorizations = spec.defs.categorizations || {};
 
-    let [items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( {...params, sourceIds: [sourceId], limit: 1000}, scope)
+    let items, toSummarize, resolvedSourceIds
+    try {
+      ;[items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( {...params, sourceIds: [sourceId], limit: 1000}, scope)
+    } catch (error) {
+      logger.warn("suggest_section_categorization aborted", { error: error?.message, chatId: scope.chatUUID })
+      return { error: error?.message ?? "Unable to locate connected data" };
+    }
     const toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d)
     const literal = false
 

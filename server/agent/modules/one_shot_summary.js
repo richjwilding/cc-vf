@@ -12,12 +12,14 @@ export async function implementation(params, scope, notify){
         notify("Planning...")
         const revised = await reviseUserRequest(params.query + "\nUse markdown to format the result into an easily to read output.", {expansive: true, id_limit: 20, engine: "o4-mini"})
     
-        if( params.sourceIds?.length === 0){
-            return {failed: "need one or more sourceIds"}
-        }
-        
         notify("Fetching data...")
-        let [items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( params, scope)
+        let items, toSummarize, resolvedSourceIds
+        try{
+            ;[items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( params, scope)
+        }catch(e){
+            logger.warn("one_shot_summary aborted", { error: e?.message, chatId: scope.chatUUID })
+            return { error: e?.message ?? "Unable to locate connected data sources" }
+        }
 
         notify(`[[chat_scope:${resolvedSourceIds.join(",")}]]`, false, true)
 
@@ -117,6 +119,6 @@ export const definition = {
               "description": "Optional list of object types to include in the retrieval step, aligned to the summarization."
             }
           },
-          "required": ["query","sourceIds"]
+          "required": ["query"]
         }
       }

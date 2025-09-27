@@ -335,7 +335,7 @@ export default function PageView({ primitive }) {
                                 <p className="text-xs text-slate-500">Provide values to personalize this page.</p>
                             </div>
                             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
-                                <FilterHierarchy root={primitive.importsHierarchyAnnotated} />
+                                <FilterHierarchy root={primitive.importsHierarchyAnnotated} page={primitive} />
                             </div>
                         </div>
                         <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
