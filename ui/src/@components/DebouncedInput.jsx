@@ -1,4 +1,4 @@
-import { Input } from "@heroui/react"
+import { Input, Textarea } from "@heroui/react"
 import React from "react"
 
 export function DebouncedInput({
@@ -20,8 +20,17 @@ export function DebouncedInput({
   
       return () => clearTimeout(timeout)
     }, [value])
+
+    const fwd = {
+        ...props,
+        variant: "bordered" ?? props.variant,
+        value: value,
+        onChange: e => setValue(e.target.value)
+    }
   
     return (
-      <Input {...props} value={value} onChange={e => setValue(e.target.value)} />
+      props.area 
+        ? <Textarea {...fwd} />
+        : <Input {...fwd}/>
     )
   }

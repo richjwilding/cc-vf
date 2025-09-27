@@ -4,15 +4,16 @@ import React from "react"
 export function DebouncedNumberInput({
   value: externalValue,
   onValueChange,
+  onChange,
   debounce = 500,
   ...props
 }) {
   const [internalValue, setInternalValue] = React.useState(externalValue)
 
-  const latestCallback = React.useRef(onValueChange)
+  const latestCallback = React.useRef(onValueChange ?? onChange)
   React.useEffect(() => {
-    latestCallback.current = onValueChange
-  }, [onValueChange])
+    latestCallback.current = onValueChange ?? onChange
+  }, [onValueChange, onChange])
 
   React.useEffect(() => {
     setInternalValue(externalValue)
@@ -42,6 +43,7 @@ export function DebouncedNumberInput({
   return (
     <NumberInput
       {...props}
+      variant={props.variant ?? "bordered"}
       value={internalValue}
       onValueChange={handleChange}
     />

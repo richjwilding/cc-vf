@@ -314,7 +314,7 @@ export default function CategoryIdSelector({
       className={className ?? (props.compact || props.inline ? "" : "ml-auto w-full")}
       disallowEmptySelection={!isMultiple && !(allowNone || item?.allowNone)}
       disabled={disabled ?? locked ?? item?.locked}
-      label={props.label}
+      label={props.title}
       placeholder={item?.placeholder || "Select category"}
       selectedKeys={selectedKeys}
       selectionMode={resolvedSelectionMode}

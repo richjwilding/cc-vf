@@ -239,13 +239,9 @@ export default function GenericEditor({ primitive, ...props }) {
               )}
               {primitive.displayType ?? primitive.metadata?.title ?? 'Item'}
             </span>
-            <span className="text-lg font-semibold text-default-900">
-              {primitive.title || 'Untitled'}
-            </span>
           </ModalHeader>
           <ModalBody className="space-y-5">
             <div className="space-y-3">
-              <PrimitiveCard.Banner key="banner" primitive={primitive} />
               <PrimitiveCard
                 key="title"
                 primitive={primitive}

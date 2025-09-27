@@ -49,6 +49,8 @@ import { useSmoothGradient } from './@components/SmoothGradient';
 import { Button, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger } from '@heroui/react';
 import { Icon } from '@iconify/react/dist/iconify.js';
 import CategoryIdSelector from './@components/CategoryIdSelector';
+import { DebouncedInput } from './@components/DebouncedInput';
+import { DebouncedNumberInput } from './@components/DebouncedNumberInput';
 
 export const ExpandArrow = function(props) {
   return (
@@ -66,7 +68,7 @@ let mainstore = MainStore()
       if( item.type === "boolean"){
         const thisVal = item.value !== undefined ? item.value : item.default
         if( props.editable || props.editing){
-          return <TooggleButton small enabled={thisVal} setEnabled={(v)=>{
+          return <TooggleButton small title={props.title} enabled={thisVal} setEnabled={(v)=>{
             if(props.callback){
               props.callback(v)
             }else{
@@ -254,6 +256,7 @@ let mainstore = MainStore()
         return (
           <CategoryIdSelector
             {...props}
+            title={item.title}
             activeOnly={props.activeOnly}
             allowNone={props.allowNone}
             item={item}
@@ -510,13 +513,8 @@ let mainstore = MainStore()
           list.push({key: "full_content", title: "Content"})
         }
 
-        let index = list.findIndex((d)=>item.value === d.key)
-        if( index === -1 ){
-         // index = list.findIndex((d)=>defaultConfig.field === d.key)
-        }
-
-        const setField = (idx=>{
-          const field = list[idx]
+        const setField = (key=>{
+          const field = list.find(d=>d.key === key)
           if( props.callback ){
             props.callback(field.key)
           }else{
@@ -525,11 +523,12 @@ let mainstore = MainStore()
         })
 
         return <MyCombo 
-          selectedItem={index} 
+          selectedItem={item.value} 
+          title={props.title}
           disabled={item.locked}
           small={props.inline}
           setSelectedItem={setField}
-          items={list.map((d, idx)=>{return {id:idx, ...d}})}
+          items={list.map((d)=>{return {id:d.key, ...d}})}
             className={props.leftAlign ? '' : 'ml-auto'}
           />
 
@@ -654,6 +653,7 @@ let mainstore = MainStore()
                 />)
       }else if( item.type === "option_list"){
         return (<MyCombo 
+                  title={item.title}
                   items={item.options.map((d)=>{return (typeof(d) === "object" && d !== null) ? d : {id: d, title: d}})}
                   selectedItem={item.value}
                   multiple={props.primitive?.metadata?.parameters?.[item.key]?.multi}
@@ -746,7 +746,18 @@ let mainstore = MainStore()
         }
         return (
           <div className='ml-auto flex place-items-start space-x-2 w-full'>
-          <EditableTextField
+            <DebouncedInput 
+              area={item.type === "long_string"}
+              label={item.title}
+              value={item.value} 
+              onChange={value => {
+                if(props.callback){
+                  return props.callback(value)
+                }
+                return props.primitive.setParameter(item.key, value)
+              }}
+            />
+          {false && <EditableTextField
             {...props} 
             submitOnEnter={true} 
             value={item.value} 
@@ -758,7 +769,7 @@ let mainstore = MainStore()
             callback={props.callback ? props.callback : (value)=>{
                 return props.primitive.setParameter(item.key, value)
             }}
-          />
+          />}
             <a href={url} className='p-1' target="_blank">
                 <LinkIcon className='w-5'/>
               </a>
@@ -793,6 +804,32 @@ let mainstore = MainStore()
               </div>
         }
       }
+
+      if( item.type === "number" ){
+        return <DebouncedNumberInput 
+          label={item.title}
+          value={item.value} 
+          minValue={0}
+          onChange={value => {
+            return props.primitive.setParameter(item.key, value)
+          }}
+        />
+      }
+
+      return <DebouncedInput 
+          area={item.type === "long_string"}
+          label={item.title}
+          value={item.value} 
+          onChange={value => {
+            if( item.type === "integer" || item.type === "number"){
+              value = parseInt( value )
+            }
+            if(props.callback){
+              return props.callback(value)
+            }
+            return props.primitive.setParameter(item.key, value)
+          }}
+        />
 
       return <EditableTextField
         {...props} 
@@ -1274,20 +1311,15 @@ const Parameters = function({primitive, ...props}){
   let potentialTarget = fieldsBeingProcessed(primitive)
 
   if( props.showTitles !== false && !props.includeTitle){
-          return <DescriptionList inContainer={true}>
+          return <div className='flex flex-col space-y-3'>
             {details.map((item, idx)=>(
               <>
-              <DescriptionTerm  inContainer={true}>
-                  {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
-                </DescriptionTerm>
-                <DescriptionDetails inContainer={true}>
                   {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
                     ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-                    : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} items={props.items} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+                    : <RenderItem title={item.title} editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} items={props.items} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
                   }
-                </DescriptionDetails>
               </>))}
-          </DescriptionList>
+          </div>
   }
 
   return <div 
