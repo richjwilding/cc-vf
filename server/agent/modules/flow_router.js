@@ -23,6 +23,7 @@ function buildRouterPrompt(flows, activeFlow, recentUsers = []) {
     "If no change is needed, respond with {\"decisions\":[]}",
     "Do not switch flows unless the user explicitly asks for a different kind of task or tool.",
     "Stay in the current flow if the user appears to be continuing the same thread (e.g., choosing from prior suggestions).",
+    "If the user changes use case (ie asks for insights after adding a new serach - or asks for a visualziation after analysis) then you should switch to the new mode",
     `Current active flow: ${activeFlow ?? "none"}.`,
     "Available flows:",
   ];

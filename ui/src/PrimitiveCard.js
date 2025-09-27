@@ -48,6 +48,7 @@ import { DescriptionDetails, DescriptionList, DescriptionTerm } from './@compone
 import { useSmoothGradient } from './@components/SmoothGradient';
 import { Button, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger } from '@heroui/react';
 import { Icon } from '@iconify/react/dist/iconify.js';
+import CategoryIdSelector from './@components/CategoryIdSelector';
 
 export const ExpandArrow = function(props) {
   return (
@@ -250,84 +251,20 @@ let mainstore = MainStore()
             className={props.compact ? "" : 'ml-auto w-full'}
           />
       }else if( item.type === "categoryId"){
-        let list = []
-        if( props.allowNone || item.allowNone){
-                list.push({key: "none", title: "No items", categoryId: undefined, category: undefined})
-        }
-
-        let available = item.referenceIds ? item.referenceIds.map(d=>mainstore.category(d)) : mainstore.categories()
-        let itemCountByType
-        if( props.activeOnly || item.activeOnly){
-          //const ids = props.primitive.primitives.descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
-          if( props.primitive || props.primitiveList){
-            
-            const items = mainstore.uniquePrimitives((props.primitiveList ?? [props.primitive]).map(d=>{
-              if(d.type === "category"){
-                return d.origin
-              }else if(d.type === "query"){
-                return d.primitives.imports.allItems
-              }
-              return d
-            }).flat())
-            const itp = items.map(d=>d.itemsForProcessing).flat()
-            let lookups = mainstore.uniquePrimitives([itp, itp.map(d=>d.primitives.directDescendants)].flat(Infinity))
-            if( lookups.length > 0){
-
-              lookups = [...items, ...lookups]
-              itemCountByType = {}
-              for(const d of lookups){
-                itemCountByType[d.referenceId] = (itemCountByType[d.referenceId] ?? 0) + 1
-              }
-              const ids = lookups.map(d=>d.referenceId).flat().filter((d,i,a)=>a.indexOf(d) === i)
-              available = available.filter(d=>ids.includes(d.id))
-            }
-          }else{
-           // available = []
-          }
-        }
-        if( item.filterForExtractor){
-          available = available.filter(d=>d.ai?.extract)
-        }
-        
-        for( const cat of available){
-          if(item.referenceIds ||  ["entity","evidence","result","category","query","activity","marketsegment","detail","summary"].includes(cat.primitiveType) ){
-            list.push({title: cat.title, count: itemCountByType ? itemCountByType[cat.id] : undefined,categoryId: cat.id, category: cat, icon: cat.icon})
-          }
-        }                
-
-        const setSource = (idx)=>{
-          const source = list[idx]
-
-          if( props.callback ){
-            const res = {}
-            props.callback(parseInt(source.categoryId))
-          }else{
-            if( item.key ){
-              props.primitive.setParameter( item.key, parseInt(source.categoryId))
-            }
-          }
-        }
-
-
-        let selectedItem = list.findIndex(d=>parseInt(item.value) === d.categoryId)
-        if(props.local ){
-          if( item.value === undefined && (item.activeOnly || props.activeOnly)){
-            if( props.primitiveList ){                
-              selectedItem = list.findIndex((d)=>(d.categoryId === props.primitiveList[0]?.referenceId))
-            }
-          }
-        }
-
-        return <MyCombo 
-          disabled={item.locked}
-          showCount={itemCountByType}
-          selectedItem={selectedItem} 
-          setSelectedItem={setSource}
-          small={props.compact || props.inline}
-          portal
-          items={list.map((d, idx)=>{return {id:idx, ...d}})}
-            className={props.compact ? "" : 'ml-auto w-full'}
+        return (
+          <CategoryIdSelector
+            {...props}
+            activeOnly={props.activeOnly}
+            allowNone={props.allowNone}
+            item={item}
+            local={props.local}
+            primitive={props.primitive}
+            primitiveList={props.primitiveList}
+            selectedValues={item.value}
+            selectionMode={item.multi ? "multiple" : props.selectionMode}
+            showCount
           />
+        )
       }else if( item.type === "category_source"){
         let list = []
 

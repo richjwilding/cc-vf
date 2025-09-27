@@ -92,30 +92,28 @@ export function ConvertVisualizationSpecToView( spec, defs ){
         let filter = [null]
         const baseDef = axisDef.definition ?? axisDef
         if( baseDef){
-            let def
+            let def = baseDef
             if( baseDef.$ref){
                 def = defs.categorizations?.[baseDef.$ref.replace("categorizations.", "")]
             }
-            if( def ){
-                if( def.categorization_id){
-                    return {
-                        type: "category",
-                        primitiveId: def.categorization_id,
-                        filter
-                    }
+            if( def.categorization_id){
+                return {
+                    type: "category",
+                    primitiveId: def.categorization_id,
+                    filter
                 }
-            }else if( baseDef.parameter){
+            }else if( def.parameter){
 
                 const pC = {
                     type: "parameter",
-                    parameter: baseDef.parameter,
+                    parameter: def.parameter,
                     filter
                 }
 
-                const match = meta.find(d=>d.parameters?.[baseDef.parameter]?.axisType)
+                const match = meta.find(d=>d.parameters?.[def.parameter]?.axisType)
                 if( match){
-                        pC.passType = match.parameters[baseDef.parameter].axisType
-                        pC.axisData = match.parameters[baseDef.parameter].axisData
+                        pC.passType = match.parameters[def.parameter].axisType
+                        pC.axisData = match.parameters[def.parameter].axisData
                 }
                 return pC
             }
