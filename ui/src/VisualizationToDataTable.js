@@ -24,7 +24,8 @@ function mapChart( chart ){
         "bubble": {
             type: "heatmap",
             size: "scale",
-            bubble: true
+            bubble: true,
+            counts: "number"
         },
     }
     const kind = chart?.kind ?? "bar"

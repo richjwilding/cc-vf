@@ -42,6 +42,7 @@ export function DebouncedNumberInput({
 
   return (
     <NumberInput
+      size="sm"
       {...props}
       variant={props.variant ?? "bordered"}
       value={internalValue}
