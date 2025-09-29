@@ -8945,7 +8945,8 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         id: id,
         x,
         y,
-        name:"view"
+        name: primitive?.type === "element" ? "primitive inf_track" : "view"
+        //name:"primitive inf_track"
     })
 
 

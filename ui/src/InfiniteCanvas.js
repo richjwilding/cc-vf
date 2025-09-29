@@ -2337,7 +2337,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
                 [x, y] = convertStageCoordToScene(px, py )
-                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame", "pin"], true, false, true))
+                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame",  "pin"], true, false, true))
                 let item = found[0]
                 if( !item ){
                     myState.current.panForDrag = true
