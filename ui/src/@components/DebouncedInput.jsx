@@ -14,10 +14,13 @@ export function DebouncedInput({
     }, [initialValue])
   
     React.useEffect(() => {
-      const timeout = setTimeout(() => {
-        onChange(value)
-      }, debounce)
-  
+      let timeout
+      if( initialValue !== value){
+        timeout = setTimeout(() => {
+          onChange(value)
+        }, debounce)
+      }
+        
       return () => clearTimeout(timeout)
     }, [value])
 

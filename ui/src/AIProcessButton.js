@@ -67,7 +67,6 @@ export default function AIProcessButton({primitive, ...props}){
         error = true
       }else if(active){
         let progress = primitive.processing[props.active]?.progress
-        console.log(progress)
         const percent = progress?.percentage ?? progress
         if( !isNaN(percent) || percent === undefined ){
           const percentage = parseInt((percent ?? 0) * 100) + "%"

@@ -243,15 +243,19 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
 
     if( config?.axis ){
         customAxis = Object.values(config.axis  ?? {}).filter(d=>d)
-    }else if( config.explore?.axis && !config.legacy){
-        if( true || primitive.type !== "query"){
-            let axis = [
-                config.explore.axis.column,
-                config.explore.axis.row
-            ].filter(Boolean)
-            if( axis.length > 0){
-                customAxis = axis
-            }
+    }else if( (config.useAxis || options.by_axis|| options.by_axis) && config.explore?.axis && !config.legacy){
+        let ignoreSegmentAxis = primitive.type === "query"
+        let axis = [
+            config.explore.axis.column,
+            config.explore.axis.row
+        ].filter(Boolean)
+        if( ignoreSegmentAxis ){
+            axis = axis.filter(d=>d.type !== "segment_filter")
+        }
+
+
+        if( axis.length > 0){
+            customAxis = axis
         }
     }
     if( config?.segments ){
@@ -320,22 +324,9 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
 
             }else{
                 targetSegmentConfig = (primitive.primitives?.imports ?? []).map(d=>({id: d}))
-                /*if( primitive.primitives?.imports.length === 1){
-                    targetSegmentConfig = [
-                        {
-                            id: primitive.primitives.imports[0]
-                        }
-                    ]
-                }else{
-                    targetSegmentConfig = [
-                        {
-                            id: primitive.id
-                        }
-                    ]
-                }*/
             }
         }else{
-            if( options.legacySegments){
+            if( options.legacySegments || options.local){
                 targetSegmentConfig = await getSegemntDefinitions(parent, customAxis)
             }else{
 
@@ -352,9 +343,19 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                 }
 
                 targetSegmentConfig = []
-                if( primitive.type === "query" ){                    
-                    const thisSet = await getSegemntDefinitions(primitive, customAxis) 
-                    processSet( thisSet )
+                if( false && primitive.type === "query" ){                    
+                    if( customAxis.find(d=>d.type==="segment_filter")){
+                        const imports = primitive.primitives?.imports ?? []
+                        logger.info(`Collecting segments from each input ${imports.length}`)
+                        const importedPrimitives = await fetchPrimitives( imports )
+                        for( const imp of importedPrimitives  ){
+                            const thisSet = await getSegemntDefinitions(imp) 
+                            processSet( thisSet )
+                        }
+                    }else{
+                        const thisSet = await getSegemntDefinitions(primitive, customAxis) 
+                        processSet( thisSet )
+                    }
                 }else{
                     const imports = primitive.primitives?.imports ?? []
                     logger.info(`Collecting segments from each input ${imports.length}`)
@@ -369,6 +370,9 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
         
         logger.debug(`Checking segments at ${parent.id} / ${parent.plainId}`)
         logger.debug( `Got ${targetSegmentConfig.length + (nullItem.length == 0 ? 0 : 1)} segments to create / check - currently have ${currentSegments.length} `)
+        if( options.checkOnly ){
+            return {targetSegmentConfig, currentSegments}
+        }            
 
         if( nullItem.length > 0){
 
@@ -401,7 +405,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                     data:{
                         isForNull: true,
                         type: "segment",
-                        title: "New segement",
+                        title: "New segment",
                         referenceParameters:{
                             importConfig: nullConfigs
                         }
@@ -437,7 +441,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                     parent: parent.id,
                     data:{
                         type: "segment",
-                        title: "New segement",
+                        title: "New segment",
                         referenceParameters:{
                             //target:"items",
                             importConfig:[pc]
@@ -2183,7 +2187,7 @@ async function executeStructuredQuery({ primitive, revised, items, toSummarize, 
         },
         merge: false,
         debug: true,
-        debug_content:false
+        debug_content:true
     })
 
     if( results.shouldMerge ){

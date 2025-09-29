@@ -8,7 +8,7 @@ export function setFlowRouterEnabled(enabled) {
   flowRouterEnabled = Boolean(enabled);
 }
 
-const FLOW_ROUTER_MODEL = process.env.AGENT_FLOW_ROUTER_MODEL ?? "gpt-4o-mini";
+const FLOW_ROUTER_MODEL = process.env.AGENT_FLOW_ROUTER_MODEL ?? "gpt-4o-mini"; //?? "gpt-5-mini" 
 const logger = getLogger("agent_flow_router", "debug", 1);
 
 function buildRouterPrompt(flows, activeFlow, recentUsers = []) {

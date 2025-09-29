@@ -8,7 +8,7 @@ import Workspace from "../model/Workspace";
 import { categorize, generateImage, processPromptOnText } from "../openai_helper";
 import QueryQueue from "../query_queue";
 import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
-import { aggregateItems, compareItems, findCompanyURLByNameLogoDev, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
+import { aggregateItems, checkAndGenerateSegments, compareItems, findCompanyURLByNameLogoDev, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
 import { replicateWorkflow } from "../workflow";
 import { flattenStructuredResponse } from "../PrimitiveConfig";
 import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
@@ -20,6 +20,9 @@ const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
         return await replicateWorkflow( primitive, workspace )
     }
 })*/
+registerAction( "test_cags", undefined, async (primitive, action, options = {}, req)=>{
+    return await checkAndGenerateSegments(primitive, options?.parent ?? primitive, {checkOnly: true, ...options} )
+})
 
 registerAction("lookup_entity", {type: "action"}, async (primitive, action, options, req)=>{
     const config = await getConfig( primitive )

@@ -117,7 +117,7 @@ export const xploreTheme = {
     secondary: "#9b96a2", // less prominent text
     muted: "#777777", // low emphasis text
     accent: "#7e8184", // high emphasis text
-    headerText: "#ffffff", // Main text 
+    headerText: "#222222", // Main text 
     border: "#ffdb00", // border of items
     grid: "#ffdb00", // grid lines in graphs and charts
     subgrid: "#d2d2d2", // minor grid lines in graphs and charts
@@ -5202,7 +5202,7 @@ function renderDefaultActionPrimitive(primitive, options){
         }
         
     
-        const button1 = new Konva.Group({
+        /*const button1 = new Konva.Group({
             x: config.width - 46,
             y: 5,
             width: 36,
@@ -5259,7 +5259,7 @@ function renderDefaultActionPrimitive(primitive, options){
                 name: "hover_target"
             }))
         }
-        g.add(button1)
+        g.add(button1)*/
     
         const finalHeight = Math.max( config.height, ly + 20)
         r.height(finalHeight)
@@ -8896,8 +8896,8 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
     if( renderOptions.widgetConfig && primitive){
         const g = new Konva.Group({
             name: "view",
-            x:options.x ?? 0,
-            y:options.y ?? 0
+            x,
+            y
         })
 
         let w, h
@@ -8913,11 +8913,10 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
             
             const content = renderDatatable({id, data, stageOptions, renderOptions, viewConfig, ...options})
             if( content ){
+                const targetWidth = (w - padding[1] - padding[3])
 
-                const contentScale = Math.min(1, w / content.width() )
-                if( content.width() < w){
-                    content.x( Math.min(padding[3], (w - content.width()) / 2))
-                }
+                const contentScale = Math.min(1, targetWidth / content.width() )
+                content.x( Math.min(padding[3], (w - targetWidth) / 2))
                 content.scale({x:contentScale, y:contentScale})
                 content.y( h + padding[0])
                 g.add(content)
@@ -8948,6 +8947,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         y,
         name:"view"
     })
+
 
 
     const asTable = columns.length > 1 || columns.length > 1 || showColumnheaders || showRowheaders 
@@ -9011,7 +9011,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
     }
     let {show_legend, ...relayConfig} = renderOptions
     if(data.cells.length === 1 ){
-        relayConfig = renderOptions
+        relayConfig = {...renderOptions}
         showSingleLegend = false
         if(data.cells[0].items.length < 2){
             baseCellConfig.height = height

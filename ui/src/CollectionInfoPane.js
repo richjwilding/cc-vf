@@ -23,7 +23,7 @@ import { CheckboxField, Checkbox as LegacyCheckbox } from "./@components/checkbo
 import { AdjustmentsVerticalIcon, BackwardIcon, CloudArrowDownIcon, PlayCircleIcon, StopCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
-import { Button, Input, NumberInput, Select, SelectItem, Slider, Switch } from "@heroui/react"
+import { Button, Input, NumberInput, ScrollShadow, Select, SelectItem, Slider, Switch } from "@heroui/react"
 import { Checkbox } from "@heroui/react";
 import InputWithSync from "./InputWithSync"
 import { Icon } from "@iconify/react/dist/iconify.js"
@@ -758,7 +758,8 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                             value={viewConfigs[activeView]?.id}
                             zIndex={50}
                         />
-                        <div className='w-full overflow-y-scroll space-y-8 max-h-[50vh] h-full flex flex-col'>
+                        <div className='w-full flex'>
+                        <ScrollShadow className='w-full overflow-y-scroll space-y-8 max-h-[50vh] h-full flex flex-col'>
                             {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
                             {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d => {
                                 const currentValue = frame.renderConfig?.hasOwnProperty(d) ? frame.renderConfig[d] : viewConfig.config[d].default
@@ -849,6 +850,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                         />
                                 }
                             })}
+                        </ScrollShadow>
                         </div>
                         {(frame.type === "query" || frame.type === "view") && <Switch size="sm" key="show_axis_pins" isSelected={frame.renderConfig?.showAxisPin} onValueChange={(v) => { frame.setField('renderConfig.showAxisPin', v); updateFrame() }}>Show axis pins</Switch>}
                     </div>
@@ -1162,8 +1164,8 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                                                             size = null
                                                                                         } else {
                                                                                             size = Math.min(Math.max(1, value), 144)
+                                                                                            frame.setField(`referenceParameters.sections.${d}.fontSize`, size)
                                                                                         }
-                                                                                        frame.setField(`referenceParameters.sections.${d}.fontSize`, size)
                                                                                         return true
                                                                                     }}
                                                                                 />

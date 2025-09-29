@@ -1,4 +1,4 @@
-import { addRelationship, addRelationshipToMultiple, buildContext, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, expandPrimitiveLiterals, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, findPrimitiveOriginParent, getConfig, getConfigParent, getConfigParentForTerm, getDataForImport, getDataForProcessing, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
+import { addRelationship, addRelationshipToMultiple, buildContext, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, expandPrimitiveLiterals, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, findPrimitiveOriginParent, getConfig, getConfigParent, getConfigParentForTerm, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, primitiveTask, removePrimitiveById, removeRelationship, removeRelationshipFromMultiple } from "./SharedFunctions";
 import Primitive from "./model/Primitive";
 import { analyzeForClusterPhrases, buildCategories, buildEmbeddings, categorize, consoldiateAxis, extractAxisFromDescriptionList, extractFeautures, processAsSingleChunk, processPromptOnText, simplifyAndReduceHierarchy, simplifyHierarchy, summarizeMultiple } from "./openai_helper";
 import Embedding from "./model/Embedding";
@@ -1296,6 +1296,17 @@ export async function processQueue(job){
                             }
                             result = result[0]
                             if( result){
+                                const segmentParent = (await findParentPrimitivesOfType(primitive, "segment"))?.[0]
+                                let title = primitive.title
+                                if( segmentParent ){
+                                    const filterName = await getFilterName( segmentParent)
+                                    if( filterName !== "New segment"){
+                                        title = filterName
+                                    }
+                                }
+                                if( title !== primitive.title ){
+                                    dispatchControlUpdate( primitive.id, "title", title)
+                                }
                                 dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
                                 const linkIds = result.sourceIds ?? []
                                 const existingLinks = primitive.primitives.source ?? []

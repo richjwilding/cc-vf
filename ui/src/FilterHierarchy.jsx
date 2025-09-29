@@ -334,14 +334,10 @@ function TreeNode({ layout, depth = 0, onToggle, page }){
             </div>
           )}
           <div className="text-xs text-slate-500 pt-1.5 w-full flex items-center justify-between">
-          {filters.length > 0 ? (
-            <>
-              {filters.map((f, i) => (<FilterRow key={i} f={f} />))}
-              {descendantFilterCount > 0 && <div className="text-[11px] text-slate-500 justify-self-end">+{nestedFilterMessage}</div>}
-            </>
-          ) : (
-            <div className="text-[11px] text-slate-500">{effectivedNestedFilterCount === 0 ? "No filters are applied." : `No filters at this stage, ${nestedFilterMessage}`}</div>
-          )}
+            {filters.length > 0 
+                ? <div className="text-[11px] text-slate-500">Filters</div>
+                : <div className="text-[11px] text-slate-500">{effectivedNestedFilterCount === 0 ? "No filters are applied." : `No filters at this stage, ${nestedFilterMessage}`}</div>
+            }
             {prim && (
               <button
                 type="button"
@@ -353,6 +349,10 @@ function TreeNode({ layout, depth = 0, onToggle, page }){
               </button>
             )}
           </div>
+          {filters.length > 0 && <>
+              {filters.map((f, i) => (<FilterRow key={i} f={f} />))}
+              {descendantFilterCount > 0 && <div className="text-[11px] text-slate-500 justify-self-end">+{nestedFilterMessage}</div>}
+            </>}
           {expanded ? (
             directSources.length > 0 && children.length === 0 && (
               <div className="flex flex-col gap-1">

@@ -2806,7 +2806,7 @@ export async function primitiveParents(primitive, path){
 export async function createSegmentQuery(primitive, queryData, importData){
     let interimImport
     let parent = primitive
-    let needsSegment = true
+    let needsSegment = false
     if( queryData.referenceId === 114 || queryData.referenceId === 113 || queryData.referenceId === 112 || queryData.referenceParameters?.useAxis){
         if( !importData?.[0]?.filters ){
             needsSegment = false

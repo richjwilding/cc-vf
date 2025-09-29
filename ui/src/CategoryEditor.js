@@ -16,10 +16,10 @@ import {
 import CategoryIdSelector from './@components/CategoryIdSelector'
 import { HeroIcon } from './HeroIcon'
 import { PrimitiveCard } from './PrimitiveCard'
-import PrimitiveDetails from './@components/PrimitiveDetails'
 import useDataEvent from './CustomHook'
 import MainStore from './MainStore'
 import ConfirmationPopup from './ConfirmationPopup'
+import PrimitiveDetails from './@components/PrimitiveDetails'
 
 export default function GenericEditor({ primitive, ...props }) {
 

@@ -357,7 +357,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
             view.underlying ? ` (${primitiveToRender.plainId})` : ""
           }`;
 
-    const canvasMargin = view.inPage ? [0, 0, 0, 0] : (view.noTitle || view.inFlow) ? [0, 0, 0, 0] : [20, 20, 20, 20];
+    const canvasMargin = view.inPage ? [0, 0, 0, 0] : (view.noTitle || view.inFlow) ? [0, 0, 0, 0] : [10, 10, 10, 10];
   
     // Optional indicator builder
     const indicators = undefined//view.primitive.flowElement ? () => buildIndicators(primitiveToRender, undefined, undefined, myState) : undefined;
@@ -446,6 +446,17 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
           items: stageOptions => {
             const data = myState[d.id].data;
             const viewConfig = myState[d.id].viewConfig;
+
+            const configNames = view.primitive.type === "element" ? ["width", "height"] : ["width"] 
+            const sizeSource = view.parentRender ? myState[view.parentRender].primitive.frames : primitive.frames;
+            if (sizeSource?.[d.id]) {
+            configNames.forEach(name => {
+                if (sizeSource[d.id][name] !== undefined) {
+                renderOptions[name] = sizeSource[d.id][name];
+                }
+            });
+            }
+
             return renderDatatable({
                 id: d.id,
                 primitive: d,

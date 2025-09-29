@@ -811,7 +811,9 @@ let mainstore = MainStore()
           value={item.value} 
           minValue={0}
           onChange={value => {
-            return props.primitive.setParameter(item.key, value)
+            if( !isNaN(value)){
+              return props.primitive.setParameter(item.key, value)
+            }
           }}
         />
       }
@@ -823,6 +825,9 @@ let mainstore = MainStore()
           onChange={value => {
             if( item.type === "integer" || item.type === "number"){
               value = parseInt( value )
+              if( isNaN(value)){
+                return
+              }
             }
             if(props.callback){
               return props.callback(value)
