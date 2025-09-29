@@ -34,7 +34,7 @@ class QueueManager {
                 port: process.env.QUEUES_REDIS_PORT,
             },
             settings ={
-                maxStalledCount: 0,
+                maxStalledCount: 1,
                 removeOnFail: true,
                 stalledInterval:300000
 
@@ -55,6 +55,8 @@ class QueueManager {
         this.pendingRequests = new Map();
         this.controlSource = process.env.GAE_SERVICE || process.env.ROLE || (this.isWorkerThread ? 'worker' : 'app');
         this.controlInstanceId = process.env.INSTANCE_UUID || process.env.GAE_INSTANCE || String(process.pid);
+
+        this.sweepingWaitingChildren = false;
 
         //this.redis = createClient({socket: {host: redisOptions.host, port: redisOptions.port}});
         //this.redis.connect().catch(console.error);
@@ -139,66 +141,22 @@ class QueueManager {
                                 logger.debug(`Job has ended in worker ${message.queueName} - ${message.jobId} ${this.type} (${message.requestId})`)
                                 workerState.running.delete(`${message.queueName}/${message.jobId}/${message.token}`)
                                 
-                                await this.resetChildWaiting(message.queueName, message.jobId)
-
                                 const parentJob = message.parent || null;
-                                console.log(parentJob)
-                                
-                                this.setQueueActivity(message.queueName, false);
-                                await this.redis.del(`job:${message.jobId}:cancel`);
 
-                                logger.debug(`Sending notification from ${this.type} ${message.jobId} (${message.requestId}) `, {parentJob})
-                                const childResponse = await this.sendNotification(
-                                    message.jobId,{
-                                        result: message.result,
-                                        error: message.error,
-                                        success: message.success
-                                    },
-                                    {
-                                        parentJob: parentJob
-                                    }
-                                )
-                                logger.verbose(`Got child response `, childResponse)
-
-                                if( parentJob ){
-                                    console.log(`--- ParentJob`)
-                                    if( childResponse?.keepAlive ){
-                                        logger.info(`--- Child ${message.jobId} requested to not notify parent ${parentJob.id}`)
-                                    }else{
-                                        const [qId, qType] = parentJob.queueName.split("-")
-                                        const qo = this.getQueueObject(qType)
-                                        
-                                        let grandparentJob
-                                       try {
-                                            const parentJobObject = await this.getJobFromQueue({
-                                                queueName: parentJob.queueName,
-                                                id: parentJob.id
-                                            });
-                                            if (parentJobObject?.parent) {
-                                                grandparentJob = {
-                                                    id: parentJobObject.parent.id,
-                                                    queueName: parentJobObject.parent.queueKey.slice(5)
-                                                };
-                                                logger.info(`---- GRANDPARENT `, grandparentJob)
-                                            }
-                                        } catch (e) {
-                                            logger.error('Error fetching grandparent from BullMQ', e);
-                                        }
-                                        
-                                        logger.info(`Sending notification for child ${qType} from msgId ${message.jobId} (${message.requestId}) to ${this.type} ${grandparentJob?.id} `)
-                                        await qo.sendNotification(
-                                            parentJob.id,
-                                            {
-                                                result: message.result,
-                                                error: message.error,
-                                                success: message.success,
-                                            },
-                                            {
-                                                childJob: message.jobId,
-                                                parentJob: grandparentJob
-                                            }
-                                        )
-                                    }
+                                try {
+                                    await this.finalizeJobLifecycle({
+                                        queueName: message.queueName,
+                                        jobId: message.jobId,
+                                        parentJob,
+                                        payload: {
+                                            result: message.result,
+                                            error: message.error,
+                                            success: message.success,
+                                        },
+                                        reason: 'worker-complete'
+                                    });
+                                } catch (finalizeError) {
+                                    logger.error(`Error finalizing job ${message.jobId} after worker completion`, finalizeError);
                                 }
 
                                 worker.postMessage({
@@ -304,6 +262,21 @@ class QueueManager {
                                             const state = await job.getState()
                                             if( state === "active"){
                                                 await job.moveToFailed({message: "Recover from crashed worker"}, token)
+                                                try {
+                                                    await this.setQueueActivity(qn, false);
+                                                } catch (activityError) {
+                                                    logger.error(`Error updating activity for crashed job ${jid} on ${qn}`, activityError);
+                                                }
+                                                try {
+                                                    await this.resetChildWaiting(qn, jid);
+                                                } catch (childError) {
+                                                    logger.error(`Error clearing child wait counter for crashed job ${jid} on ${qn}`, childError);
+                                                }
+                                                try {
+                                                    await this.resetCancelJob(jid);
+                                                } catch (cancelError) {
+                                                    logger.error(`Error clearing cancel flag for crashed job ${jid}`, cancelError);
+                                                }
                                             }
                                         }
                                     }catch(error){
@@ -593,6 +566,287 @@ class QueueManager {
         }
     }
 
+    async cleanupWaitingChildrenJob(queueName, job, opts = {}) {
+        const contextReason = opts.reason || 'cleanup';
+        try {
+            const dependencyCounts = await job.getDependenciesCount({ processed: true, unprocessed: true });
+            const pendingDependencies = dependencyCounts?.unprocessed ?? 0;
+
+            if (pendingDependencies === 0) {
+                logger.warn(`[${this.type}] Removing waiting-children job ${job.id} on ${queueName}: no pending dependencies`);
+                await this.finalizeWaitingChildrenJob(queueName, job, {
+                    reason: `${contextReason}:no-pending-dependencies`,
+                    pendingDependencies: 0,
+                });
+                return { removed: true, pendingDependencies: 0, reason: 'no-pending-dependencies' };
+            }
+
+            let cursor = 0;
+            let scanned = 0;
+            let foundExistingDependency = false;
+            const maxKeysToInspect = Math.min(pendingDependencies, 1000);
+            let remainingIterations = 100;
+
+            while (true) {
+                const deps = await job.getDependencies({ unprocessed: { cursor, count: 100 } });
+                const keys = deps?.unprocessed || [];
+
+                for (const key of keys) {
+                    if (!key) {
+                        continue;
+                    }
+                    try {
+                        const exists = await this.redis.exists(key);
+                        if (exists) {
+                            foundExistingDependency = true;
+                            break;
+                        }
+                    } catch (err) {
+                        logger.error(`Error checking dependency ${key} for job ${job.id} on ${queueName}`, err);
+                        foundExistingDependency = true;
+                        break;
+                    }
+                }
+
+                scanned += keys.length;
+                cursor = deps?.nextUnprocessedCursor ?? 0;
+
+                if (foundExistingDependency) {
+                    break;
+                }
+
+                if (!cursor || cursor === 0) {
+                    break;
+                }
+
+                if (scanned >= maxKeysToInspect) {
+                    break;
+                }
+
+                if (--remainingIterations <= 0) {
+                    break;
+                }
+            }
+
+            if (!foundExistingDependency) {
+                logger.warn(`[${this.type}] Removing waiting-children job ${job.id} on ${queueName}; dependency keys missing (${pendingDependencies})`);
+                await this.finalizeWaitingChildrenJob(queueName, job, {
+                    reason: `${contextReason}:missing-dependency-keys`,
+                    pendingDependencies,
+                });
+                return { removed: true, pendingDependencies, reason: 'missing-dependency-keys' };
+            }
+
+            logger.debug(`[${this.type}] Job ${job.id} on ${queueName} still waiting on ${pendingDependencies} child job(s)`);
+            return { removed: false, pendingDependencies };
+        } catch (error) {
+            logger.error(`Error inspecting waiting-children job ${job?.id} on ${queueName}`, error);
+            return { removed: false, error };
+        }
+    }
+
+    async finalizeJobLifecycle({ queueName, jobId, parentJob, payload, reason }) {
+        const context = reason || 'finalize';
+
+        try {
+            await this.resetChildWaiting(queueName, jobId);
+        } catch (err) {
+            logger.error(`[${this.type}] Error clearing child wait counter for ${jobId} on ${queueName} (${context})`, err);
+        }
+
+        try {
+            await this.setQueueActivity(queueName, false);
+        } catch (err) {
+            logger.error(`[${this.type}] Error updating activity for ${jobId} on ${queueName} (${context})`, err);
+        }
+
+        try {
+            await this.resetCancelJob(jobId);
+        } catch (err) {
+            logger.error(`[${this.type}] Error clearing cancel flag for ${jobId} (${context})`, err);
+        }
+
+        let childResponse;
+        try {
+            childResponse = await this.sendNotification(jobId, payload || { success: true }, { parentJob });
+        } catch (notifyError) {
+            logger.error(`[${this.type}] Error sending notification for ${jobId} (${context})`, notifyError);
+        }
+
+        if (parentJob) {
+            if (childResponse?.keepAlive) {
+                logger.info(`--- Child ${jobId} requested to not notify parent ${parentJob.id}`);
+            } else {
+                const [qId, qType] = parentJob.queueName.split("-");
+                const qo = this.getQueueObject(qType);
+
+                if (qo) {
+                    let grandparentJob;
+                    try {
+                        const parentJobObject = await this.getJobFromQueue({
+                            queueName: parentJob.queueName,
+                            id: parentJob.id
+                        });
+                        if (parentJobObject?.parent) {
+                            grandparentJob = {
+                                id: parentJobObject.parent.id,
+                                queueName: parentJobObject.parent.queueKey.slice(5)
+                            };
+                        }
+                    } catch (e) {
+                        logger.error('Error fetching grandparent from BullMQ', e);
+                    }
+
+                    try {
+                        await qo.sendNotification(
+                            parentJob.id,
+                            payload || { success: true },
+                            {
+                                childJob: jobId,
+                                parentJob: grandparentJob
+                            }
+                        );
+                    } catch (notifyParentError) {
+                        logger.error(`[${this.type}] Error notifying parent queue ${parentJob.queueName} for ${jobId}`, notifyParentError);
+                    }
+                } else {
+                    logger.warn(`[${this.type}] Could not resolve parent queue object for ${parentJob.queueName}`);
+                }
+            }
+        }
+
+        return childResponse;
+    }
+
+    async finalizeWaitingChildrenJob(queueName, job, meta = {}) {
+        const reason = meta.reason || 'cleanup';
+        const pendingDependencies = meta.pendingDependencies;
+        const parentJob = job?.parent ? { id: job.parent.id, queueName: job.parent.queueKey.slice(5) } : null;
+
+        try {
+            await job.updateData({
+                ...(job.data || {}),
+                awaitingChildren: false,
+                forcedCleanup: reason,
+                forcedCleanupAt: Date.now(),
+            });
+        } catch (updateError) {
+            logger.error(`[${this.type}] Error updating job data for ${job?.id} during cleanup`, updateError);
+        }
+
+        const payload = meta.payload || {
+            result: { forcedCleanup: true, reason, pendingDependencies },
+            error: null,
+            success: true,
+        };
+
+        const childResponse = await this.finalizeJobLifecycle({
+            queueName,
+            jobId: job.id,
+            parentJob,
+            payload,
+            reason,
+        });
+
+        try {
+            await job.remove();
+        } catch (removeError) {
+            logger.error(`[${this.type}] Error removing waiting-children job ${job.id} on ${queueName}`, removeError);
+        }
+
+        return { childResponse };
+    }
+
+    async sweepWaitingChildrenQueues(opts = {}) {
+        if (this.sweepingWaitingChildren) {
+            logger.debug(`[${this.type}] Skipping waiting-children sweep because another sweep is in progress`);
+            return { skipped: true };
+        }
+
+        this.sweepingWaitingChildren = true;
+        const result = { removed: [] };
+        const reason = opts.reason || 'sweep';
+        const limitPerQueue = Math.max(1, Number(opts.limitPerQueue || 5));
+
+        try {
+            const targets = new Set();
+
+            if (Array.isArray(opts.queueNames) && opts.queueNames.length > 0) {
+                for (const name of opts.queueNames) {
+                    if (!name) continue;
+                    const qn = String(name);
+                    if (qn.endsWith(`-${this.type}`)) {
+                        targets.add(qn);
+                    }
+                }
+            } else {
+                for (const name of Object.keys(this.queues || {})) {
+                    if (name && name.endsWith(`-${this.type}`)) {
+                        targets.add(name);
+                    }
+                }
+                try {
+                    const activeQueues = await this.redis.sMembers('activeQueues');
+                    for (const name of activeQueues || []) {
+                        if (name && name.endsWith(`-${this.type}`)) {
+                            targets.add(name);
+                        }
+                    }
+                } catch (activeError) {
+                    logger.error(`[${this.type}] Error reading activeQueues for waiting-children sweep`, activeError);
+                }
+            }
+
+            for (const queueName of targets) {
+                let queueRef = this.queues[queueName];
+                let createdTemporaryQueue = false;
+
+                if (!queueRef) {
+                    try {
+                        queueRef = new Queue(queueName, { connection: this.connection });
+                        createdTemporaryQueue = true;
+                    } catch (err) {
+                        logger.error(`[${this.type}] Failed to open queue ${queueName} for waiting-children sweep`, err);
+                        continue;
+                    }
+                }
+
+                try {
+                    const jobs = await queueRef.getJobs(['waiting-children'], 0, limitPerQueue - 1, false);
+                    for (const job of jobs) {
+                        try {
+                            const cleanupResult = await this.cleanupWaitingChildrenJob(queueName, job, { reason });
+                            if (cleanupResult?.removed) {
+                                result.removed.push({
+                                    queueName,
+                                    jobId: job.id,
+                                    reason: cleanupResult.reason,
+                                    pendingDependencies: cleanupResult.pendingDependencies ?? 0,
+                                });
+                            }
+                        } catch (jobError) {
+                            logger.error(`[${this.type}] Error cleaning waiting-children job ${job?.id} on ${queueName}`, jobError);
+                        }
+                    }
+                } catch (err) {
+                    logger.error(`[${this.type}] Error retrieving waiting-children jobs for ${queueName}`, err);
+                } finally {
+                    if (createdTemporaryQueue) {
+                        try {
+                            await queueRef.close();
+                        } catch (closeError) {
+                            logger.error(`[${this.type}] Error closing temporary queue ${queueName}`, closeError);
+                        }
+                    }
+                }
+            }
+        } finally {
+            this.sweepingWaitingChildren = false;
+        }
+
+        return result;
+    }
+
     async markQueueActive(workspaceId) {
         await this.redis.sAdd('activeQueues', `${workspaceId}-${this.type}`);
     }
@@ -753,41 +1007,67 @@ class QueueManager {
 
     async addJob(workspaceId, jobData, options = {}) {
         try {
-            let jobId = jobData.id + "-" + jobData.mode + (jobData.scope ? "-" + jobData.scope : "") + (options.reschedule ? `:t${Date.now()}` : "")
+            const queueName = `${workspaceId}-${this.type}`;
+            let jobId = jobData.id + "-" + jobData.mode + (jobData.scope ? "-" + jobData.scope : "") + (options.reschedule ? `:t${Date.now()}` : "");
             const queue = await this.getQueue(workspaceId);
-            const existing = await queue.getJob(jobId)
-            if(  existing ){
-                const status = await existing.getState()
-                if( status === "completed"){
-                    await existing.remove()
-                }else{
-                    if( jobData.mode === "run_flow_instance"){
-                        if( options.nextStep ){
-                            jobId += `:t${Date.now()}`
-                            logger.debug(`Got request to re-run flow instance for next step`)
-                        }else{
-                            let retry = options.retry ?? 0
-                            logger.debug(`Got request to re-run flow instance but present in queue - assuming last iteration is in cleanup - trying again (${retry})`)
-                            if( retry < 3){
-                                const queue = this
-                                setTimeout(async ()=>{
-                                    logger.debug(`Scheduled`)
-                                    return await queue.addJob( workspaceId, jobData, {...options, retry: retry + 1})
-                                },100)
-                                return 
-                            }
-                            logger.info(`Job already present - skipping ${jobId}`)
-                            return
-                        }
-                    }else{
-                        logger.info(`Job already present - skipping ${jobId}`)
-                        return
+            let existing = await queue.getJob(jobId);
+            if (existing) {
+                try {
+                    let status = await existing.getState();
+                    let removedExisting = false;
+
+                    if (status === "completed") {
+                        await existing.remove();
+                        removedExisting = true;
+                    } else if (status === "waiting-children") {
+                        const cleanupResult = await this.cleanupWaitingChildrenJob(queueName, existing, { reason: 'enqueue-inspection' });
+                        removedExisting = cleanupResult?.removed === true;
                     }
+
+                    if (removedExisting) {
+                        existing = await queue.getJob(jobId);
+                        if (existing) {
+                            status = await existing.getState();
+                        } else {
+                            status = undefined;
+                        }
+                    }
+
+                    if (existing) {
+                        if (jobData.mode === "run_flow_instance") {
+                            if (options.nextStep) {
+                                jobId += `:t${Date.now()}`;
+                                logger.debug(`Got request to re-run flow instance for next step`);
+                            } else {
+                                let retry = options.retry ?? 0;
+                                logger.debug(`Got request to re-run flow instance but present in queue (status=${status}) - assuming last iteration is in cleanup - trying again (${retry})`);
+                                if (retry < 3) {
+                                    const manager = this;
+                                    setTimeout(async () => {
+                                        logger.debug(`Scheduled re-check for ${jobId}`);
+                                        try {
+                                            await manager.addJob(workspaceId, jobData, { ...options, retry: retry + 1 });
+                                        } catch (err) {
+                                            logger.error(`Retry addJob failed for ${jobId}`, err);
+                                        }
+                                    }, 100);
+                                    return;
+                                }
+                                logger.info(`Job already present - skipping ${jobId} (status=${status})`);
+                                return;
+                            }
+                        } else {
+                            logger.info(`Job already present - skipping ${jobId} (status=${status})`);
+                            return;
+                        }
+                    }
+                } catch (inspectionError) {
+                    logger.error(`Error inspecting existing job ${jobId} on ${queueName}`, inspectionError);
                 }
             }
             logger.info(`Adding job ${jobId} on ${workspaceId}-${this.type}`)
             await queue.add(jobId, jobData, {
-                removeOnFail: true, 
+                removeOnFail: true,
                 removeOnComplete: { age: 180},
                 waitChildren: true,
                 jobId: jobId, 
@@ -883,58 +1163,82 @@ class QueueManager {
         }
     }
     async purgeQueue(workspaceId, qn, opts = {}) {
-        if( this.controlSource === "worker"){
-            console.log(`----- Suppressing purge on serivce of ${workspaceId}`)
-            return
+        if (this.controlSource === "worker") {
+            console.log(`----- Suppressing purge on serivce of ${workspaceId}`);
+            return;
         }
-        if( this.processCallback ){
-            return this.purgeQueueLegacy( workspaceId, qn)
+        if (this.processCallback) {
+            return this.purgeQueueLegacy(workspaceId, qn);
         }
         const queueName = qn ?? `${workspaceId}-${this.type}`;
-        if( queueName && !workspaceId ){
-            workspaceId = queueName.split('-')[0]
+        if (queueName && !workspaceId) {
+            workspaceId = queueName.split('-')[0];
         }
-    
-        if (this.queues[queueName]) {
-            logger.info(`Purging queue: ${queueName}`);
+        if (!queueName) {
+            logger.warn(`Unable to purge queue without name for workspace ${workspaceId}`);
+            return;
+        }
 
-            const threadCount = this.workerThreads?.length ?? 0;
-            if (threadCount > 0) {
-                for (const worker of this.workerThreads) {
-                    try { worker.postMessage({ type: 'stop', queueName }); } catch (err) { console.error(`Error terminating worker thread for queue: ${queueName}`, err); }
-                }
-            }
-            // Publish cross-service stop so a remote listener can mirror
-            if (!opts.suppressControl) {
-                try {
-                    const payload = { cmd: 'stop', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource, sourceId: this.controlInstanceId };
-                    await this.redis.publish(CONTROL_CHANNEL, JSON.stringify(payload));
-                    logger.info(`Published stop for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource} / ${this.controlInstanceId})`);
-                } catch (e) {
-                    logger.error('Failed to publish stop message', e);
-                }
-            }
+        logger.info(`Purging queue: ${queueName}`);
 
-            // Pause and obliterate the BullMQ queue
+        const threadCount = this.workerThreads?.length ?? 0;
+        if (threadCount > 0) {
+            for (const worker of this.workerThreads) {
+                try { worker.postMessage({ type: 'stop', queueName }); } catch (err) { console.error(`Error terminating worker thread for queue: ${queueName}`, err); }
+            }
+        }
+
+        if (!opts.suppressControl) {
             try {
-                await this.queues[queueName].pause(); // Pause the queue
-                await this.queues[queueName].obliterate({ force: true }); // Remove all jobs from the queue
-                logger.info(`Queue obliterated: ${queueName}`);
-            } catch (err) {
-                console.error(`Error obliterating queue: ${queueName}`, err);
+                const payload = { cmd: 'stop', queueType: this.type, queueName, workspaceId: String(workspaceId), source: this.controlSource, sourceId: this.controlInstanceId };
+                await this.redis.publish(CONTROL_CHANNEL, JSON.stringify(payload));
+                logger.info(`Published stop for ${queueName} on ${CONTROL_CHANNEL} (src=${this.controlSource} / ${this.controlInstanceId})`);
+            } catch (e) {
+                logger.error('Failed to publish stop message', e);
             }
-    
-            // Remove Redis metadata for the queue
-            await this.redis.del(`${queueName}-activeCount`);
-            await this.redis.del(`${queueName}-lastActivity`);
-    
-            // Mark the queue as inactive
-            await this.markQueueInactive(workspaceId);
-    
-            // Clean up queue reference
+        }
+
+        if (this.queues[queueName]) {
+            try { await this.teminateJobsInQueue(workspaceId); } catch (err) { logger.error(`Error terminating jobs for ${queueName}`, err); }
+            if (this.workers[queueName]) {
+                for (const worker of this.workers[queueName]) {
+                    try { await worker.close(); } catch (err) { console.error(`Error closing worker for queue: ${queueName}`, err); }
+                }
+                delete this.workers[queueName];
+            }
+        }
+
+        let queueRef = this.queues[queueName];
+        let createdTemporaryQueue = false;
+        if (!queueRef) {
+            queueRef = new Queue(queueName, { connection: this.connection });
+            createdTemporaryQueue = true;
+        }
+
+        try {
+            await queueRef.pause();
+        } catch (err) {
+            console.error(`Error pausing queue: ${queueName}`, err);
+        }
+
+        try {
+            await queueRef.obliterate({ force: true });
+            logger.info(`Queue obliterated: ${queueName}`);
+        } catch (err) {
+            console.error(`Error obliterating queue: ${queueName}`, err);
+        }
+
+        await this.redis.del(`${queueName}-activeCount`);
+        await this.redis.del(`${queueName}-lastActivity`);
+        await this.markQueueInactive(workspaceId);
+
+        if (this.queues[queueName]) {
+            try { await this.queues[queueName].close?.(); } catch (err) { logger.error(`Error closing queue reference for ${queueName}`, err); }
             delete this.queues[queueName];
-        } else {
-            logger.debug(`Queue ${queueName} does not exist, skipping purge.`);
+        }
+
+        if (createdTemporaryQueue) {
+            try { await queueRef.close(); } catch (err) { logger.error(`Error closing temporary queue ${queueName}`, err); }
         }
     }
 

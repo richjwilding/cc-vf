@@ -53,6 +53,9 @@ const q4 = QueryQueue();    q4.myInit();
 const q5 = BrightDataQueue(); q5.myInit();
 const q6 = FlowQueue();     q6.myInit();
 
+const WAITING_CHILD_SWEEP_LIMIT = Number(process.env.WCHILD_SWEEP_LIMIT || 5);
+const WAITING_CHILD_SWEEP_DELAY_MS = Number(process.env.WCHILD_SWEEP_DELAY_MS || 10000);
+
 // Heartbeat: log webserver queues periodically
 const webQueues = [q1, q2, q3, q4, q5, q6].filter(Boolean);
 async function logWebHeartbeat() {
@@ -68,6 +71,11 @@ async function logWebHeartbeat() {
         } catch (e) {
           console.log(`[hb-web] ${name} error ${e?.message || e}`);
         }
+      }
+      try {
+        await qm.sweepWaitingChildrenQueues({ reason: 'web-heartbeat', limitPerQueue: WAITING_CHILD_SWEEP_LIMIT });
+      } catch (sweepError) {
+        console.log(`[hb-web] sweep error ${inst?.queueName || 'unknown'} ${sweepError?.message || sweepError}`);
       }
     }
   } catch (e) {
@@ -95,6 +103,40 @@ setInterval(() => { logWebHeartbeat(); }, WEB_HEARTBEAT_MS);
           return;
         }
         const type = msg.queueType;
+
+        if (msg.cmd === 'sweep-wchildren') {
+          const targetTypes = Array.isArray(msg.queueTypes) && msg.queueTypes.length > 0
+            ? msg.queueTypes
+            : (type ? [type] : []);
+          if (targetTypes.length === 0) return;
+          const queueNames = msg.queueName ? [msg.queueName] : undefined;
+          const limitPerQueue = msg.limitPerQueue ? Number(msg.limitPerQueue) : undefined;
+          const reason = msg.reason ? `${msg.reason}:remote` : 'control';
+          const delayMs = Number(msg.delayMs || WAITING_CHILD_SWEEP_DELAY_MS);
+
+          const runSweep = async () => {
+            for (const qt of targetTypes) {
+              try {
+                const q = await getQueue(qt);
+                const qm = q?._queue;
+                if (!qm || typeof qm.sweepWaitingChildrenQueues !== 'function') continue;
+                await qm.sweepWaitingChildrenQueues({ reason, queueNames, limitPerQueue });
+              } catch (err) {
+                console.error(`[web] sweep-wchildren error for ${qt}`, err);
+              }
+            }
+          };
+
+          if (delayMs > 0) {
+            setTimeout(() => {
+              runSweep().catch(err => console.error('[web] delayed sweep error', err));
+            }, delayMs);
+          } else {
+            await runSweep();
+          }
+          return;
+        }
+
         const name = msg.queueName;
         const workspaceId = msg.workspaceId || (name ? String(name).split('-')[0] : undefined);
         if (!type || !workspaceId) return;

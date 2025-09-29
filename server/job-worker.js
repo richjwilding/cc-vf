@@ -299,7 +299,7 @@ async function getQueueObject(type) {
         logger.info(`Worker thread ${threadId} watching ${queueName}`, {  type: workerData.type });
         const worker = new Worker(queueName, async (job,token) => await processJob(job, queueName, token), {
             connection: workerData.redisOptions,
-                maxStalledCount: 0,
+                maxStalledCount: 1,
                 concurrency: 5,
                 removeOnFail: true,
                 waitChildren: true, 
