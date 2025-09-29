@@ -570,6 +570,19 @@ class QueueManager {
         const contextReason = opts.reason || 'cleanup';
         const dependencyQueueCache = new Map();
         const queuesToClose = [];
+        const visited = opts.visited ?? new Set();
+        const allowNestedCleanup = opts.allowNestedCleanup !== false;
+        const maxDepth = typeof opts.maxDepth === 'number' && opts.maxDepth >= 0 ? opts.maxDepth : 3;
+        const currentDepth = typeof opts.depth === 'number' ? opts.depth : 0;
+
+        const identifier = job ? `${queueName}:${job.id}` : null;
+        if (identifier) {
+            if (visited.has(identifier)) {
+                logger.warn(`[${this.type}] Skipping cleanup for ${identifier} to avoid recursive inspection`);
+                return { removed: false, pendingDependencies: 0, reason: 'recursive-visit' };
+            }
+            visited.add(identifier);
+        }
 
         try {
             const dependencyCounts = await job.getDependenciesCount({ processed: true, unprocessed: true });
@@ -605,7 +618,13 @@ class QueueManager {
 
                     scanned += 1;
                     try {
-                        const detail = await this.inspectDependencyKey(key, dependencyQueueCache, queuesToClose);
+                        const detail = await this.inspectDependencyKey(key, dependencyQueueCache, queuesToClose, {
+                            reason: contextReason,
+                            visited,
+                            depth: currentDepth + 1,
+                            maxDepth,
+                            allowNestedCleanup,
+                        });
                         if (detail.status === 'stale') {
                             staleDependencies.push(detail);
                         } else if (detail.status === 'live') {
@@ -670,6 +689,9 @@ class QueueManager {
             logger.error(`Error inspecting waiting-children job ${job?.id} on ${queueName}`, error);
             return { removed: false, error };
         } finally {
+            if (identifier) {
+                visited.delete(identifier);
+            }
             for (const entry of queuesToClose) {
                 try {
                     await entry.close();
@@ -782,13 +804,26 @@ class QueueManager {
         return { queueName, queueType, workspaceId, jobId };
     }
 
-    async inspectDependencyKey(rawKey, cache, queuesToClose) {
+    async inspectDependencyKey(rawKey, cache, queuesToClose, opts = {}) {
         const parsed = this.parseDependencyKey(rawKey);
         if (!parsed) {
             return { key: rawKey, status: 'unknown', reason: 'unparseable-key' };
         }
 
         const { queueName, queueType, jobId } = parsed;
+        const reasonContext = opts.reason || 'cleanup';
+        const visited = opts.visited;
+        const depth = typeof opts.depth === 'number' ? opts.depth : 0;
+        const maxDepth = typeof opts.maxDepth === 'number' && opts.maxDepth >= 0 ? opts.maxDepth : 3;
+        const allowNestedCleanup = opts.allowNestedCleanup !== false;
+        const identifier = `${queueName}:${jobId}`;
+
+        if (visited) {
+            if (visited.has(identifier)) {
+                return { key: rawKey, status: 'unknown', reason: 'cycle-detected', queueName, jobId };
+            }
+            visited.add(identifier);
+        }
 
         if (!cache.has(queueName)) {
             let queueRef = null;
@@ -825,6 +860,9 @@ class QueueManager {
         const queueRef = cacheEntry.queue;
 
         if (!queueRef) {
+            if (visited) {
+                visited.delete(identifier);
+            }
             return { key: rawKey, status: 'unknown', reason: 'queue-missing', queueName, jobId };
         }
 
@@ -839,11 +877,169 @@ class QueueManager {
                 return { key: rawKey, status: 'stale', reason: dependencyState, queueName, jobId };
             }
 
+            if (dependencyState === 'waiting-children') {
+                if (depth >= maxDepth) {
+                    return { key: rawKey, status: 'unknown', reason: 'waiting-children-depth', queueName, jobId };
+                }
+
+                const classification = await this.classifyWaitingChildrenDependency({
+                    rawKey,
+                    job: dependencyJob,
+                    queueName,
+                    jobId,
+                    cache,
+                    queuesToClose,
+                    opts: {
+                        ...opts,
+                        depth: depth + 1,
+                    },
+                });
+
+                if (classification.status === 'stale' && allowNestedCleanup) {
+                    try {
+                        await this.finalizeWaitingChildrenJob(queueName, dependencyJob, {
+                            reason: `${reasonContext}:nested-${classification.reason || 'waiting-children'}`,
+                            pendingDependencies: classification.pendingDependencies ?? 0,
+                            staleDependencies: Array.isArray(classification.staleDependencies)
+                                ? classification.staleDependencies.map(d => ({ queueName: d.queueName, jobId: d.jobId, state: d.reason }))
+                                : undefined,
+                        });
+                        classification.cleaned = true;
+                    } catch (nestedError) {
+                        classification.cleaned = false;
+                        logger.error(`[${this.type}] Error cleaning nested waiting-children job ${jobId} on ${queueName}`, nestedError);
+                    }
+                }
+
+                return classification;
+            }
+
             return { key: rawKey, status: 'live', reason: dependencyState, queueName, jobId };
         } catch (err) {
             logger.error(`[${this.type}] Error fetching dependency job ${jobId} on ${queueName}`, err);
             return { key: rawKey, status: 'unknown', reason: 'job-fetch-error', queueName, jobId };
+        } finally {
+            if (visited) {
+                visited.delete(identifier);
+            }
         }
+    }
+
+    async classifyWaitingChildrenDependency({ rawKey, job, queueName, jobId, cache, queuesToClose, opts = {} }) {
+        const depth = typeof opts.depth === 'number' ? opts.depth : 0;
+        const maxDepth = typeof opts.maxDepth === 'number' && opts.maxDepth >= 0 ? opts.maxDepth : 3;
+
+        let dependencyCounts;
+        try {
+            dependencyCounts = await job.getDependenciesCount({ processed: true, unprocessed: true });
+        } catch (err) {
+            logger.error(`[${this.type}] Error retrieving dependency counts for nested job ${jobId} on ${queueName}`, err);
+            return { key: rawKey, status: 'unknown', reason: 'dependency-count-error', queueName, jobId };
+        }
+
+        const pendingDependencies = dependencyCounts?.unprocessed ?? 0;
+        if (pendingDependencies === 0) {
+            return { key: rawKey, status: 'stale', reason: 'waiting-children-empty', queueName, jobId, pendingDependencies: 0 };
+        }
+
+        if (depth >= maxDepth) {
+            return {
+                key: rawKey,
+                status: 'unknown',
+                reason: 'waiting-children-depth',
+                queueName,
+                jobId,
+                pendingDependencies,
+            };
+        }
+
+        const staleDependencies = [];
+        const liveDependencies = [];
+        const unknownDependencies = [];
+
+        let cursor = 0;
+        let scanned = 0;
+        const maxKeysToInspect = Math.min(pendingDependencies, 500);
+        let remainingIterations = 200;
+        let scannedAllDependencies = false;
+
+        while (remainingIterations > 0 && scanned < maxKeysToInspect) {
+            let deps;
+            try {
+                deps = await job.getDependencies({ unprocessed: { cursor, count: Math.min(100, maxKeysToInspect - scanned) } });
+            } catch (err) {
+                logger.error(`[${this.type}] Error retrieving nested dependencies for ${jobId} on ${queueName}`, err);
+                return { key: rawKey, status: 'unknown', reason: 'dependency-fetch-error', queueName, jobId };
+            }
+
+            const keys = deps?.unprocessed || [];
+            for (const key of keys) {
+                if (!key) {
+                    continue;
+                }
+
+                scanned += 1;
+                try {
+                    const detail = await this.inspectDependencyKey(key, cache, queuesToClose, {
+                        ...opts,
+                        depth: depth + 1,
+                    });
+                    if (detail.status === 'stale') {
+                        staleDependencies.push(detail);
+                    } else if (detail.status === 'live') {
+                        liveDependencies.push(detail);
+                    } else {
+                        unknownDependencies.push(detail);
+                    }
+                } catch (err) {
+                    unknownDependencies.push({ key, status: 'error', reason: err?.message || String(err) });
+                    logger.error(`Error inspecting nested dependency ${key} for job ${jobId} on ${queueName}`, err);
+                }
+
+                if (scanned >= maxKeysToInspect) {
+                    break;
+                }
+            }
+
+            cursor = deps?.nextUnprocessedCursor ?? 0;
+            if (!cursor || cursor === 0 || scanned >= pendingDependencies) {
+                scannedAllDependencies = true;
+                break;
+            }
+
+            remainingIterations -= 1;
+            if (remainingIterations <= 0) {
+                logger.warn(`Exceeded nested dependency scan limit for ${jobId} on ${queueName}`);
+            }
+        }
+
+        if (
+            liveDependencies.length === 0 &&
+            unknownDependencies.length === 0 &&
+            staleDependencies.length > 0 &&
+            (scannedAllDependencies || pendingDependencies <= staleDependencies.length)
+        ) {
+            return {
+                key: rawKey,
+                status: 'stale',
+                reason: 'waiting-children-stale',
+                queueName,
+                jobId,
+                pendingDependencies,
+                staleDependencies: staleDependencies.map(d => ({ queueName: d.queueName, jobId: d.jobId, reason: d.reason })),
+            };
+        }
+
+        return {
+            key: rawKey,
+            status: 'live',
+            reason: 'waiting-children-pending',
+            queueName,
+            jobId,
+            pendingDependencies,
+            liveDependencies: liveDependencies.length,
+            unknownDependencies: unknownDependencies.length,
+        };
     }
 
     async finalizeWaitingChildrenJob(queueName, job, meta = {}) {
