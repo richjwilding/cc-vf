@@ -304,8 +304,8 @@ async function getQueueObject(type) {
                 removeOnFail: true,
                 waitChildren: true, 
                 removeOnComplete: false, 
-                stalledInterval:300000,
-                lockDuration: 30 * 60 * 1000, // Set lock duration to 10 minutes
+                stalledInterval: 1 * 60 * 1000,
+                lockDuration: 5 * 60 * 1000, // Set lock duration to 10 minutes
             });
         // Add visibility into BullMQ worker lifecycle for this queue
         worker.on('waiting', (jobIdOrJob) => {
