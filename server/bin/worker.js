@@ -2,9 +2,11 @@
 
 import * as dotenv from 'dotenv' 
 import crypto from 'crypto';
+import { updateBrightDataWhitelist } from '../brightdata.js';
 const express = require('express');
 const { getRedisBase, getPubSubClients } = require('../redis.js');
 
+updateBrightDataWhitelist()
 
 if( process.env.NODE_ENV === "development"){
     dotenv.config({ path: `.env.worker` })
@@ -27,9 +29,13 @@ app.get('/healthz', (_req, res) => ready ? res.status(200).send('ok') : res.stat
 const PORT = Number(process.env.PORT || 8080);
 app.listen(PORT, '0.0.0.0', () => console.log(`[worker] health on ${PORT}`));
 
+const WAITING_CHILD_SWEEP_LIMIT = Number(process.env.WCHILD_SWEEP_LIMIT || 5);
+const WAITING_CHILD_SWEEP_DELAY_MS = Number(process.env.WCHILD_SWEEP_DELAY_MS || 10000);
+
 // graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('Shutdown requested');
+  try { if (global.__queueSweepOnExit) await global.__queueSweepOnExit(); } catch (e) { console.error(e); }
   try { if (global.__workerClose) await global.__workerClose(); } catch (e) { console.error(e); }
   process.exit(0);
 });
@@ -90,6 +96,40 @@ process.on('SIGTERM', async () => {
           return;
         }
         const type = msg.queueType;
+
+        if (msg.cmd === 'sweep-wchildren') {
+          const targetTypes = Array.isArray(msg.queueTypes) && msg.queueTypes.length > 0
+            ? msg.queueTypes
+            : (type ? [type] : []);
+          if (targetTypes.length === 0) return;
+          const queueNames = msg.queueName ? [msg.queueName] : undefined;
+          const limitPerQueue = msg.limitPerQueue ? Number(msg.limitPerQueue) : undefined;
+          const reason = msg.reason ? `${msg.reason}:remote` : 'control';
+          const delayMs = Number(msg.delayMs || 0);
+
+          const runSweep = async () => {
+            for (const qt of targetTypes) {
+              try {
+                const q = await getQueue(qt);
+                const qm = q?._queue;
+                if (!qm || typeof qm.sweepWaitingChildrenQueues !== 'function') continue;
+                await qm.sweepWaitingChildrenQueues({ reason, queueNames, limitPerQueue });
+              } catch (err) {
+                console.error(`[worker] sweep-wchildren error for ${qt}`, err);
+              }
+            }
+          };
+
+          if (delayMs > 0) {
+            setTimeout(() => {
+              runSweep().catch(err => console.error('[worker] delayed sweep error', err));
+            }, delayMs);
+          } else {
+            await runSweep();
+          }
+          return;
+        }
+
         const name = msg.queueName;
         const workspaceId = msg.workspaceId || (name ? String(name).split('-')[0] : undefined);
         if (!type || !workspaceId) return;
@@ -130,12 +170,49 @@ process.on('SIGTERM', async () => {
       try { await pub.quit(); } catch {}
       try { await redis.quit(); } catch {}
     };
+    global.__workerClose = global.__gracefulClose;
 
     ready = true;
     console.log('[worker] initialized, ready');
 
     // Heartbeat: log main-thread queues and request thread reports
     const queues = [QueueDocument, QueueAI, EnrichPrimitive, QueryQueue, BrightDataQueue, FlowQueue].filter(Boolean);
+    const queueTypesForSweep = queues.map(inst => inst?.queueName).filter(Boolean);
+
+    async function publishWaitingChildrenSweep(reason, delayMs = WAITING_CHILD_SWEEP_DELAY_MS) {
+      try {
+        if (queueTypesForSweep.length === 0) {
+          return;
+        }
+        const payload = {
+          cmd: 'sweep-wchildren',
+          queueTypes: queueTypesForSweep,
+          reason,
+          delayMs,
+          limitPerQueue: WAITING_CHILD_SWEEP_LIMIT,
+          source: process.env.GAE_SERVICE || process.env.ROLE || 'worker',
+          sourceId: process.env.INSTANCE_UUID,
+        };
+        await pub.publish(CONTROL_CHANNEL, JSON.stringify(payload));
+        console.log(`[worker] published sweep-wchildren (${reason}) for types ${queueTypesForSweep.join(',')}`);
+      } catch (err) {
+        console.error('[worker] failed to publish waiting-children sweep request', err);
+      }
+    }
+
+    global.__queueSweepOnExit = async () => {
+      try {
+        for (const inst of queues) {
+          const qm = inst?._queue;
+          if (!qm || typeof qm.sweepWaitingChildrenQueues !== 'function') continue;
+          await qm.sweepWaitingChildrenQueues({ reason: 'sigterm-local', limitPerQueue: WAITING_CHILD_SWEEP_LIMIT });
+        }
+      } catch (err) {
+        console.error('[worker] local waiting-children sweep error', err);
+      }
+      await publishWaitingChildrenSweep('sigterm', WAITING_CHILD_SWEEP_DELAY_MS);
+    };
+
     async function logMainQueuesHeartbeat() {
       try {
         console.log(`[hb] main instance=${process.env.INSTANCE_UUID}`);
@@ -153,6 +230,11 @@ process.on('SIGTERM', async () => {
           // Request thread heartbeats for this queue type
           for (const t of qm.workerThreads || []) {
             try { t.postMessage({ type: 'heartbeat' }); } catch {}
+          }
+          try {
+            await qm.sweepWaitingChildrenQueues({ reason: 'worker-heartbeat', limitPerQueue: WAITING_CHILD_SWEEP_LIMIT });
+          } catch (sweepError) {
+            console.log(`[hb] sweep error ${inst?.queueName || 'unknown'} ${sweepError?.message || sweepError}`);
           }
         }
       } catch (e) {

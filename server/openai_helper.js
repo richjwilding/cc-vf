@@ -1117,7 +1117,11 @@ async function executeAI(messages, options = {}){
         };
     } catch (error) {
         console.error("Failed to parse JSON:", error.message);
-        console.error("Answers:", answers);
+        console.error("Conent:", answers);
+        console.error(`Message:`, response.choices?.[0]?.message)
+        console.error(`Choice:`, response.choices?.[0])
+        console.error(`Choices:`, response.choices)
+        console.error(`Response:`, response)
     
         return {
             success: false,

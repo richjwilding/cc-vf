@@ -299,13 +299,13 @@ async function getQueueObject(type) {
         logger.info(`Worker thread ${threadId} watching ${queueName}`, {  type: workerData.type });
         const worker = new Worker(queueName, async (job,token) => await processJob(job, queueName, token), {
             connection: workerData.redisOptions,
-                maxStalledCount: 0,
+                maxStalledCount: 1,
                 concurrency: 5,
                 removeOnFail: true,
                 waitChildren: true, 
                 removeOnComplete: false, 
-                stalledInterval:300000,
-                lockDuration: 30 * 60 * 1000, // Set lock duration to 10 minutes
+                stalledInterval: 1 * 60 * 1000,
+                lockDuration: 5 * 60 * 1000, // Set lock duration to 10 minutes
             });
         // Add visibility into BullMQ worker lifecycle for this queue
         worker.on('waiting', (jobIdOrJob) => {

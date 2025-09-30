@@ -35,6 +35,7 @@ import { getDataForImportDB } from './actions/getDataForImportDB.js';
 import { getConfigFromDB } from './actions/getConfigFromDB.js';
 import { fetchPrimitiveInputs } from './InputHandler.js';
 import { getQueue } from './queue_registry.js';
+import { query } from 'winston';
 
 /*
 import EnrichPrimitive from './enrich_queue';
@@ -864,7 +865,8 @@ export async function addRelationship(receiver, target, paths, skipParent = fals
       SIO.notifyPrimitiveEvent(workspaceId, events);
   
       if ((targetDoc?.flowElement || updatedReceiver?.flowElement) && targetDoc) {
-        for (const path of normalizedPaths) {
+          for (const path of normalizedPaths) {
+            logger.info(`Cascading relationship addition ${updatedReceiver.id} => ${targetDoc.id} ${path}`)
           await replicateRelationshipUpdateToFlowInstance(updatedReceiver, targetDoc, path, "add");
         }
       }
@@ -1088,7 +1090,7 @@ async function replicateRelationshipUpdateToFlowInstance( rObject, tObject, rela
         targetInstances,
     })
     for(const {receiverId, targetId} of mappings){
-        logger.debug(`--- linking ${receiverId} => ${targetId} ${relationship}`)
+        logger.debug(`--- ${mode == "add" ? "linking" : "removing"} ${receiverId} => ${targetId} ${relationship}`)
         if( mode == "add"){
             await addRelationship( receiverId, targetId, relationship)
         }else if( mode == "remove"){
@@ -1229,9 +1231,20 @@ export async function primitivePrimitives(primitive, path, types, deleted = fals
         }
         node = node[hop]
     }
-    if( notPresent ){
+    if( notPresent || !node){
         return []
     }
+
+    const query = {
+        workspaceId: primitive.workspaceId
+    }
+    if( types ){
+        query.type = Array.isArray(types) ? {$in: types} : types
+    }
+
+    return await fetchPrimitives( node, query, DONT_LOAD)
+
+    /*
 
     let list = await Primitive.find({
         $and:[
@@ -1243,7 +1256,7 @@ export async function primitivePrimitives(primitive, path, types, deleted = fals
         const a = [types].flat()
         list = list.filter((d)=>a.includes(d.type))
     }
-    return list
+    return list*/
 } 
 export async function primitiveRemovalCandidates(primitive, types){
 }
