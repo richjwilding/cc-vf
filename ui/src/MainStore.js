@@ -707,7 +707,7 @@ const actions = {
             }else if(receiver.type === "summary"){
                 return [receiver]
             }else{
-                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs" ).map(d=>receiver.primitives[d].allIds).flat()
+                let ids = Object.keys(receiver.primitives).filter(d=>d !== "imports" && d !== "chat" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs" ).map(d=>receiver.primitives[d].allIds).flat()
                 let list = []
                 const check = new Set()
                 for( const d of ids ){
@@ -1304,7 +1304,7 @@ const actions = {
             }
         }
 
-        d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports") && !d.parentPrimitives[p].find(d=>d.startsWith("primitives.inputs."))) : []
+        d._ppIdCache = d.parentPrimitives ? Object.keys(d.parentPrimitives).filter((p)=>d.parentPrimitives[p]?.length > 0 && !d.parentPrimitives[p].includes("primitives.imports") && !d.parentPrimitives[p].includes("primitives.chat") && !d.parentPrimitives[p].find(d=>d.startsWith("primitives.inputs."))) : []
         return d._ppIdCache
     },
     parentPrimitiveIdsAsSource(d, receiver, obj){
