@@ -1291,7 +1291,7 @@ export async function primitiveDescendents(primitive, types, options={}){
             }
             if( item ){
                 Object.keys(item).forEach((key)=>{
-                    if( !(key === "imports" || key === "config" || key === "outputs" || key === "inputs")){
+                    if( !(key === "imports" || key === "chat" || key === "config" || key === "outputs" || key === "inputs")){
                         const value = item[key]
                         unpack(value)
                     }
@@ -1936,7 +1936,7 @@ export async function legacyGetDataForImport( source, cache = {imports: {}, cate
         }else{
             let node = new Proxy(source.primitives, parser)
 
-            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
+            const nonImportIds = Object.keys(source.primitives).filter(d=>d !== "imports" && d !== "chat" && d !== "params" && d !=="config" && d !=="inputs" && d !=="outputs").map(d=>node[d].uniqueAllIds).flat().filter((d,i,a)=>a.indexOf(d)===i)
             list = await fetchPrimitives( nonImportIds, undefined, DONT_LOAD)
             
             if( source.type === "actionrunner" || source.type === "action"){
@@ -2767,15 +2767,15 @@ export async function fetchDirectChildren({ parentIds, referenceId, type, worksp
       }
 
 export async function findParentPrimitivesOfType(primitive, types){
-    const candidates = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(d=>d !== "primitives.imports").length > 0)
+    const candidates = Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(path=>path !== "primitives.imports").length > 0)
     return await fetchPrimitives( candidates, {type: Array.isArray(types) ? {$in: types} : types}, DONT_LOAD )
 }
 export async function findParentPrimitivesOfTypeMulti(primitives, types){
-    const candidates = primitives.flatMap(primitive=>Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(d=>d !== "primitives.imports").length > 0)).filter((d,i,a)=>a.indexOf(d)===i)
+    const candidates = primitives.flatMap(primitive=>Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(path=>path !== "primitives.imports").length > 0)).filter((d,i,a)=>a.indexOf(d)===i)
     return await fetchPrimitives( candidates, {type: Array.isArray(types) ? {$in: types} : types}, DONT_LOAD )
 }
 export async function findParentPrimitivesOfRefIdMulti(primitives, refIds){
-    const candidates = primitives.flatMap(primitive=>Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(d=>d !== "primitives.imports").length > 0)).filter((d,i,a)=>a.indexOf(d)===i)
+    const candidates = primitives.flatMap(primitive=>Object.keys(primitive.parentPrimitives ?? {}).filter(d=>primitive.parentPrimitives?.[d].filter(path=>path !== "primitives.imports").length > 0)).filter((d,i,a)=>a.indexOf(d)===i)
     return await fetchPrimitives( candidates, {referenceId: Array.isArray(refIds) ? {$in: refIds} : refIds}, DONT_LOAD )
 }
 
@@ -2785,8 +2785,8 @@ export async function primitiveParents(primitive, path){
     if( path ){
         ids = Object.keys(primitive.parentPrimitives).filter((d)=>primitive.parentPrimitives[d].includes(`primitives.${path}`))
     }else{
-        ids = Object.keys(primitive.parentPrimitives).filter((d)=>{
-            return primitive.parentPrimitives[d].filter(d=>d !== `primitives.imports`).length > 0
+        ids = Object.keys(primitive.parentPrimitives).filter((d)=>{ 
+            return primitive.parentPrimitives[d].filter(path=>path !== `primitives.imports`).length > 0
         })
     }
     if( ids )

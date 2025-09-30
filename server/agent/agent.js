@@ -107,6 +107,112 @@ function cleanupSessions() {
 }
 setInterval(cleanupSessions, 60 * 1000);
 
+async function ensureChatPrimitiveRecord(primitive, req, sessionKeyId) {
+  if (!primitive) {
+    return null;
+  }
+
+  const ownerId = req.user?.id ?? null;
+  const workspaceId = primitive.workspaceId;
+  const parentKey = `parentPrimitives.${primitive.id}`;
+
+  const baseQuery = {
+    workspaceId,
+    type: "chat",
+    [parentKey]: { $in: ["primitives.chat"] },
+  };
+
+  let chat = await Primitive.findOne({
+    ...baseQuery,
+    "referenceParameters.session_key": sessionKeyId,
+  });
+
+  if (!chat && ownerId) {
+    chat = await Primitive.findOne({
+      ...baseQuery,
+      "referenceParameters.owner_id": ownerId,
+    });
+  }
+
+  if (chat) {
+    const referenceParameters = chat.referenceParameters ?? {};
+    if (referenceParameters.session_key !== sessionKeyId) {
+      const nextReference = {
+        ...referenceParameters,
+        session_key: sessionKeyId,
+        updated_at: new Date().toISOString(),
+      };
+      chat.referenceParameters = nextReference;
+      await dispatchControlUpdate(chat.id, "referenceParameters", nextReference);
+    }
+    return chat;
+  }
+
+  const titleSuffix = primitive.title ? ` - ${primitive.title}` : "";
+  const chatData = {
+    workspaceId,
+    parent: primitive.id,
+    paths: ["origin", "chat"],
+    data: {
+      type: "chat",
+      title: `Agent chat${titleSuffix}`.trim(),
+      referenceParameters: {
+        session_key: sessionKeyId,
+        owner_id: ownerId,
+        owner_type: ownerId ? "user" : "anon",
+        updated_at: new Date().toISOString(),
+      },
+    },
+  };
+
+  const created = await createPrimitive(chatData, true, req);
+  return created ?? null;
+}
+
+function exportSessionState(session) {
+  if (!session) {
+    return null;
+  }
+  const stateEntries = session.states instanceof Map
+    ? Array.from(session.states.entries())
+    : Object.entries(session.states ?? {});
+
+  return {
+    mode: session.mode ?? null,
+    state: session.state ?? null,
+    states: Object.fromEntries(stateEntries),
+  };
+}
+
+function hydrateSessionFromPersisted(session, persisted) {
+  if (!session || !persisted) {
+    return;
+  }
+
+  const { mode, state, states } = persisted;
+  if (mode !== undefined) {
+    session.mode = mode;
+  }
+  if (state !== undefined) {
+    session.state = state;
+  }
+  if (states && typeof states === "object") {
+    session.states = new Map(Object.entries(states));
+  }
+  session._hydratedFromPersistence = true;
+}
+
+function buildPersistedChatState(session) {
+  const exported = exportSessionState(session);
+  if (!exported) {
+    return null;
+  }
+  return {
+    session: exported,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export function matchEnter(flowDef, text) {
   if (!text) return false;
   return flowDef.enterTriggers.some(rx => rx.test(text));
@@ -418,12 +524,19 @@ export async function handleChat(primitive, options, req, res) {
         const sessionKeyId = sessionKey(primitive, req)
         const session = ensureSession(sessionKeyId)
 
+        const chatPrimitive = await ensureChatPrimitiveRecord(primitive, req, sessionKeyId)
+        const persistedState = chatPrimitive?.referenceParameters?.agent_state?.session
+        if (persistedState && !session._hydratedFromPersistence) {
+          hydrateSessionFromPersisted(session, persistedState)
+        }
+
         let sendModeUpdate = () => {}
 
         const constrainTo = options.agentScope?.constrainTo ?? primitive.id
 
         const scope = {
           chatUUID,
+            chatPrimitive,
             parent,
             mode: options.mode,
             workspaceId: primitive.workspaceId,
@@ -436,6 +549,38 @@ export async function handleChat(primitive, options, req, res) {
             functionMap: Object.fromEntries(toolRegistry.entries()),
             functions: allFunctionDefinitions,
             session,
+        }
+
+        const persistState = async () => {
+          if (!chatPrimitive) {
+            return
+          }
+          const nextState = buildPersistedChatState(session)
+          if (!nextState) {
+            return
+          }
+          const merged = {
+            ...(chatPrimitive.referenceParameters ?? {}),
+            agent_state: nextState,
+            updated_at: new Date().toISOString(),
+          }
+          chatPrimitive.referenceParameters = merged
+          try {
+            await dispatchControlUpdate(chatPrimitive.id, "referenceParameters", merged)
+          } catch (error) {
+            logger.warn(`Failed to persist chat state for ${chatPrimitive.id}`, { error: error?.message })
+          }
+        }
+
+        const linkToChat = async (targetId) => {
+          if (!chatPrimitive || !targetId) {
+            return
+          }
+          try {
+            await addRelationship(chatPrimitive.id, targetId, "link")
+          } catch (err) {
+            logger.warn(`Failed to link ${targetId} to chat ${chatPrimitive.id}`, { error: err?.message })
+          }
         }
 
         scope.touchSession = () => touchSession(session)
@@ -498,6 +643,8 @@ export async function handleChat(primitive, options, req, res) {
         }
         scope.mode = session.mode
         scope.modeState = session.state ?? getStoredModeState(session, session.mode)
+        scope.linkToChat = linkToChat
+        scope.chatPrimitiveId = chatPrimitive?.id ?? null
 
         if (scope.mode && modeSeeds[scope.mode]) {
           const updatedState = getModeState(scope.mode, scope.modeState)
@@ -511,6 +658,7 @@ export async function handleChat(primitive, options, req, res) {
         if (options?.modePing) {
           console.log(`MODE PING FINISHED`)
           sendSse({ done: true })
+          await persistState()
           return
         }
 
@@ -550,6 +698,7 @@ export async function handleChat(primitive, options, req, res) {
 
           if (exitOnly && !session.mode) {
             sendSse({ done: true })
+            await persistState()
             return
           }
         }
@@ -559,6 +708,7 @@ export async function handleChat(primitive, options, req, res) {
             if (session.mode === id && matchExit(def, lastUserMsg)) {
               scope.deactivateMode()
               sendSse({ done: true })
+              await persistState()
               return
             }
           }
@@ -693,6 +843,7 @@ export async function handleChat(primitive, options, req, res) {
                             sendSse({content: summary})
                             flushPendingContexts();
                             sendSse({ done: true });
+                            await persistState()
                             break
                         }else{
                             if( fnResult.forClient){
@@ -703,6 +854,7 @@ export async function handleChat(primitive, options, req, res) {
                             if( fnResult.__ALREADY_SENT){
                                 flushPendingContexts();
                                 sendSse({ done: true });
+                                await persistState()
                                 break
                             }
                             result = JSON.stringify(fnResult)
@@ -721,14 +873,16 @@ export async function handleChat(primitive, options, req, res) {
                     role: 'function',
                     name: funcName,
                     content: result
-                });            
+                });
 
+                await persistState()
                 continue;
             }
 
             // 3️⃣ No function call this round → we’re done
             flushPendingContexts();
             sendSse({ done: true });
+            await persistState()
             res.end();
             break;
         }
@@ -737,6 +891,11 @@ export async function handleChat(primitive, options, req, res) {
         sendSse({ done: true });
         console.log(`Error in handleChat`)
         console.log(e)
+        try {
+          await persistState()
+        } catch (persistError) {
+          logger.warn("Failed to persist state after error", { error: persistError?.message })
+        }
 
     }
   }
@@ -819,6 +978,24 @@ registerAction( "run_agent_create_one_shot_query", undefined, async (primitive, 
     if( summaryPrimitive){
         await addRelationshipToMultiple(summaryPrimitive.id, allIds, "source", primitive.workspaceId)
     }
+
+    let chatForLink = null
+    if (options.chatPrimitiveId) {
+        chatForLink = await fetchPrimitive(options.chatPrimitiveId)
+    } else {
+        chatForLink = await ensureChatPrimitiveRecord(primitive, req, sessionKey(primitive, req))
+    }
+
+    if (chatForLink) {
+        try {
+            await addRelationship(chatForLink.id, queryPrimitive.id, "link")
+            if (summaryPrimitive) {
+                await addRelationship(chatForLink.id, summaryPrimitive.id, "link")
+            }
+        } catch (err) {
+            logger.warn("Failed to link query outputs to chat", { error: err?.message, chatId: chatForLink.id })
+        }
+    }
 })
 registerAction( "run_agent_create_update_query", undefined, async (primitive, action, options, req)=>{
     if( primitive.type !== "summary"){
@@ -868,6 +1045,24 @@ registerAction("run_agent_create_categorization", undefined, async (primitive, a
             theme: options.theme ?? null,
             title: options.title ?? null,
         });
+
+        let chatForLink = null;
+        if (options.chatPrimitiveId) {
+            chatForLink = await fetchPrimitive(options.chatPrimitiveId);
+        } else {
+            chatForLink = await ensureChatPrimitiveRecord(primitive, req, sessionKey(primitive, req));
+        }
+
+        if (chatForLink) {
+            try {
+                await addRelationship(chatForLink.id, result.container.id, "link");
+                for (const childId of result.subCategoryIds ?? []) {
+                    await addRelationship(chatForLink.id, childId, "link");
+                }
+            } catch (error) {
+                logger.warn("Failed to link categorization to chat", { error: error?.message, chatId: chatForLink.id });
+            }
+        }
 
         return {
             categorizationId: result.categoryId,

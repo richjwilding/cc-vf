@@ -603,7 +603,7 @@ const actions = {
                                 list = [source]
                             }else{
 
-                                list = uniquePrimitives(Object.keys(node).filter(d=>d !== "inputs" && d !== "outputs").flatMap(d=>node[d].allItems))
+                                list = uniquePrimitives(Object.keys(node).filter(d=>d !== "inputs" && d !== "outputs" && d !== "chat").flatMap(d=>node[d].allItems))
                             }
                             //list = node.uniqueAllItems
                         }

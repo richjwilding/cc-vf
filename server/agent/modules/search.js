@@ -51,6 +51,7 @@ async function createSearch(params, scope, notify) {
     return { result: "Error creating" };
   }
 
+  await scope.linkToChat?.(newPrim.id);
   scope.session?.state?.createdSearches?.push?.(newPrim.id);
   notify?.(`Created search [[id:${newPrim.id}]]`, false, true);
 
@@ -110,6 +111,7 @@ async function prepareSearchPreprocessing(params, scope) {
 
   const newPrim = await createPrimitive(data);
   if (newPrim) {
+    await scope.linkToChat?.(newPrim.id);
     return { result: `Created new pre-processor with id ${newPrim.plainId}` };
   }
 
