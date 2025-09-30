@@ -21,6 +21,50 @@ const MODE_ICON_MAP = {
 
 const DEFAULT_MODE_ICON = 'Squares2X2Icon';
 
+function sanitizeChatHistory(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  const limit = 500;
+  const trimmed = messages.slice(-limit);
+
+  return trimmed
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+
+      const safe = {
+        role: typeof entry.role === 'string' ? entry.role : 'assistant',
+        content: typeof entry.content === 'string' ? entry.content : '',
+      };
+
+      if (entry.hidden) {
+        safe.hidden = true;
+      }
+
+      if (entry.preview) {
+        safe.preview = true;
+      }
+
+      if (entry.context && typeof entry.context === 'object') {
+        safe.context = entry.context;
+      }
+
+      if (entry.resultFor && typeof entry.resultFor === 'string') {
+        safe.resultFor = entry.resultFor;
+      }
+
+      if (entry.name && typeof entry.name === 'string') {
+        safe.name = entry.name;
+      }
+
+      return safe;
+    })
+    .filter(Boolean);
+}
+
 //export default function AgentChat({primitive, ...props}) {
 function ChatSessionToolbar({
   availableChats,
@@ -608,40 +652,35 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
           return;
         }
 
+        const chat = mainstore.primitive(activeChatInfo.id);
+        if (!chat || typeof chat.setField !== 'function') {
+          return;
+        }
+
+        const sanitizedHistory = sanitizeChatHistory(history);
+        const nextReference = {
+          ...(chat.referenceParameters ?? {}),
+          chat_history: sanitizedHistory,
+          updated_at: new Date().toISOString(),
+        };
+
         try {
-          const response = await fetch(`/api/chat/${activeChatInfo.id}/history`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: history }),
+          await chat.setField('referenceParameters', nextReference);
+          setActiveChatInfo((prev) => {
+            if (!prev || prev.id !== chat.id) {
+              return prev;
+            }
+            return {
+              ...prev,
+              sessionKey: nextReference.session_key ?? prev.sessionKey,
+              updatedAt: nextReference.updated_at,
+            };
           });
-
-          if (!response.ok) {
-            console.warn('Failed to persist chat history');
-            return;
-          }
-
-          let payload = null;
-          try {
-            payload = await response.json();
-          } catch (_) {
-            payload = null;
-          }
-
-          const updatedAt = payload?.result?.referenceParameters?.updated_at;
-          if (updatedAt) {
-            setActiveChatInfo((prev) => {
-              if (!prev || prev.id !== activeChatInfo.id) {
-                return prev;
-              }
-              return { ...prev, updatedAt };
-            });
-          }
-
           bumpChatVersion();
         } catch (error) {
           console.warn('Failed to persist chat history', error);
         }
-      }, [activeChatInfo?.id, bumpChatVersion]);
+      }, [activeChatInfo?.id, mainstore, bumpChatVersion]);
 
       const applyChatSelection = useCallback(async (chatId, chatData) => {
         if (!chatId) {
@@ -707,42 +746,94 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         }
       }, [mainstore, props.setChatState, updateStatus]);
 
+      useEffect(() => {
+        if (!activeChatInfo?.id) {
+          return;
+        }
+
+        const targetId = activeChatInfo.id;
+        const updated = availableChats.find((chat) => {
+          const cid = chat?.id ?? chat?._id;
+          return cid === targetId;
+        });
+
+        if (!updated) {
+          return;
+        }
+
+        const nextSessionKey = updated.referenceParameters?.session_key;
+        const nextUpdatedAt = updated.referenceParameters?.updated_at;
+        const nextTitle = updated.title ?? updated.referenceParameters?.title;
+
+        setActiveChatInfo((prev) => {
+          if (!prev || prev.id !== targetId) {
+            return prev;
+          }
+
+          const sameSession = prev.sessionKey === nextSessionKey || (!nextSessionKey && !prev.sessionKey);
+          const sameUpdatedAt = prev.updatedAt === nextUpdatedAt || (!nextUpdatedAt && !prev.updatedAt);
+          const sameTitle = (!nextTitle && !prev.title) || prev.title === nextTitle;
+
+          if (sameSession && sameUpdatedAt && sameTitle) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            sessionKey: nextSessionKey ?? prev.sessionKey,
+            updatedAt: nextUpdatedAt ?? prev.updatedAt,
+            title: nextTitle ?? prev.title,
+          };
+        });
+      }, [availableChats, activeChatInfo?.id]);
+
       const createChatSession = useCallback(async () => {
-        if (!primitive?.id) {
+        if (!primitive?.id || typeof mainstore.createPrimitive !== 'function') {
           return null;
         }
 
         setChatLoading(true);
         try {
-          const response = await fetch(`/api/primitive/${primitive.id}/chats`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
-          const payload = await response.json();
-          if (!response.ok || !payload?.success) {
-            console.warn('Failed to create chat', payload?.error);
-            return null;
+          let parentPrimitive = mainstore.primitive(primitive.id);
+          if (!parentPrimitive && typeof mainstore.fetchPrimitive === 'function') {
+            await mainstore.fetchPrimitive(primitive.id);
+            parentPrimitive = mainstore.primitive(primitive.id);
           }
-          const created = payload.result;
+
+          if (!parentPrimitive) {
+            parentPrimitive = primitive;
+          }
+
+          const now = new Date().toISOString();
+          const title = primitive?.title ? `Agent chat - ${primitive.title}` : 'Agent chat';
+          const created = await mainstore.createPrimitive({
+            title,
+            type: 'chat',
+            parent: parentPrimitive,
+            parentPath: 'chat',
+            workspaceId: primitive.workspaceId,
+            referenceParameters: {
+              chat_history: [],
+              updated_at: now,
+            },
+          });
+
           if (!created) {
             return null;
           }
-          const createdId = created.id ?? created._id;
-          mainstore.addPrimitive?.(created);
-          const parent = mainstore.primitive(primitive.id);
-          parent?.primitives?.chat?.add?.(createdId);
+
           bumpChatVersion();
-          return await applyChatSelection(createdId, created);
+          return await applyChatSelection(created.id ?? created._id, created);
         } catch (error) {
           console.warn('Failed to create chat', error);
           return null;
         } finally {
           setChatLoading(false);
         }
-      }, [primitive?.id, mainstore, applyChatSelection, bumpChatVersion]);
+      }, [primitive, mainstore, applyChatSelection, bumpChatVersion]);
 
       const ensureChatSession = useCallback(async () => {
-        if (activeChatInfo?.id && activeChatInfo?.sessionKey) {
+        if (activeChatInfo?.id) {
           return activeChatInfo;
         }
         return await createChatSession();

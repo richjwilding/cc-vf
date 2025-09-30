@@ -5,7 +5,6 @@ import { pipeline as pipelineAsync } from 'node:stream/promises';
 import * as zlib from 'node:zlib'; // namespace import works best in Node ESM
 const { constants: zlibConstants, createBrotliCompress, createGzip } = zlib;
 import { performance } from 'perf_hooks';
-import { randomUUID } from 'node:crypto';
 import User from '../model/User';
 import Company from '../model/Company';
 import AssessmentFramework from '../model/AssessmentFramework';
@@ -34,50 +33,6 @@ var ObjectId = require('mongoose').Types.ObjectId;
 
 const parser = PrimitiveParser()
 var router = express.Router();
-
-function sanitizeChatHistory(messages) {
-    if (!Array.isArray(messages)) {
-        return [];
-    }
-
-    const limit = 500;
-    const trimmed = messages.slice(-limit);
-
-    return trimmed
-        .map((entry) => {
-            if (!entry || typeof entry !== 'object') {
-                return null;
-            }
-
-            const safe = {
-                role: typeof entry.role === 'string' ? entry.role : 'assistant',
-                content: typeof entry.content === 'string' ? entry.content : '',
-            };
-
-            if (entry.hidden) {
-                safe.hidden = true;
-            }
-
-            if (entry.preview) {
-                safe.preview = true;
-            }
-
-            if (entry.context && typeof entry.context === 'object') {
-                safe.context = entry.context;
-            }
-
-            if (entry.resultFor && typeof entry.resultFor === 'string') {
-                safe.resultFor = entry.resultFor;
-            }
-
-            if (entry.name && typeof entry.name === 'string') {
-                safe.name = entry.name;
-            }
-
-            return safe;
-        })
-        .filter(Boolean);
-}
 
 async function userCanAccessPrimitive(primitive, req, res){
     if( typeof(primitive) === "string"){
@@ -1191,85 +1146,6 @@ router.post('/primitive/:id/agent', async function(req, res, next) {
     }
 })
 
-router.post('/primitive/:id/chats', async function(req, res) {
-    const primitiveId = req.params.id;
-
-    try {
-        const primitive = await fetchPrimitive(primitiveId);
-        if (!primitive) {
-            return res.status(404).json({ message: 'Primitive not found' });
-        }
-
-        if (!await userCanAccessPrimitive(primitive, req, res)) {
-            return;
-        }
-
-        const ownerId = req.user?.id ?? null;
-        const sessionKeyId = `${primitive.id}:${ownerId || 'anon'}:${randomUUID()}`;
-        const now = new Date().toISOString();
-        const requestedTitle = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
-        const title = requestedTitle || (primitive.title ? `Agent chat - ${primitive.title}` : 'Agent chat');
-
-        const chatData = {
-            workspaceId: primitive.workspaceId,
-            parent: primitive.id,
-            paths: ['origin', 'chat'],
-            data: {
-                type: 'chat',
-                title,
-                referenceParameters: {
-                    session_key: sessionKeyId,
-                    owner_id: ownerId,
-                    owner_type: ownerId ? 'user' : 'anon',
-                    updated_at: now,
-                    chat_history: [],
-                },
-            },
-        };
-
-        const created = await createPrimitive(chatData, true, req);
-        if (!created) {
-            throw new Error('Chat primitive was not created');
-        }
-
-        res.json({ success: true, result: created });
-    } catch (error) {
-        console.log('Error creating chat primitive', error);
-        res.status(400).json({ error: error?.message ?? 'Failed to create chat' });
-    }
-});
-
-router.post('/chat/:id/history', async function(req, res) {
-    const chatId = req.params.id;
-
-    try {
-        const chat = await fetchPrimitive(chatId);
-        if (!chat || chat.type !== 'chat') {
-            return res.status(404).json({ message: 'Chat not found' });
-        }
-
-        if (!await userCanAccessPrimitive(chat, req, res)) {
-            return;
-        }
-
-        const history = sanitizeChatHistory(req.body?.messages ?? []);
-        const now = new Date().toISOString();
-        const referenceParameters = {
-            ...(chat.referenceParameters ?? {}),
-            chat_history: history,
-            updated_at: now,
-        };
-
-        chat.referenceParameters = referenceParameters;
-
-        await dispatchControlUpdate(chat.id, 'referenceParameters', referenceParameters);
-
-        res.json({ success: true, result: { id: chat.id, referenceParameters } });
-    } catch (error) {
-        console.log('Error persisting chat history', error);
-        res.status(400).json({ error: error?.message ?? 'Failed to persist chat history' });
-    }
-});
 router.post('/primitive/:id/action/:action', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id
