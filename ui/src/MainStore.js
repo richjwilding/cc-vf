@@ -2338,7 +2338,7 @@ function MainStore (prims){
             return out
         },
         user:function(id){
-            return this.users().find((d)=>d.id === id)
+            return this.users().find((d)=>d._id === id)
         },
         users:function(){
             return this.data.users
@@ -3946,7 +3946,7 @@ function MainStore (prims){
         const organizations = dataMap.organizations ?? []
 
         obj.data.users = users.map((d)=>{
-            return {...d, id: d.id || d._id}
+            return {...d, id: d._id}
         })
         obj.data.categories = categories.reduce((o,d)=>{o[d.id] = d; return o}, {})
         obj.data.primitives = {}
