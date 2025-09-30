@@ -501,7 +501,9 @@ export async function handleChat(primitive, options, req, res) {
         }
 
         const userMessages = req.body.messages;
-        let immediateContext 
+        const requestedChatId = options.chatPrimitiveId ?? null;
+        const requestedSessionKey = options.chatSessionKey ?? null;
+        let immediateContext
         if( options.immediateContext ){
           userMessages.splice(-1, undefined, {role: "assistant", content: `[[chat_scope:${options.immediateContext.join(",")}]]`})
           immediateContext = await resolveId( options.immediateContext, {workspaceId: primitive.workspaceId} )
@@ -521,10 +523,53 @@ export async function handleChat(primitive, options, req, res) {
         remapHistoryFraming("suggest_categories", history, "This informations comes from a discussion with the user about categorization")
         const latestCategories = mostRecentResult("suggest_categories", history)
 
-        const sessionKeyId = sessionKey(primitive, req)
+        let chatPrimitive = null
+        if (requestedChatId) {
+          try {
+            const fetched = await fetchPrimitive(requestedChatId, undefined, {
+              _id: 1,
+              workspaceId: 1,
+              type: 1,
+              parentPrimitives: 1,
+              referenceParameters: 1,
+              title: 1,
+            })
+            if (fetched?.type === "chat") {
+              const relationships = fetched.parentPrimitives?.[primitive.id] ?? []
+              const isChild = relationships.some(path => typeof path === "string" && path.includes("primitives.chat"))
+              if (isChild) {
+                chatPrimitive = fetched
+              }
+            }
+          } catch (error) {
+            logger.warn(`Failed to load requested chat ${requestedChatId}`, { error: error?.message })
+          }
+        }
+
+        let sessionKeyId = requestedSessionKey
+          || chatPrimitive?.referenceParameters?.session_key
+          || sessionKey(primitive, req)
+
         const session = ensureSession(sessionKeyId)
 
-        const chatPrimitive = await ensureChatPrimitiveRecord(primitive, req, sessionKeyId)
+        if (!chatPrimitive) {
+          chatPrimitive = await ensureChatPrimitiveRecord(primitive, req, sessionKeyId)
+        } else if (chatPrimitive.referenceParameters?.session_key !== sessionKeyId) {
+          const mergedReference = {
+            ...(chatPrimitive.referenceParameters ?? {}),
+            session_key: sessionKeyId,
+            updated_at: new Date().toISOString(),
+          }
+          chatPrimitive.referenceParameters = mergedReference
+          try {
+            await dispatchControlUpdate(chatPrimitive.id, "referenceParameters", mergedReference)
+          } catch (err) {
+            logger.warn(`Failed to sync session key for chat ${chatPrimitive.id}`, { error: err?.message })
+          }
+        }
+
+        sessionKeyId = chatPrimitive?.referenceParameters?.session_key ?? sessionKeyId
+
         const persistedState = chatPrimitive?.referenceParameters?.agent_state?.session
         if (persistedState && !session._hydratedFromPersistence) {
           hydrateSessionFromPersisted(session, persistedState)
@@ -533,6 +578,8 @@ export async function handleChat(primitive, options, req, res) {
         let sendModeUpdate = () => {}
 
         const constrainTo = options.agentScope?.constrainTo ?? primitive.id
+
+        options.chatPrimitiveId = chatPrimitive?.id ?? options.chatPrimitiveId
 
         const scope = {
           chatUUID,
