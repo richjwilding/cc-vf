@@ -523,8 +523,10 @@ export async function handleChat(primitive, options, req, res) {
         remapHistoryFraming("suggest_categories", history, "This informations comes from a discussion with the user about categorization")
         const latestCategories = mostRecentResult("suggest_categories", history)
 
+        const skipChatPrimitiveLoad = options?.modePing === true
+
         let chatPrimitive = null
-        if (requestedChatId) {
+        if (!skipChatPrimitiveLoad && requestedChatId) {
           try {
             const fetched = await fetchPrimitive(requestedChatId, undefined, {
               _id: 1,
@@ -552,38 +554,41 @@ export async function handleChat(primitive, options, req, res) {
 
         const session = ensureSession(sessionKeyId)
 
-        if (!chatPrimitive) {
-          chatPrimitive = await ensureChatPrimitiveRecord(primitive, req, sessionKeyId)
-        } else if (chatPrimitive.referenceParameters?.session_key !== sessionKeyId) {
-          const mergedReference = {
-            ...(chatPrimitive.referenceParameters ?? {}),
-            session_key: sessionKeyId,
-            updated_at: new Date().toISOString(),
+        if (!skipChatPrimitiveLoad) {
+          if (!chatPrimitive) {
+            chatPrimitive = await ensureChatPrimitiveRecord(primitive, req, sessionKeyId)
+          } else if (chatPrimitive.referenceParameters?.session_key !== sessionKeyId) {
+            const mergedReference = {
+              ...(chatPrimitive.referenceParameters ?? {}),
+              session_key: sessionKeyId,
+              updated_at: new Date().toISOString(),
+            }
+            chatPrimitive.referenceParameters = mergedReference
+            try {
+              await dispatchControlUpdate(chatPrimitive.id, "referenceParameters", mergedReference)
+            } catch (err) {
+              logger.warn(`Failed to sync session key for chat ${chatPrimitive.id}`, { error: err?.message })
+            }
           }
-          chatPrimitive.referenceParameters = mergedReference
-          try {
-            await dispatchControlUpdate(chatPrimitive.id, "referenceParameters", mergedReference)
-          } catch (err) {
-            logger.warn(`Failed to sync session key for chat ${chatPrimitive.id}`, { error: err?.message })
+
+          sessionKeyId = chatPrimitive?.referenceParameters?.session_key ?? sessionKeyId
+
+          const persistedState = chatPrimitive?.referenceParameters?.agent_state?.session
+          if (persistedState && !session._hydratedFromPersistence) {
+            hydrateSessionFromPersisted(session, persistedState)
           }
-        }
 
-        sessionKeyId = chatPrimitive?.referenceParameters?.session_key ?? sessionKeyId
-
-        const persistedState = chatPrimitive?.referenceParameters?.agent_state?.session
-        if (persistedState && !session._hydratedFromPersistence) {
-          hydrateSessionFromPersisted(session, persistedState)
+          options.chatPrimitiveId = chatPrimitive?.id ?? options.chatPrimitiveId
         }
 
         let sendModeUpdate = () => {}
 
         const constrainTo = options.agentScope?.constrainTo ?? primitive.id
 
-        options.chatPrimitiveId = chatPrimitive?.id ?? options.chatPrimitiveId
-
         const scope = {
           chatUUID,
             chatPrimitive,
+            chatId: session.id,
             parent,
             mode: options.mode,
             workspaceId: primitive.workspaceId,
@@ -596,6 +601,7 @@ export async function handleChat(primitive, options, req, res) {
             functionMap: Object.fromEntries(toolRegistry.entries()),
             functions: allFunctionDefinitions,
             session,
+            chatSessionKey: sessionKeyId,
         }
 
         const persistState = async () => {
@@ -691,7 +697,7 @@ export async function handleChat(primitive, options, req, res) {
         scope.mode = session.mode
         scope.modeState = session.state ?? getStoredModeState(session, session.mode)
         scope.linkToChat = linkToChat
-        scope.chatPrimitiveId = chatPrimitive?.id ?? null
+        scope.chatPrimitiveId = chatPrimitive?.id ?? requestedChatId ?? null
 
         if (scope.mode && modeSeeds[scope.mode]) {
           const updatedState = getModeState(scope.mode, scope.modeState)

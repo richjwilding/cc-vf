@@ -206,10 +206,6 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
 
         const parent = mainstore.primitive(primitive.id) ?? primitive;
         const chatCollection = parent?.primitives?.chat;
-        if (!chatCollection || typeof chatCollection.allItems !== 'function') {
-          setAvailableChats([]);
-          return;
-        }
 
         const resolved = chatCollection.allItems.map((chat) => {
           const chatId = chat?.id ?? chat?._id;

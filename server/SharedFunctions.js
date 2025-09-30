@@ -5224,7 +5224,7 @@ export async function createPrimitive( data, skipActions, req, options={} ){
                     data.data.referenceId = config.defaultReferenceId
                 }
             }
-            if( config.needParent ){
+            if( config.needCategory !== false  ){
                 if( data.data.referenceId === undefined){
                     throw new Error(`Cant create '${type}' without a category`)
                 }

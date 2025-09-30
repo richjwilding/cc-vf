@@ -325,6 +325,7 @@ const PrimitiveConfig = {
         },
         "chat": {
             needParent: true,
+            needCategory:false,
             defaultTitle: false
         },
     },
