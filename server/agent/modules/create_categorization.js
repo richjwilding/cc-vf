@@ -39,9 +39,6 @@ async function implementation(params = {}, scope = {}, notify) {
     });
 
     await scope.linkToChat?.(result.container.id);
-    for (const id of result.subCategoryIds ?? []) {
-      await scope.linkToChat?.(id);
-    }
 
     notify?.(
       `Created categorization [[id:${result.container.id}]]`,

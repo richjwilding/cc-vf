@@ -658,7 +658,6 @@ export async function handleChat(primitive, options, req, res) {
         if (options?.modePing) {
           console.log(`MODE PING FINISHED`)
           sendSse({ done: true })
-          await persistState()
           return
         }
 
@@ -1056,9 +1055,6 @@ registerAction("run_agent_create_categorization", undefined, async (primitive, a
         if (chatForLink) {
             try {
                 await addRelationship(chatForLink.id, result.container.id, "link");
-                for (const childId of result.subCategoryIds ?? []) {
-                    await addRelationship(chatForLink.id, childId, "link");
-                }
             } catch (error) {
                 logger.warn("Failed to link categorization to chat", { error: error?.message, chatId: chatForLink.id });
             }
