@@ -1097,6 +1097,7 @@ class QueueManager {
             logger.debug(`[${this.type}] Skipping waiting-children sweep because another sweep is in progress`);
             return { skipped: true };
         }
+        logger.debug(`[${this.type}] Starting waiting-children sweep`);
 
         this.sweepingWaitingChildren = true;
         const result = { removed: [] };

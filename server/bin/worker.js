@@ -2,9 +2,11 @@
 
 import * as dotenv from 'dotenv' 
 import crypto from 'crypto';
+import { updateBrightDataWhitelist } from '../brightdata.js';
 const express = require('express');
 const { getRedisBase, getPubSubClients } = require('../redis.js');
 
+updateBrightDataWhitelist()
 
 if( process.env.NODE_ENV === "development"){
     dotenv.config({ path: `.env.worker` })

@@ -1004,6 +1004,8 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
     logger.info( "Flow instance ", {id: flowInstance.id})
     const instanceStepsForFlow = await primitiveChildren( flowInstance )
 
+    const instanceSubFlowInstances = await primitivePrimitives(flowInstance, 'primitives.subfi',  "flowinstance")
+
     const subFlows = []
 
 
@@ -1092,6 +1094,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
             }
 
         }
+        logger.info(`fetchedCachedPrimitives: ${toFetch.length} / ${ids.length} not in cache and fetched`)
         return toReturn
     }
 
@@ -1206,8 +1209,15 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
                         if( mappedImportStep?.instance ){
                             targetInstances = [mappedImportStep.instance]
                         }else if( importTarget?.primitives?.config?.length > 0 ){
-                            //targetInstances = await fetchPrimitives( importTarget.primitives?.config ?? [], undefined, DONT_LOAD)
-                            targetInstances = await fetchedCachedPrimitives( importTarget.primitives?.config ?? [])
+                            if( importTarget.type === "flow"){
+                                logger.debug(`Step ${step.id} importing from flow ${originalImportStep.id}`)
+                                targetInstances = instanceSubFlowInstances.filter(d=>d.parentPrimitives[importTarget.id]?.includes("primitives.origin"))
+                                logger.debug(`----> Mapped to ${targetInstances.length}`)
+                            }else{
+                                logger.debug(`Step ${step.id} importing from ${originalImportStep.id} - not a mapped step, looking up ${paths.join(", ")}`)
+                                //targetInstances = await fetchPrimitives( importTarget.primitives?.config ?? [], undefined, DONT_LOAD)                            
+                                targetInstances = await fetchedCachedPrimitives( importTarget.primitives?.config ?? [])
+                            }
                         }
                         const { mappings } = await computeInstanceLinks({
                             receiverDef: step,
@@ -1230,10 +1240,10 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
                         const mappedForThisInstance = mappings.filter(m=>m.receiverId === mappedStep.instance.id)
                         if( mappedForThisInstance.length === 0 ){
                             if( mappedStep.instance.type === "page"){
-                                logger.debug(`Importing from something other than flow or step id = ${importId} - currently in page, assume element?`)
+                                logger.debug(`Step ${step.id} / ${step.plainId} importing from something other than flow or step id = ${importId} - currently in page, assume element?`)
                             }else if( importTarget?.type === "flow"){
                                 const fis = (await primitivePrimitives(flowInstance, 'primitives.subfi', "flowinstance" )).filter(d2=>Object.keys(d2.parentPrimitives ?? {}).includes(importTarget.id))
-                                logger.debug(`Importing from flow = ${importId} - linking to ${fis.length} flowinstances`)
+                                logger.debug(`Step ${step.id} / ${step.plainId} importing from flow = ${importId} - linking to ${fis.length} flowinstances`)
                                 for(const d of fis){
                                     targetImports.push( {id: d.id, paths} )
                                 }
@@ -1288,10 +1298,16 @@ async function alignPrimitiveRelationships( targetPrimitive, targetImports, rel,
         for(const d of toRemove){
             console.log(`--- Removing ${d.id} at ${d.path}`)
             await removeRelationship(targetPrimitive.id, d.id, d.path)
+            if( d.path.endsWith("_impin")){
+                await removeRelationship(d.id, targetPrimitive.id, "imports")
+            }
         }
         for(const d of toAdd){
             console.log(`--- Adding ${d.id} at ${d.path}`)
             await addRelationship(targetPrimitive.id, d.id, d.path)
+            if( d.path.endsWith("_impin")){
+                await addRelationship(d.id, targetPrimitive.id, "imports")
+            }
         }
         if( rel === "imports"){
             const allFilters = targetImports.map(d=>d.filters).flat().filter(d=>d)
