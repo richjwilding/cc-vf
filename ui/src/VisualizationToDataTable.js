@@ -48,6 +48,9 @@ export function ConvertVisualizationSpec( spec, defs ){
     return ConvertVisualizationSpecToView( spec, defs )
 }
 export function ConvertVisualizationSpecToView( spec, defs ){
+    if( !spec.chart){
+        return
+    }
 
   /*
   {

@@ -1430,7 +1430,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                     myState[stateId].renderData = {
                         placeholder: true,
                         sections: visuals.map(d=>{
-                            if( d.type == "visualization"){
+                            if( d.type == "visualization" && d.chart){
                                 return {
                                     visualization: ConvertVisualizationSpec( d,  basePrimitive.slide_state?.data?.slideSpec?.defs)
                                 }
@@ -1866,7 +1866,7 @@ export default function BoardViewer({primitive,...props}){
                 prepareBoard(d)
             }
         }
-        const allBoards = Object.values(myState).filter(d=>d && d.isBoard).map(d=>d.primitive)
+        const allBoards = Object.values(myState).filter(d=>d && d.isBoard).map(d=>d.primitive).filter(Boolean)
         const renderedSet = allBoards.map(d=>renderView(d))
         return [allBoards, renderedSet]
     }, [primitive?.id, update])

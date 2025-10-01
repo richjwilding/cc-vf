@@ -28,6 +28,11 @@ const DEFAULT_PHASE_CONFIG = {
     rowSlope: 0,
 }
 
+const DEG_TO_RAD = Math.PI / 180
+const MIN_RENDER_SCALE = 1e-4
+
+const GLOBAL_ANIMATION_BASE_TICK = 0
+
 export function createProcessingPlaceholder(size = 120, options = {}){
     const resolvedSize = Math.max(32, Number.isFinite(size) ? size : 120)
     const requestedCount = Number(options.squareCount ?? options.tileCount ?? options.cubeCount ?? 256)
@@ -45,16 +50,6 @@ export function createProcessingPlaceholder(size = 120, options = {}){
 
     const backgroundFill = typeof options.backgroundFill === "string" ? options.backgroundFill : "#ffffff"
     const backgroundOpacity = clampBetween(options.backgroundOpacity ?? 1, 0, 1)
-    const background = new Konva.Rect({
-        x: 0,
-        y: 0,
-        width: resolvedSize,
-        height: resolvedSize,
-        fill: backgroundFill,
-        opacity: backgroundOpacity,
-        listening: false,
-    })
-    group.add(background)
 
     const chartKeys = ["bars", "area", "pie", "table", "textbox"]
     const chartKeySeeds = chartKeys.reduce((acc, key, index) => {
@@ -105,6 +100,7 @@ export function createProcessingPlaceholder(size = 120, options = {}){
         minAreaHeight: 0.18,
         pieSegments: [375,375,250],
     }
+    chartContext.tileCorner = tileCorner
 
     const maxRadius = Math.min(bounds.width, bounds.height) / 2 - halfTile * 1.1
     chartContext.outerRadius = Math.max(halfTile * 3, maxRadius)
@@ -141,26 +137,9 @@ export function createProcessingPlaceholder(size = 120, options = {}){
     chartContext.permutations = permutations
 
     const tiles = grid.points.map((point, id) => {
-        const rect = new Konva.Rect({
-            x: chartContext.centerX,
-            y: chartContext.centerY,
-            width: tileSize,
-            height: tileSize,
-            offsetX: halfTile,
-            offsetY: halfTile,
-            stroke: "#cbd5f5",
-            strokeWidth: tileStroke,
-            cornerRadius: tileCorner,
-            listening: false,
-            opacity: 0,
-            fill: "transparent",
-            fillEnabled: false,
-        })
-        group.add(rect)
+        const chartTargets = {}
 
-    const chartTargets = {}
-
-    chartKeys.forEach(key => {
+        chartKeys.forEach(key => {
             const permutation = chartContext.permutations?.[key]
             const permutedIndex = Array.isArray(permutation) && permutation.length > point.index
                 ? permutation[point.index]
@@ -230,9 +209,20 @@ export function createProcessingPlaceholder(size = 120, options = {}){
 
         return {
             index: point.index,
-            rect,
             chartTargets,
             baseStrokeWidth: tileStroke,
+            renderState: {
+                x: chartContext.centerX,
+                y: chartContext.centerY,
+                opacity: 0,
+                scale: 1,
+                rotation: 0,
+                strokeStyle: "",
+                fillStyle: null,
+                fillEnabled: false,
+            },
+            __strokeKey: null,
+            __fillKey: null,
         }
     })
 
@@ -253,18 +243,13 @@ export function createProcessingPlaceholder(size = 120, options = {}){
         }
     })
 
-    tiles.forEach(tile => {
-        tile.rect.opacity(0)
-    })
-
     const animationOptions = options.animationConfig || {}
     const animationConfig = {
         chartOrder: Array.isArray(animationOptions.chartOrder) && animationOptions.chartOrder.length > 0
             ? [...animationOptions.chartOrder]
             : [...chartKeys],
-        buildDuration: Math.max(1, animationOptions.buildDuration ?? 600),
         transitionDuration: Math.max(1, animationOptions.transitionDuration ?? 600),
-        pauseDuration: Math.max(1, animationOptions.pauseDuration ?? 900),
+        pauseDuration: Math.max(1, animationOptions.pauseDuration ?? 5000),
         minFrameInterval: Math.max(1, animationOptions.minFrameInterval ?? 33),
         hueCycleMs: Math.max(1, animationOptions.hueCycleMs ?? 35),
         pauseFrameInterval: Math.max(1, animationOptions.pauseFrameInterval ?? 50),
@@ -278,16 +263,37 @@ export function createProcessingPlaceholder(size = 120, options = {}){
         tileSlot,
         size: resolvedSize,
         squareCount,
-        background,
         context: chartContext,
+        backgroundFill,
+        backgroundOpacity,
+        tilePath: buildTilePath(tileSize, tileCorner),
     }
+
+    placeholder.animationId = resolvePlaceholderAnimationId(options)
+
+    const tilesShape = new Konva.Shape({
+        x: 0,
+        y: 0,
+        width: resolvedSize,
+        height: resolvedSize,
+        listening: false,
+        perfectDrawEnabled: false,
+        sceneFunc: (ctx, shape) => {
+            const container = shape.__placeholder
+            if (!container) {
+                return
+            }
+            renderPlaceholderScene(ctx, container)
+        },
+    })
+    tilesShape.__placeholder = placeholder
+    placeholder.tilesShape = tilesShape
+    group.add(tilesShape)
 
     placeholder.animation = {
         config: animationConfig,
         state: {
-            startTick: null,
             lastTick: null,
-            initialBuildComplete: false,
         },
     }
 
@@ -361,8 +367,19 @@ export function updateProcessingPlaceholder(placeholder, options = {}) {
 
     const transitionComplete = effectiveStage === "transition" && stageBlend >= 1 - 1e-3
 
+    let needsRedraw = true
+    const normalizedHue = Math.round(normalizeHue(hue) / 2 ) * 2
+    const strokeStyleCache = placeholder.__strokeStyleCache || (placeholder.__strokeStyleCache = new Map())
+    const fillStyleCache = placeholder.__fillStyleCache || (placeholder.__fillStyleCache = new Map())
+    strokeStyleCache.clear()
+    fillStyleCache.clear()
+
     placeholder.tiles.forEach(tile => {
-        const rect = tile.rect
+        const renderState = tile.renderState
+        if (!renderState) {
+            return
+        }
+
         const sourceTarget = tile.chartTargets?.[activeSourceKey]
         const targetTarget = tile.chartTargets?.[activeTargetKey]
 
@@ -375,17 +392,7 @@ export function updateProcessingPlaceholder(placeholder, options = {}) {
         let desiredOpacity = targetTarget?.stableOpacity ?? 0
         let desiredRotation = 0
 
-        if (effectiveStage === "build") {
-            const buildStartX = desiredX + (targetTarget?.introOffsetX ?? 0)
-            const buildStartY = desiredY + (targetTarget?.introOffsetY ?? 0)
-            const buildScaleStart = targetTarget?.scaleInStart ?? 0.4
-            const buildScaleEnd = targetTarget?.scaleInEnd ?? 1
-            desiredX = lerp(buildStartX, desiredX, stageBlend)
-            desiredY = lerp(buildStartY, desiredY, stageBlend)
-            desiredScale = lerp(buildScaleStart, buildScaleEnd, stageBlend)
-            desiredOpacity = (targetTarget?.stableOpacity ?? 0) * stageBlend
-            desiredRotation = (targetTarget?.introRotation ?? 0) * (1 - stageBlend)
-        } else if (effectiveStage === "transition") {
+        if (effectiveStage === "transition") {
             const entering = !hasSource && hasTarget
             const exiting = hasSource && !hasTarget
 
@@ -435,23 +442,35 @@ export function updateProcessingPlaceholder(placeholder, options = {}) {
 
         desiredOpacity = clampBetween(desiredOpacity, 0, 1)
 
-        rect.setAttrs({
-            x: desiredX,
-            y: desiredY,
-            opacity: desiredOpacity,
-            rotation: desiredRotation,
-            scaleX: desiredScale,
-            scaleY: desiredScale,
-        })
+        renderState.x = desiredX
+        renderState.y = desiredY
+        renderState.scale = ensureMinimumScale(desiredScale)
+        renderState.opacity = desiredOpacity
+        
+        const q = 0.5
+        renderState.rotation = Math.round(desiredRotation / q) * q;
 
-        const tone = targetTarget?.baseLightness ?? sourceTarget?.baseLightness ?? 60
-        const strokeHue = ((Math.round(hue) % 360) + 360) % 360
-        const strokeKey = `${strokeHue}|${tone.toFixed(2)}`
-        if (tile.__strokeKey !== strokeKey) {
-            rect.stroke(`hsl(${strokeHue}, 72%, ${tone}%)`)
-            tile.__strokeKey = strokeKey
+        renderState.rotation = desiredRotation * DEG_TO_RAD
+        renderState.strokeWidth = tile.baseStrokeWidth
+
+        const _tone = targetTarget?.baseLightness ?? sourceTarget?.baseLightness ?? 60
+        const tone = Math.round(_tone / 2) * 2;
+        const strokeAlpha = desiredOpacity
+        if (strokeAlpha > 0.001) {
+            const strokeKey = `${normalizedHue}|${tone.toFixed(2)}|${strokeAlpha.toFixed(3)}`
+            if (tile.__strokeKey !== strokeKey) {
+                let strokeStyle = strokeStyleCache.get(strokeKey)
+                if (!strokeStyle) {
+                    strokeStyle = `hsla(${normalizedHue}, 72%, ${tone}%, ${strokeAlpha})`
+                    strokeStyleCache.set(strokeKey, strokeStyle)
+                }
+                renderState.strokeStyle = strokeStyle
+                tile.__strokeKey = strokeKey
+            }
+        } else {
+            renderState.strokeStyle = null
+            tile.__strokeKey = null
         }
-        rect.strokeWidth(tile.baseStrokeWidth)
 
         const sourceFilled = Boolean(sourceTarget?.filled)
         const targetFilled = Boolean(targetTarget?.filled)
@@ -461,12 +480,7 @@ export function updateProcessingPlaceholder(placeholder, options = {}) {
         let fillAlpha = 0
         let fillLightness = targetFillLightness ?? sourceFillLightness ?? (tone - 14)
 
-        if (effectiveStage === "build") {
-            fillAlpha = targetFilled ? stageBlend : 0
-            if (targetFilled && targetFillLightness !== undefined) {
-                fillLightness = targetFillLightness
-            }
-        } else if (effectiveStage === "transition") {
+        if (effectiveStage === "transition") {
             const startAlpha = sourceFilled ? 1 : 0
             const endAlpha = targetFilled ? 1 : 0
             fillAlpha = lerp(startAlpha, endAlpha, stageBlend)
@@ -487,22 +501,40 @@ export function updateProcessingPlaceholder(placeholder, options = {}) {
 
         fillAlpha = clampBetween(fillAlpha, 0, 1)
 
-        if (fillAlpha > 0.02 && desiredOpacity > 0.02) {
-            const fillHue = ((Math.round(hue) % 360) + 360) % 360
-            const limitedLightness = clampBetween(fillLightness, 10, 90)
-            const fillKey = `${fillHue}|${limitedLightness.toFixed(2)}|${fillAlpha.toFixed(2)}`
+        const finalFillAlpha = fillAlpha * desiredOpacity
+
+        if (finalFillAlpha > 0.02) {
+            const limitedLightness = Math.round(clampBetween(fillLightness, 10, 90) / 2) * 2
+            const fillKey = `${normalizedHue}|${limitedLightness.toFixed(2)}|${finalFillAlpha.toFixed(3)}`
             if (tile.__fillKey !== fillKey) {
-                rect.fill(`hsla(${fillHue}, 78%, ${limitedLightness}%, ${fillAlpha})`)
+                let fillStyle = fillStyleCache.get(fillKey)
+                if (!fillStyle) {
+                    fillStyle = `hsla(${normalizedHue}, 78%, ${limitedLightness}%, ${finalFillAlpha})`
+                    fillStyleCache.set(fillKey, fillStyle)
+                }
+                renderState.fillStyle = fillStyle
                 tile.__fillKey = fillKey
             }
-            if (!rect.fillEnabled()) {
-                rect.fillEnabled(true)
+            renderState.fillEnabled = true
+        } else {
+            if (renderState.fillEnabled) {
+                tile.__fillKey = null
             }
-        } else if (rect.fillEnabled()) {
-            rect.fillEnabled(false)
-            tile.__fillKey = null
+            renderState.fillEnabled = false
+            renderState.fillStyle = null
         }
+
     })
+
+    if (needsRedraw) {
+        const shape = placeholder.tilesShape
+        const layer = shape?.getLayer?.()
+        if (layer && layer.batchDraw) {
+            layer.batchDraw()
+        } else if (shape && shape.requestDraw) {
+            shape.requestDraw()
+        }
+    }
 
     if (transitionComplete && transitionState.targetKey) {
         transitionState.currentKey = transitionState.targetKey
@@ -522,6 +554,16 @@ export function configureProcessingPlaceholderAnimation(placeholder, config = {}
     }
     const animation = placeholder.animation || (placeholder.animation = { config: {}, state: {} })
     const baseConfig = animation.config || {}
+    const state = animation.state || (animation.state = {})
+
+    const shouldInvalidateTiming = config.reset === true
+        || config.chartOrder != null
+        || config.transitionDuration != null
+        || config.pauseDuration != null
+
+    if (shouldInvalidateTiming) {
+        invalidatePlaceholderAnimationTiming(state)
+    }
 
     if (Array.isArray(config.chartOrder) && config.chartOrder.length > 0) {
         baseConfig.chartOrder = [...config.chartOrder]
@@ -529,9 +571,6 @@ export function configureProcessingPlaceholderAnimation(placeholder, config = {}
         baseConfig.chartOrder = [...(placeholder.chartKeys || [])]
     }
 
-    if (config.buildDuration != null) {
-        baseConfig.buildDuration = Math.max(1, config.buildDuration)
-    }
     if (config.transitionDuration != null) {
         baseConfig.transitionDuration = Math.max(1, config.transitionDuration)
     }
@@ -548,29 +587,15 @@ export function configureProcessingPlaceholderAnimation(placeholder, config = {}
         baseConfig.pauseFrameInterval = Math.max(1, config.pauseFrameInterval)
     }
 
-    const state = animation.state || (animation.state = {})
-    if (config.reset === true) {
-        state.startTick = null
+    if (state.lastTick == null) {
         state.lastTick = null
-        state.initialBuildComplete = false
-    } else {
-        if (state.startTick == null) {
-            state.startTick = null
-        }
-        if (state.lastTick == null) {
-            state.lastTick = null
-        }
-        if (state.initialBuildComplete == null) {
-            state.initialBuildComplete = false
-        }
     }
 
-    baseConfig.buildDuration = Math.max(1, baseConfig.buildDuration ?? 600)
     baseConfig.transitionDuration = Math.max(1, baseConfig.transitionDuration ?? 600)
-    baseConfig.pauseDuration = Math.max(1, baseConfig.pauseDuration ?? 900)
+    baseConfig.pauseDuration = Math.max(1, baseConfig.pauseDuration ?? 5000)
     baseConfig.minFrameInterval = Math.max(1, baseConfig.minFrameInterval ?? 33)
     baseConfig.hueCycleMs = Math.max(1, baseConfig.hueCycleMs ?? 35)
-    baseConfig.pauseFrameInterval = Math.max(1, baseConfig.pauseFrameInterval ?? 50)
+    baseConfig.pauseFrameInterval = Math.max(1, baseConfig.pauseFrameInterval ?? 99)
 }
 
 export function tickProcessingPlaceholder(placeholder, tick) {
@@ -595,7 +620,7 @@ export function tickProcessingPlaceholder(placeholder, tick) {
     }
 
     const minFrameInterval = Math.max(1, config.minFrameInterval ?? 33)
-    const pauseFrameInterval = Math.max(minFrameInterval, config.pauseFrameInterval ?? 50)
+    const pauseFrameInterval = Math.max(minFrameInterval, config.pauseFrameInterval ?? 99)
 
     const lastTick = state.lastTick
     const elapsedSinceLast = lastTick != null ? tick - lastTick : Number.POSITIVE_INFINITY
@@ -603,48 +628,50 @@ export function tickProcessingPlaceholder(placeholder, tick) {
         return false
     }
 
-    if (state.startTick == null) {
-        state.startTick = tick
-        state.initialBuildComplete = false
-    }
-
-    const buildDuration = Math.max(1, config.buildDuration ?? 600)
     const transitionDuration = Math.max(1, config.transitionDuration ?? 600)
-    const pauseDuration = Math.max(1, config.pauseDuration ?? 900)
+    const pauseDuration = Math.max(1, config.pauseDuration ?? 5000)
     const chartDuration = transitionDuration + pauseDuration
     const totalCycle = chartDuration * chartOrder.length
 
-    const elapsed = Math.max(0, tick - state.startTick)
+    const cycleLength = totalCycle > 0 ? totalCycle : Math.max(1, chartDuration)
+
+    if (state.cycleLength !== cycleLength) {
+        state.cycleLength = cycleLength
+        state.offsetKey = null
+        state.offsetMs = null
+    }
+
+    const offsetKeySeed = placeholder.animationId ?? "default"
+    const offsetKey = `${offsetKeySeed}|${cycleLength}`
+    if (state.offsetKey !== offsetKey) {
+        state.offsetKey = offsetKey
+        state.offsetMs = computePlaceholderAnimationOffset(placeholder, cycleLength)
+    }
+
+    const offsetMs = state.offsetMs ?? 0
+
+    const elapsed = Math.max(0, tick + offsetMs)
     const cycleTime = totalCycle > 0 ? elapsed % totalCycle : 0
     const chartIndex = totalCycle > 0 ? Math.floor(cycleTime / chartDuration) : 0
     const chartKey = chartOrder[chartIndex] ?? chartOrder[0]
-    const chartElapsed = cycleTime - (chartIndex * chartDuration)
+    const chartElapsed = cycleTime - chartIndex * chartDuration
 
-    let stage = "pause"
-    let stageProgress = 0
+    let stage = "transition"
+    let stageElapsed = chartElapsed
 
-    if (!state.initialBuildComplete) {
-        if (chartElapsed < buildDuration) {
-            stage = "build"
-            stageProgress = chartElapsed / buildDuration
-        } else {
-            state.initialBuildComplete = true
-            stage = "pause"
-            stageProgress = (chartElapsed - buildDuration) / pauseDuration
-        }
-    } else if (chartElapsed < transitionDuration) {
-        stage = "transition"
-        stageProgress = chartElapsed / transitionDuration
-    } else {
+    if (chartElapsed >= transitionDuration) {
         stage = "pause"
-        stageProgress = (chartElapsed - transitionDuration) / pauseDuration
+        stageElapsed = chartElapsed - transitionDuration
     }
+
+    const stageDuration = stage === "transition" ? transitionDuration : pauseDuration
+    let stageProgress = stageDuration > 0 ? stageElapsed / stageDuration : 1
 
     stageProgress = clampBetween(stageProgress, 0, 1)
     const shimmerProgress = stage === "pause" ? stageProgress : 0
 
     const hueCycleMs = Math.max(1, config.hueCycleMs ?? 35)
-    const hue = (elapsed / hueCycleMs) % 360
+    const hue = ((tick / hueCycleMs) % 360 + 360) % 360
 
     if (stage === "pause" && elapsedSinceLast < pauseFrameInterval) {
         return false
@@ -1189,4 +1216,182 @@ function normalizeAngleDifference(a, b) {
         delta += twoPi
     }
     return delta
+}
+
+function resolvePlaceholderAnimationId(options = {}) {
+    if (!options || typeof options !== "object") {
+        return null
+    }
+    const candidates = [
+        options.animationId,
+        options.placeholderId,
+        options.animationKey,
+        options.id,
+    ]
+    for (let i = 0; i < candidates.length; i += 1) {
+        const value = candidates[i]
+        if (value === 0 || value) {
+            return String(value)
+        }
+    }
+    return null
+}
+
+function computePlaceholderAnimationOffset(placeholder, cycleLength) {
+    if (!placeholder || !Number.isFinite(cycleLength) || cycleLength <= 0) {
+        return 0
+    }
+    const identifier = placeholder.animationId
+        ?? placeholder.group?.attrs?.id
+        ?? "default"
+    const fallbackSeed = (placeholder.squareCount ?? 0) + (placeholder.context?.size ?? 0)
+    const numericSeed = hashIdentifierToSeed(identifier, fallbackSeed)
+    const sample = placeholderSeed(numericSeed, 137)
+    return sample * cycleLength
+}
+
+function hashIdentifierToSeed(identifier, fallback = 0) {
+    if (typeof identifier === "number" && Number.isFinite(identifier)) {
+        const value = identifier >= 0 ? identifier : -identifier
+        return (Math.floor(value) >>> 0) || (fallback >>> 0)
+    }
+    const text = String(identifier ?? "")
+    let hash = 0
+    for (let i = 0; i < text.length; i += 1) {
+        hash = (hash * 31 + text.charCodeAt(i)) >>> 0
+    }
+    if (hash === 0) {
+        hash = (Math.floor(fallback) >>> 0) || 1
+    }
+    return hash >>> 0
+}
+
+function invalidatePlaceholderAnimationTiming(state) {
+    if (!state) {
+        return
+    }
+    state.lastTick = null
+    state.lastFrame = null
+    state.cycleLength = undefined
+    state.offsetKey = null
+    state.offsetMs = null
+}
+
+function normalizeHue(rawHue) {
+    if (!Number.isFinite(rawHue)) {
+        return 0
+    }
+    const rounded = Math.round(rawHue)
+    const normalized = rounded % 360
+    return normalized < 0 ? normalized + 360 : normalized
+}
+
+function ensureMinimumScale(scale) {
+    if (!Number.isFinite(scale)) {
+        return 1
+    }
+    if (scale >= 0 && scale < MIN_RENDER_SCALE) {
+        return MIN_RENDER_SCALE
+    }
+    if (scale < 0 && scale > -MIN_RENDER_SCALE) {
+        return -MIN_RENDER_SCALE
+    }
+    return scale
+}
+
+function buildTilePath(tileSize, corner) {
+    if (!Number.isFinite(tileSize) || tileSize <= 0) {
+        return null
+    }
+    const safeCorner = clampBetween(typeof corner === "number" ? corner : 0, 0, tileSize / 2)
+    const half = tileSize / 2
+    const r = safeCorner
+    const path = new Path2D()
+    if (r <= 0.0001) {
+        path.rect(-half, -half, tileSize, tileSize)
+        return path
+    }
+
+    const left = -half
+    const top = -half
+    const right = half
+    const bottom = half
+    path.moveTo(left + r, top)
+    path.lineTo(right - r, top)
+    path.quadraticCurveTo(right, top, right, top + r)
+    path.lineTo(right, bottom - r)
+    path.quadraticCurveTo(right, bottom, right - r, bottom)
+    path.lineTo(left + r, bottom)
+    path.quadraticCurveTo(left, bottom, left, bottom - r)
+    path.lineTo(left, top + r)
+    path.quadraticCurveTo(left, top, left + r, top)
+    path.closePath()
+    return path
+}
+
+function renderPlaceholderScene(ctx, placeholder) {
+    const { backgroundFill, backgroundOpacity, tiles, context } = placeholder;
+    const size = placeholder.size ?? context?.size ?? 0;
+
+    const base = ctx._context.getTransform
+        ? ctx._context.getTransform()   // if browser API available
+        : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+
+    ctx.save()
+    ctx.globalAlpha = 1;
+
+    if (size > 0) {
+        ctx.fillStyle = backgroundFill;
+        ctx.fillRect(0, 0, size, size);
+    }
+
+    ctx.globalAlpha = 1; // we'll encode alpha in styles
+
+    ctx.setTransform(base);
+
+    const ba = base.a, bb = base.b, bc = base.c, bd = base.d, be = base.e, bf = base.f;
+
+    const baseScale = Math.max(1e-4, Math.hypot(ba, bb)); // ≈ stage/layer scale
+
+    let tilePath = placeholder.tilePath;
+    if (!tilePath) {
+        tilePath = buildTilePath(context?.tileSize ?? 0, context?.tileCorner ?? 0);
+        placeholder.tilePath = tilePath;
+        if (!tilePath) return;
+    }
+
+    for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        const s = t.renderState;
+        if (!s || s.opacity <= 0.002) continue;
+
+        const sc = s.scale ?? 1;
+        const cos = Math.cos(s.rotation) * sc;
+        const sin = Math.sin(s.rotation) * sc;
+
+        // C = base * T  (single multiply, expanded inline — fastest)
+        // T = [cos sin -sin cos x y]
+        const ca = ba * cos + bc * sin;
+        const cb = bb * cos + bd * sin;
+        const cc = ba * (-sin) + bc * cos;
+        const cd = bb * (-sin) + bd * cos;
+        const ce = ba * s.x + bc * s.y + be;
+        const cf = bb * s.x + bd * s.y + bf;
+
+        ctx.setTransform(ca, cb, cc, cd, ce, cf);
+
+        if (s.fillEnabled && s.fillStyle) {
+            ctx.fillStyle = s.fillStyle;     // hsla with alpha baked in
+            ctx.fill(tilePath);
+        }
+
+        if (s.strokeStyle && (s.strokeWidth ?? t.baseStrokeWidth) > 0) {
+            ctx.strokeStyle = s.strokeStyle; // hsla with alpha baked in
+            const localScale = Math.max(1e-4, Math.abs(sc));
+            ctx.lineWidth = (s.strokeWidth ?? t.baseStrokeWidth) / (baseScale * localScale);
+            ctx.stroke(tilePath);
+        }
+    }
+
+    ctx.restore()
 }

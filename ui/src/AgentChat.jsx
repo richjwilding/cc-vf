@@ -205,9 +205,9 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         }
 
         const parent = mainstore.primitive(primitive.id) ?? primitive;
-        const chatCollection = parent?.primitives?.chat;
+        const chatCollection = parent?.primitives?.chat.allItems ?? []
 
-        const resolved = chatCollection.allItems.map((chat) => {
+        const resolved = chatCollection.map((chat) => {
           const chatId = chat?.id ?? chat?._id;
           return mainstore.primitive(chatId) ?? chat;
         }).filter(Boolean);
@@ -401,15 +401,18 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
 
       async function sendChat() {
         if( pending || chatLoading){return}
-        if( inputBox.current?.empty() ){
-          return
+        const rawInput = inputBox.current?.value?.();
+        const draft = typeof rawInput === 'string' ? rawInput.trim() : '';
+        if (!draft) {
+          return;
         }
         const activeSession = await ensureChatSession()
         if( !activeSession){
           return
         }
+        const sessionChatId = activeSession?.id ?? activeSession?._id;
         setPending(true)
-        const userMsg = { role: 'user', content: inputBox.current?.value().trim() };
+        const userMsg = { role: 'user', content: draft };
         //const nextFull = [...messages, userMsg, { role: 'assistant', content: "[[update:Thinking...]]"}]
         const nextFull = [...messages, userMsg]//, { role: 'assistant', content: "[[update:Thinking...]]"}]
         setAgentStatus("agent_responding")
@@ -525,7 +528,7 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
               setPending(false)
               reader.cancel();
               readerRef.current = null;
-              persistChatHistory(messagesRef.current)
+              persistChatHistory(messagesRef.current, { chatId: sessionChatId })
               return;
             }
           }
@@ -643,40 +646,54 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
           })
         }
       }
-      const persistChatHistory = useCallback(async (history) => {
-        if (!activeChatInfo?.id) {
-          return;
-        }
+      const persistChatHistory = useCallback(
+        async (history, options = {}) => {
+          const targetChatId = options.chatId ?? options.chatPrimitiveId ?? activeChatInfo?.id;
+          if (!targetChatId) {
+            return;
+          }
 
-        const chat = mainstore.primitive(activeChatInfo.id);
-        if (!chat || typeof chat.setField !== 'function') {
-          return;
-        }
-
-        const sanitizedHistory = sanitizeChatHistory(history);
-        const nextReference = {
-          ...(chat.referenceParameters ?? {}),
-          chat_history: sanitizedHistory,
-          updated_at: new Date().toISOString(),
-        };
-
-        try {
-          await chat.setField('referenceParameters', nextReference);
-          setActiveChatInfo((prev) => {
-            if (!prev || prev.id !== chat.id) {
-              return prev;
+          let chat = mainstore.primitive(targetChatId);
+          if (!chat && typeof mainstore.fetchPrimitive === 'function') {
+            try {
+              await mainstore.fetchPrimitive(targetChatId);
+              chat = mainstore.primitive(targetChatId);
+            } catch (error) {
+              console.warn('Failed to load chat for persistence', error);
             }
-            return {
-              ...prev,
-              sessionKey: nextReference.session_key ?? prev.sessionKey,
-              updatedAt: nextReference.updated_at,
-            };
-          });
-          bumpChatVersion();
-        } catch (error) {
-          console.warn('Failed to persist chat history', error);
-        }
-      }, [activeChatInfo?.id, mainstore, bumpChatVersion]);
+          }
+
+          if (!chat || typeof chat.setField !== 'function') {
+            return;
+          }
+
+          const sanitizedHistory = sanitizeChatHistory(history);
+          const nextReference = {
+            ...(chat.referenceParameters ?? {}),
+            chat_history: sanitizedHistory,
+            updated_at: new Date().toISOString(),
+          };
+
+          try {
+            await chat.setField('referenceParameters', nextReference);
+            const chatId = chat.id ?? chat._id ?? targetChatId;
+            setActiveChatInfo((prev) => {
+              if (!prev || prev.id !== chatId) {
+                return prev;
+              }
+              return {
+                ...prev,
+                sessionKey: nextReference.session_key ?? prev.sessionKey,
+                updatedAt: nextReference.updated_at,
+              };
+            });
+            bumpChatVersion();
+          } catch (error) {
+            console.warn('Failed to persist chat history', error);
+          }
+        },
+        [activeChatInfo?.id, mainstore, bumpChatVersion]
+      );
 
       const applyChatSelection = useCallback(async (chatId, chatData) => {
         if (!chatId) {

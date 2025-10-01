@@ -245,7 +245,6 @@ export function streamingResponseHandler( notify, fragmentList ){
         jsonParser.on("end", onEnd);
 
         pass.write = (...args)=>{
-            console.log(args)
             pass.pass.write(...args)
         }
         pass.end = ()=>{

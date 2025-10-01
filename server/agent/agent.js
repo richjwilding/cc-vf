@@ -26,7 +26,8 @@ import * as one_shot_query from "./modules/one_shot_query.js";
 import * as suggest_categories from "./modules/suggest_categories.js";
 import * as object_params from "./modules/object_params.js";
 import * as suggest_visualizations from "./modules/suggest_visualizations.js";
-import * as suggest_analysis from "./modules/suggest_analysis.js";
+import * as suggest_slide_skeleton from "./modules/suggest_slide_skeleton.js";
+import * as design_slide from "./modules/design_slide.js";
 import * as get_data_sources from "./modules/get_data_sources.js";
 import * as get_connected_data from "./modules/get_connected_data.js";
 import * as sample_data from "./modules/sample_data.js";
@@ -177,10 +178,66 @@ function exportSessionState(session) {
     ? Array.from(session.states.entries())
     : Object.entries(session.states ?? {});
 
+  const thinDataSources = (input) => {
+    if (!input || typeof input !== "object") {
+      return null;
+    }
+
+    const thinEntry = (entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      return {
+        id: entry.id,
+        type: entry.type ?? null,
+        title: entry.title ?? null,
+        number_results: entry.number_results ?? entry.count ?? entry.total ?? null,
+      };
+    };
+
+    const thinList = (list) => {
+      if (!Array.isArray(list)) {
+        return [];
+      }
+      return list
+        .map(thinEntry)
+        .filter(Boolean);
+    };
+
+    const recommended = Array.isArray(input.recommendations)
+      ? input.recommendations.slice(0, 5)
+      : undefined;
+
+    return {
+      goal: input.goal ?? null,
+      minimum: input.minimum ?? null,
+      connected: thinList(input.connected),
+      fallback: thinList(input.fallback),
+      preferred: thinEntry(input.preferred),
+      recommendations: recommended,
+      updated_at: input.updated_at ?? null,
+    };
+  };
+
+  const pruneStateForPersistence = (value) => {
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+    const pruned = { ...value };
+    if (value.data && typeof value.data === "object") {
+      const data = { ...value.data };
+      if (data.dataSources) {
+        data.dataSources = thinDataSources(data.dataSources);
+      }
+      pruned.data = data;
+    }
+    return pruned;
+  };
+
   return {
     mode: session.mode ?? null,
     state: session.state ?? null,
-    states: Object.fromEntries(stateEntries),
+    states: Object.fromEntries(stateEntries.map(([key, value]) => [key, pruneStateForPersistence(value)])),
   };
 }
 
@@ -259,7 +316,8 @@ const baseModules = [
   { module: suggest_categories, defaultEnabled: true },
   { module: object_params, defaultEnabled: false },
   { module: suggest_visualizations, defaultEnabled: true },
-  { module: suggest_analysis, defaultEnabled: false },
+  { module: suggest_slide_skeleton, defaultEnabled: false },
+  { module: design_slide, defaultEnabled: false },
   { module: get_data_sources, defaultEnabled: true },
   { module: get_connected_data, defaultEnabled: true },
   { module: sample_data, defaultEnabled: false },
@@ -389,7 +447,10 @@ export async function handleChat(primitive, options, req, res) {
             systemPrompt = `You are the Sense insights AI, an agent helping users prepare presentations which describe, visualize and evidence insights about the data they have gathered with a primary focus on intelligence and strategy work. You can help the user 1) find additional data, 2) analyze, filter, and categorize existing data, 3) buils queries and sumamries, and 4) produce presentation ready slides. If a user asks for anything unrelated to this you _MUST_ politely decline.
                     Here are your instructions:
                     ${commonBase}
+                    *) Slide work is the default focus for a page: prioritise layout, section structure, visualization choices, and narrative polish over creating whole new pages unless the user asks for one.
                     *) Finding additional data is costs time and resources so you MUST always confirm this is the users intent - use existing data where possible
+                    *) When building a slide, follow the data sourcing hierarchy: (1) use connected data tied to the page, (2) if that is insufficient pull from existing context objects without starting new searches, (3) only recommend (never auto-run) external searches if gaps remain.
+                    *) When a user requests edits within a slide, respond with section-level adjustments and explain how to rebalance existing components (titles, summaries, charts, calls to action, etc.).
                    `.replaceAll(/\s+/g," ")
 
             const pageExclusions = [
@@ -505,7 +566,8 @@ export async function handleChat(primitive, options, req, res) {
         const requestedSessionKey = options.chatSessionKey ?? null;
         let immediateContext
         if( options.immediateContext ){
-          userMessages.splice(-1, undefined, {role: "assistant", content: `[[chat_scope:${options.immediateContext.join(",")}]]`})
+          const insertIndex = userMessages.length > 0 ? Math.max(userMessages.length - 1, 0) : 0;
+          userMessages.splice(insertIndex, 0, {role: "assistant", content: `[[chat_scope:${options.immediateContext.join(",")}]]`, hidden: true})
           immediateContext = await resolveId( options.immediateContext, {workspaceId: primitive.workspaceId} )
         }
 
@@ -650,6 +712,7 @@ export async function handleChat(primitive, options, req, res) {
         scope.setStoredModeState = (modeId, state) => setStoredModeState(session, modeId, state)
 
         const flows = getAvailableFlowModes(immediateContext?.[0] ?? primitive)
+        const immediateIsPage = immediateContext?.[0]?.type === "page"
         const modeDescriptors = Object.entries(flows).map(([id, def]) => ({
           id,
           label: def?.label ?? id,
@@ -666,7 +729,7 @@ export async function handleChat(primitive, options, req, res) {
         }
         const modeSeeds = {}
 
-        const slideStateFromPage = immediateContext?.[0]?.type === "page" ? immediateContext[0].slide_state : null
+        const slideStateFromPage = immediateIsPage ? immediateContext[0].slide_state : null
         if (slideStateFromPage) {
           modeSeeds.slides = slideStateFromPage
         }
@@ -699,6 +762,12 @@ export async function handleChat(primitive, options, req, res) {
         scope.linkToChat = linkToChat
         scope.chatPrimitiveId = chatPrimitive?.id ?? requestedChatId ?? null
 
+        let initialModeActivated = false
+        if (!scope.mode && immediateIsPage && flows.slides) {
+          scope.activateMode("slides")
+          initialModeActivated = true
+        }
+
         if (scope.mode && modeSeeds[scope.mode]) {
           const updatedState = getModeState(scope.mode, scope.modeState)
           scope.modeState = updatedState
@@ -706,7 +775,9 @@ export async function handleChat(primitive, options, req, res) {
           setStoredModeState(session, scope.mode, updatedState)
         }
 
-        sendModeUpdate(scope.mode)
+        if (!initialModeActivated) {
+          sendModeUpdate(scope.mode)
+        }
 
         if (options?.modePing) {
           console.log(`MODE PING FINISHED`)
@@ -1121,3 +1192,192 @@ registerAction("run_agent_create_categorization", undefined, async (primitive, a
         return { error: "Failed to create categorization" };
     }
 })
+registerAction("run_agent_materialize_summary", undefined, async (primitive, action, options = {}) => {
+    try {
+        if (primitive.type !== "page") {
+            logger.warn(`run_agent_materialize_summary can only target page primitives (${primitive.id})`);
+            return { error: "Summaries can only be materialized on slide pages" };
+        }
+
+        const sectionIdRaw = options.sectionId ?? options.section_id;
+        const sectionId = Number.parseInt(sectionIdRaw, 10);
+        if (!Number.isInteger(sectionId)) {
+            return { error: "A valid sectionId is required" };
+        }
+
+        const slideState = primitive.slide_state;
+        const slideSpec = slideState?.data?.slideSpec;
+        if (!slideSpec || !Array.isArray(slideSpec.sections)) {
+            return { error: "No slide draft available to materialize" };
+        }
+
+        const sections = slideSpec.sections;
+        const sectionIndex = sections.findIndex((s) => s?.id === sectionId);
+        if (sectionIndex === -1) {
+            return { error: "Unable to locate the requested slide section" };
+        }
+
+        const section = sections[sectionIndex];
+        if (section.type !== "summary") {
+            return { error: "Selected section is not a summary" };
+        }
+
+        const defs = slideSpec.defs ?? {};
+
+        const resolveReference = (value, visited = new Set()) => {
+            if (value == null) {
+                return null;
+            }
+            if (typeof value === "string") {
+                return value;
+            }
+            if (typeof value !== "object") {
+                return value;
+            }
+
+            if (value.$ref && typeof value.$ref === "string") {
+                if (visited.has(value.$ref)) {
+                    return null;
+                }
+                visited.add(value.$ref);
+                const [group, key] = value.$ref.split(".");
+                if (group && key && defs?.[group]) {
+                    return resolveReference(defs[group]?.[key], visited);
+                }
+                return null;
+            }
+
+            if (value.same_as && typeof value.same_as === "object") {
+                const { section_id: refSectionId, field } = value.same_as;
+                if (Number.isInteger(refSectionId) && typeof field === "string") {
+                    const target = sections.find((s) => s?.id === refSectionId);
+                    if (target && Object.prototype.hasOwnProperty.call(target, field)) {
+                        return resolveReference(target[field], visited);
+                    }
+                }
+            }
+
+            return value;
+        };
+
+        const stringifyValue = (value) => {
+            if (value == null) {
+                return null;
+            }
+            if (typeof value === "string") {
+                return value;
+            }
+            if (Array.isArray(value)) {
+                return value.map(stringifyValue).filter(Boolean).join(", ");
+            }
+            if (typeof value === "object") {
+                if (typeof value.prompt === "string") {
+                    return value.prompt;
+                }
+                if (typeof value.description === "string") {
+                    return value.description;
+                }
+                if (typeof value.title === "string" && Array.isArray(value.items)) {
+                    const items = value.items
+                        .map((item) => {
+                            if (typeof item === "string") {
+                                return item;
+                            }
+                            if (item?.title) {
+                                return item.title;
+                            }
+                            if (item?.label) {
+                                return item.label;
+                            }
+                            return stringifyValue(item);
+                        })
+                        .filter(Boolean)
+                        .join(", ");
+                    return items ? `${value.title}: ${items}` : value.title;
+                }
+                if (typeof value.parameter === "string") {
+                    return `parameter ${value.parameter}`;
+                }
+                if (typeof value.mode === "string") {
+                    try {
+                        return JSON.stringify(value);
+                    } catch {
+                        return value.mode;
+                    }
+                }
+                try {
+                    return JSON.stringify(value);
+                } catch {
+                    return String(value);
+                }
+            }
+            return String(value);
+        };
+
+        const summarizationText = stringifyValue(resolveReference(section.summarization))?.trim();
+        if (!summarizationText) {
+            return { error: "No summarization prompt available for this section" };
+        }
+
+        const overviewText = stringifyValue(section.overview)?.trim();
+
+        const guardrails = overviewText ? [overviewText] : [];
+
+        const prompt = guardrails.length
+            ? `${guardrails.join("\n")}\n\n${summarizationText}`
+            : summarizationText;
+
+        const sourceId = section.sourceId ?? options.sourceId;
+        const resolvedSourceIds = [sourceId].flat().filter(Boolean).map(String);
+        if (!resolvedSourceIds.length) {
+            return { error: "Summary sections must specify a sourceId" };
+        }
+
+        const scope = {
+            workspaceId: primitive.workspaceId,
+            primitive,
+            chatUUID: `materialize-summary:${primitive.id}`
+        };
+
+        const params = {
+            query: prompt,
+            sourceIds: resolvedSourceIds,
+            confirmed: true,
+            limit: options.limit ? Number(options.limit) : undefined
+        };
+
+        const result = await one_shot_summary.implementation(params, scope);
+        if (result?.error) {
+            return { error: result.error };
+        }
+
+        const plainSummary = (typeof result?.plain === "string" ? result.plain.trim() : "")
+        if (!plainSummary) {
+            return { error: "Summarization did not return any content" };
+        }
+
+        const structuredSummary = result?.structured ?? null;
+        const referenceIds = Array.isArray(result?.references) ? result.references : []
+        const uniqueReferenceIds = [...new Set(referenceIds.map(String).filter(Boolean))];
+
+        const materialized = {
+            plain: plainSummary,
+            structured: structuredSummary ?? null,
+            references: uniqueReferenceIds,
+            updated_at: new Date().toISOString()
+        };
+
+        const materializedPath = `slide_state.data.slideSpec.sections.${sectionIndex}.materialized`;
+        await dispatchControlUpdate(primitive.id, materializedPath, materialized);
+
+        return {
+            sectionId,
+            plain: plainSummary,
+            structured: structuredSummary ?? null,
+            references: uniqueReferenceIds
+        };
+    } catch (error) {
+        logger.error("run_agent_materialize_summary failed", { error: error?.message, stack: error?.stack });
+        return { error: error?.message ?? "Failed to materialize summary" };
+    }
+});

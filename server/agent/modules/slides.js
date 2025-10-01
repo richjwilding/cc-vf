@@ -7,12 +7,121 @@ import { generateDetailedSections, inferChartKindFromText } from "./analysis_sec
 import { implementation as existingCategorizationsImpl } from "./existing_categorizations.js";
 import { implementation as suggestCategoriesImpl } from "./suggest_categories.js";
 import { processAsSingleChunk } from "../../openai_helper.js";
+import { applyLayoutPresetToSections } from "./sharedLayout.js";
 
 const logger = getLogger("agent_module_slides", "debug", 0);
 
+const CACHE_KEY = "__cache";
+const CACHE_TTL_MS = 2 * 60 * 1000;
+const CACHE_PREFIX_SAMPLE = "sample";
+const CACHE_PREFIX_CATEGORIES = "categories";
+const CACHE_PREFIX_EXISTING = "existingCats";
+
+function ensureSlideCacheContainer(state) {
+  if (!state) {
+    return null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(state, CACHE_KEY)) {
+    Object.defineProperty(state, CACHE_KEY, {
+      value: {},
+      writable: true,
+      enumerable: false,
+      configurable: true
+    });
+  }
+  return state[CACHE_KEY];
+}
+
+export function getSlideCache(state) {
+  return ensureSlideCacheContainer(state);
+}
+
+function cacheEntry(value, ttl = CACHE_TTL_MS) {
+  return {
+    value,
+    expiresAt: Date.now() + Math.max(ttl, 0)
+  };
+}
+
+function isEntryValid(entry) {
+  return entry && typeof entry === "object" && (!entry.expiresAt || entry.expiresAt > Date.now());
+}
+
+export function getSlideCacheValue(state, key) {
+  const cache = ensureSlideCacheContainer(state);
+  if (!cache || !key) {
+    return undefined;
+  }
+  const entry = cache[key];
+  if (!isEntryValid(entry)) {
+    if (entry) {
+      delete cache[key];
+    }
+    return undefined;
+  }
+  return entry.value;
+}
+
+export function setSlideCacheValue(state, key, value, ttl = CACHE_TTL_MS) {
+  const cache = ensureSlideCacheContainer(state);
+  if (!cache || !key) {
+    return undefined;
+  }
+  if (value === undefined) {
+    delete cache[key];
+    return undefined;
+  }
+  cache[key] = cacheEntry(value, ttl);
+  return value;
+}
+
+export function mergeSlideCache(state, updates = {}, ttl = CACHE_TTL_MS) {
+  const cache = ensureSlideCacheContainer(state);
+  if (!cache || !updates || typeof updates !== "object") {
+    return cache;
+  }
+  for (const [key, entry] of Object.entries(updates)) {
+    if (!key) continue;
+    if (entry && typeof entry === "object" && Object.prototype.hasOwnProperty.call(entry, "value")) {
+      cache[key] = entry;
+    } else if (entry !== undefined) {
+      cache[key] = cacheEntry(entry, ttl);
+    }
+  }
+  return cache;
+}
+
+function cacheKey(prefix, sourceId) {
+  return sourceId ? `${prefix}:${sourceId}` : prefix;
+}
+
+export function getCachedSampleData(state, sourceId) {
+  return getSlideCacheValue(state, cacheKey(CACHE_PREFIX_SAMPLE, sourceId));
+}
+
+export function setCachedSampleData(state, sourceId, value, ttl = CACHE_TTL_MS) {
+  return setSlideCacheValue(state, cacheKey(CACHE_PREFIX_SAMPLE, sourceId), value, ttl);
+}
+
+export function getCachedCategories(state, sourceId) {
+  return getSlideCacheValue(state, cacheKey(CACHE_PREFIX_CATEGORIES, sourceId));
+}
+
+export function setCachedCategories(state, sourceId, value, ttl = CACHE_TTL_MS) {
+  return setSlideCacheValue(state, cacheKey(CACHE_PREFIX_CATEGORIES, sourceId), value, ttl);
+}
+
+export function getCachedExistingCategorizations(state, sourceId) {
+  return getSlideCacheValue(state, cacheKey(CACHE_PREFIX_EXISTING, sourceId));
+}
+
+export function setCachedExistingCategorizations(state, sourceId, value, ttl = CACHE_TTL_MS) {
+  return setSlideCacheValue(state, cacheKey(CACHE_PREFIX_EXISTING, sourceId), value, ttl);
+}
+
 export function defaultSlideState(seed = {}) {
   const data = seed.data ?? {};
-  return {
+  const state = {
     id: seed.id ?? randomUUID(),
     state: seed.state ?? "list",
     data: {
@@ -23,11 +132,13 @@ export function defaultSlideState(seed = {}) {
     },
     suggestions: seed.suggestions ?? [],
   };
+  ensureSlideCacheContainer(state);
+  return state;
 }
 
 function requireSlideSession(scope) {
   if (scope.mode !== "slides" || !scope.modeState) {
-    throw new Error("No active slides session. Say 'work on slides' or run suggest_analysis first.");
+    throw new Error("No active slides session. Say 'work on slides' or run suggest_slide_skeleton first.");
   }
   return scope.modeState;
 }
@@ -47,7 +158,9 @@ function touch(scope) {
 
 function applySlideSeed(state, seed = {}) {
   if (!seed) {
-    return state ?? defaultSlideState();
+    const next = state ?? defaultSlideState();
+    ensureSlideCacheContainer(next);
+    return next;
   }
   const normalized = defaultSlideState(seed);
   if (!state) {
@@ -72,19 +185,17 @@ function applySlideSeed(state, seed = {}) {
     state.suggestions = normalized.suggestions;
   }
 
+  if (Object.prototype.hasOwnProperty.call(seed, CACHE_KEY)) {
+    mergeSlideCache(state, seed[CACHE_KEY]);
+  }
+
+  ensureSlideCacheContainer(state);
   return state;
 }
 function nextSectionId(spec) {
   const ids = (spec.sections || []).map(s => s.id || 0);
   return (ids.length ? Math.max(...ids) : 0) + 1;
 }
-function normalizeSections(sections = []) {
-  return sections.map((s, i) => ({
-    ...s,
-    id: s.id ?? (i + 1)
-  }));
-}
-
 function mergeDefs(existing = {}, incoming = {}) {
   const next = { ...(existing || {}) };
   if (incoming.filters) {
@@ -100,6 +211,21 @@ function mergeDefs(existing = {}, incoming = {}) {
     next.visuals = { ...(existing?.visuals || {}), ...(incoming.visuals || {}) };
   }
   return next;
+}
+
+function applyLayoutPresetToSpec(spec, fallbackLayout) {
+  if (!spec) {
+    return;
+  }
+  const sections = Array.isArray(spec.sections) ? spec.sections : [];
+  const result = applyLayoutPresetToSections(spec.layout ?? fallbackLayout, sections);
+  if (!result) {
+    return;
+  }
+  spec.layout = result.layout ?? spec.layout ?? fallbackLayout;
+  if (Array.isArray(result.sections)) {
+    spec.sections = result.sections;
+  }
 }
 
 function clampCategoryCount(value, fallback = 6) {
@@ -244,7 +370,7 @@ export const design_slide_from_suggestion = {
       type: "object",
       required: ["suggestion_id"],
       properties: {
-        suggestion_id: { type: "number", description: "ID from suggest_analysis output (1..N)" },
+        suggestion_id: { type: "number", description: "ID from suggest_slide_skeleton output (1..N)" },
         title_override: { type: "string" },
         layout_override: { type: "string", enum: ["full_page","left_summary"] }
       },
@@ -253,24 +379,33 @@ export const design_slide_from_suggestion = {
   },
   implementation: async (params, scope, notify) => {
     const sess = requireSlideSession(scope);
-    const outline = sess?.suggestions ?? [];
-    const picked = outline.find(x => x.id === params.suggestion_id);
+    const outlines = sess?.suggestions ?? [];
+    const picked = outlines.find((x) => x.id === params.suggestion_id);
     if (!picked) return { error: "Invalid suggestion_id" };
 
-    const draft = {
-        title: params.title_override || picked.description,
-        defs: picked.defs,
-      layout: params.layout_override || picked.layout,
-      sections: normalizeSections(picked.sections)
-    };
+    const sourceId = sess?.data?.sourceId;
+    if (!sourceId) return { error: "Missing sourceId" };
 
-    sess.data.slideSpec = draft;
-    sess.data.selection = params.suggestion_id;
-    sess.state = "preview";
-    touch(scope);
+    const designFn = scope.functionMap?.["design_slide"];
+    if (typeof designFn !== "function") {
+      return { error: "design_slide_unavailable" };
+    }
+
+    const result = await designFn({
+      id: sourceId,
+      goal: sess?.data?.goal,
+      outline: picked,
+      outline_id: params.suggestion_id,
+      title_override: params.title_override,
+      layout_override: params.layout_override
+    }, scope);
+
+    if (result?.error) {
+      return result;
+    }
+
     notify?.("Draft slide created from suggestion.", true);
-
-    return { preview: draft };
+    return { preview: result?.slide ?? null };
   }
 };
 
@@ -286,7 +421,7 @@ export const update_slide_from_suggestion = {
       type: "object",
       required: ["suggestion_id"],
       properties: {
-        suggestion_id: { type: "number", description: "ID from suggest_analysis output (1..N)" },
+        suggestion_id: { type: "number", description: "ID from suggest_slide_skeleton output (1..N)" },
         title_override: { type: "string" },
         layout_override: { type: "string", enum: ["full_page","left_summary"] }
       },
@@ -295,24 +430,33 @@ export const update_slide_from_suggestion = {
   },
   implementation: async (params, scope, notify) => {
     const sess = requireSlideSession(scope);
-    const outline = sess?.suggestions || [];
-    const picked = outline.find(x => x.id === params.suggestion_id);
+    const outlines = sess?.suggestions || [];
+    const picked = outlines.find((x) => x.id === params.suggestion_id);
     if (!picked) return { error: "Invalid suggestion_id" };
 
-    const draft = {
-        title: params.title_override || picked.description,
-        defs: picked.defs,
-      layout: params.layout_override || picked.layout,
-      sections: normalizeSections(picked.sections)
-    };
+    const sourceId = sess?.data?.sourceId;
+    if (!sourceId) return { error: "Missing sourceId" };
 
-    sess.data.slideSpec = draft;
-    sess.data.selection = params.suggestion_id;
-    sess.state = "preview";
-    touch(scope);
-    notify?.("Draft slide created from suggestion.", true);
+    const designFn = scope.functionMap?.["design_slide"];
+    if (typeof designFn !== "function") {
+      return { error: "design_slide_unavailable" };
+    }
 
-    return { preview: draft };
+    const result = await designFn({
+      id: sourceId,
+      goal: sess?.data?.goal,
+      outline: picked,
+      outline_id: params.suggestion_id,
+      title_override: params.title_override,
+      layout_override: params.layout_override
+    }, scope);
+
+    if (result?.error) {
+      return result;
+    }
+
+    notify?.("Draft slide updated from suggestion.", true);
+    return { preview: result?.slide ?? null };
   }
 };
 export const update_slide_title = {
@@ -456,36 +600,62 @@ export const design_slide_sections = {
     spec.defs = spec.defs || {};
     spec.sections = Array.isArray(spec.sections) ? spec.sections : [];
 
-    let sampleData = [];
-    let categoryDefs = [];
-    let existingCategorizations = null;
+    applyLayoutPresetToSpec(spec, params.slide?.layout);
 
-    try {
-      const sampler = scope.functionMap?.["sample_data"];
-      if (sampler) {
+    let sampleData = getCachedSampleData(sess, params.id);
+    sampleData = Array.isArray(sampleData) ? sampleData : [];
+    let categoryDocs = getCachedCategories(sess, params.id);
+    categoryDocs = Array.isArray(categoryDocs) ? categoryDocs : [];
+    let existingCategorizations = getCachedExistingCategorizations(sess, params.id) ?? null;
+
+    if ((sampleData.length === 0 || categoryDocs.length === 0) && scope.functionMap?.["sample_data"]) {
+      try {
+        const sampler = scope.functionMap["sample_data"];
         const res = await sampler({ id: params.id, limit: 20, forSample: true, withCategory: true }, scope);
-        if (Array.isArray(res?.data)) sampleData = res.data;
-        if (Array.isArray(res?.categories)) {
-          categoryDefs = res.categories.map((d) => categoryDetailsForAgent(d)).filter(Boolean);
+        if (Array.isArray(res?.data)) {
+          sampleData = res.data;
+          setCachedSampleData(sess, params.id, sampleData);
         }
+        if (Array.isArray(res?.categories)) {
+          categoryDocs = res.categories;
+          setCachedCategories(sess, params.id, categoryDocs);
+        }
+      } catch (err) {
+        logger.error("design_slide_sections sample_data error", err);
       }
-    } catch (err) {
-      logger.error("design_slide_sections sample_data error", err);
     }
 
-    try {
-      const existingFetcher = scope.functionMap?.["existing_categorizations"];
-      if (existingFetcher) {
+    if (existingCategorizations == null && scope.functionMap?.["existing_categorizations"]) {
+      try {
+        const existingFetcher = scope.functionMap["existing_categorizations"];
         const res = await existingFetcher({ id: params.id, forSample: true, withCategory: true }, scope);
-        if (res?.categories) existingCategorizations = res.categories;
+        if (res?.categories !== undefined) {
+          existingCategorizations = res.categories;
+          setCachedExistingCategorizations(sess, params.id, existingCategorizations);
+        }
+      } catch (err) {
+        logger.error("design_slide_sections existing_categorizations error", err);
       }
-    } catch (err) {
-      logger.error("design_slide_sections existing_categorizations error", err);
     }
+
+    const categoryDefs = Array.isArray(categoryDocs)
+      ? categoryDocs.map((d) => categoryDetailsForAgent(d)).filter(Boolean)
+      : [];
+
+    const markSectionStatus = (sectionId, status) => {
+      if (!sectionId) return;
+      const idx = spec.sections.findIndex((s) => s.id === sectionId);
+      if (idx === -1) return;
+      if (status === "ready") {
+        delete spec.sections[idx].runtime_status;
+      } else {
+        spec.sections[idx].runtime_status = status;
+      }
+    };
 
     const requests = [];
     for (const raw of sectionsInput) {
-      const sectionId = Number.isInteger(raw.section_id) ? raw.section_id : null;
+      let sectionId = Number.isInteger(raw.section_id) ? raw.section_id : null;
       const existing = sectionId ? (spec.sections || []).find((s) => s.id === sectionId) : null;
 
       const outline = raw.outline ? { ...raw.outline } : {};
@@ -497,12 +667,33 @@ export const design_slide_sections = {
       if (raw.visualization !== undefined && outline.visualization == null) outline.visualization = raw.visualization;
       if (!outline.type && existing) outline.type = existing.type;
 
+      if (!sectionId) {
+        sectionId = nextSectionId(spec);
+      }
+
       const targetSource = raw.sourceId || existing?.sourceId || params.id;
       if (!outline.type) {
         return { error: "Each section must provide a type or reference an existing section." };
       }
       if (!targetSource) {
         return { error: "Unable to determine sourceId for a section." };
+      }
+
+      if (!existing) {
+        const placeholder = {
+          id: sectionId,
+          type: outline.type,
+          overview: outline.overview,
+          layout: outline.layout,
+          runtime_status: "pending"
+        };
+        if (raw.insert_at && raw.insert_at > 0 && raw.insert_at <= spec.sections.length) {
+          spec.sections.splice(raw.insert_at - 1, 0, placeholder);
+        } else {
+          spec.sections.push(placeholder);
+        }
+      } else {
+        existing.runtime_status = "pending";
       }
 
       requests.push({
@@ -518,6 +709,11 @@ export const design_slide_sections = {
       });
     }
 
+    applyLayoutPresetToSpec(spec, spec.layout);
+
+    requests.forEach((req) => markSectionStatus(req.section_id, "pending"));
+    touch(scope);
+
     const sectionResults = await generateDetailedSections({
       scope,
       goal: params.goal,
@@ -530,6 +726,9 @@ export const design_slide_sections = {
       usage: {
         functionName: "agent_module_design_slide_sections",
         usageId: "agent_module_design_slide_sections_section"
+      },
+      onSectionStatusChange: (request, status) => {
+        markSectionStatus(request.section_id || request.existingSection?.id, status);
       }
     });
 
@@ -582,6 +781,8 @@ export const design_slide_sections = {
       return { error: "No sections were generated." };
     }
 
+    applyLayoutPresetToSpec(spec, spec.layout);
+
     sess.data.slideSpec = spec;
     sess.state = "preview";
     touch(scope);
@@ -621,6 +822,7 @@ export const add_slide_section = {
     } else {
       spec.sections.push(newSection);
     }
+    applyLayoutPresetToSpec(spec, spec.layout ?? params.layout);
     sess.data.slideSpec = spec;
     touch(scope);
     return { preview: spec };
@@ -902,6 +1104,17 @@ export const update_slide_section = {
       applyFieldUpdates(section, updates, only, { allowVisualization: true, allowType: false });
     }
 
+    const updateRuntimeStatus = (sectionId, status) => {
+      if (!sectionId) return;
+      const idx = spec.sections.findIndex((s) => s.id === sectionId);
+      if (idx === -1) return;
+      if (status === "ready") {
+        delete spec.sections[idx].runtime_status;
+      } else {
+        spec.sections[idx].runtime_status = status;
+      }
+    };
+
     let regenSuccess = 0;
     if (regenSections.length) {
       const uniqueSources = Array.from(new Set(regenSections.map((sec) => sec.sourceId).filter(Boolean)));
@@ -911,28 +1124,53 @@ export const update_slide_section = {
 
       if (uniqueSources.length === 1) {
         const sampleSource = uniqueSources[0];
-        try {
-          const sampler = scope.functionMap?.["sample_data"];
-          if (sampler) {
+        let sampleDocs = getCachedSampleData(sess, sampleSource);
+        sampleDocs = Array.isArray(sampleDocs) ? sampleDocs : [];
+        let categoryDocs = getCachedCategories(sess, sampleSource);
+        categoryDocs = Array.isArray(categoryDocs) ? categoryDocs : [];
+        existingCategorizations = getCachedExistingCategorizations(sess, sampleSource) ?? null;
+
+        if ((sampleDocs.length === 0 || categoryDocs.length === 0) && scope.functionMap?.["sample_data"]) {
+          try {
+            const sampler = scope.functionMap["sample_data"];
             const res = await sampler({ id: sampleSource, limit: 20, forSample: true, withCategory: true }, scope);
-            if (Array.isArray(res?.data)) sampleData = res.data;
-            if (Array.isArray(res?.categories)) {
-              categoryDefs = res.categories.map((d) => categoryDetailsForAgent(d)).filter(Boolean);
+            if (Array.isArray(res?.data)) {
+              sampleDocs = res.data;
+              setCachedSampleData(sess, sampleSource, sampleDocs);
             }
+            if (Array.isArray(res?.categories)) {
+              categoryDocs = res.categories;
+              setCachedCategories(sess, sampleSource, categoryDocs);
+            }
+          } catch (err) {
+            logger.error("update_slide_section sample_data error", err);
           }
-        } catch (err) {
-          logger.error("update_slide_section sample_data error", err);
         }
-        try {
-          const existingFetcher = scope.functionMap?.["existing_categorizations"];
-          if (existingFetcher) {
+
+        if (existingCategorizations == null && scope.functionMap?.["existing_categorizations"]) {
+          try {
+            const existingFetcher = scope.functionMap["existing_categorizations"];
             const res = await existingFetcher({ id: sampleSource, forSample: true, withCategory: true }, scope);
-            if (res?.categories) existingCategorizations = res.categories;
+            if (res?.categories !== undefined) {
+              existingCategorizations = res.categories;
+              setCachedExistingCategorizations(sess, sampleSource, existingCategorizations);
+            }
+          } catch (err) {
+            logger.error("update_slide_section existing_categorizations error", err);
           }
-        } catch (err) {
-          logger.error("update_slide_section existing_categorizations error", err);
         }
+
+        sampleData = sampleDocs;
+        categoryDefs = Array.isArray(categoryDocs)
+          ? categoryDocs.map((d) => categoryDetailsForAgent(d)).filter(Boolean)
+          : [];
       }
+
+      regenSections.forEach((section) => {
+        section.runtime_status = "pending";
+        updateRuntimeStatus(section.id, "pending");
+      });
+      touch(scope);
 
       const sectionRequests = regenSections.map((section) => {
         const outlineType = resolveType(updates.type) || section.type;
@@ -987,6 +1225,9 @@ export const update_slide_section = {
         usage: {
           functionName: "agent_module_update_slide_section",
           usageId: "agent_module_update_slide_section_regen"
+        },
+        onSectionStatusChange: (request, status) => {
+          updateRuntimeStatus(request.section_id || request.existingSection?.id, status);
         }
       });
 
@@ -1010,6 +1251,8 @@ export const update_slide_section = {
         return { error: "Failed to regenerate the requested section(s)." };
       }
     }
+
+    applyLayoutPresetToSpec(spec, spec.layout);
 
     sess.data.slideSpec = spec;
     touch(scope);
@@ -1045,6 +1288,7 @@ export const reorder_slide_sections = {
       return s;
     });
     spec.sections = reordered;
+    applyLayoutPresetToSpec(spec, spec.layout);
     touch(scope);
     return { preview: spec };
   }
@@ -1126,28 +1370,40 @@ export const suggest_section_categorization = {
     let selectedItems = null;
     let selectedMeta = null;
 
+    const cachedExistingRaw = getCachedExistingCategorizations(sess, sourceId);
+    const processExisting = async (raw) => {
+      const existingOptions = extractExistingCategorizations(raw);
+      if (existingOptions.length) {
+        const chosen = await pickExistingCategorization(
+          params.goal || sec.overview,
+          existingOptions,
+          notify
+        );
+        if (chosen?.items?.length) {
+          selectedItems = chosen.items;
+          selectedMeta = chosen;
+        }
+      }
+    };
+
+    if (cachedExistingRaw != null) {
+      await processExisting(cachedExistingRaw);
+    }
+
     const existingFetcher =
       scope.functionMap?.["existing_categorizations"] ?? existingCategorizationsImpl;
 
-    if (existingFetcher) {
+    if (!selectedItems && existingFetcher) {
       try {
         const existingRes = await existingFetcher(
           { id: sourceId, withCategory: true, forSample: true },
           scope,
           notify
         );
-        const existingOptions = extractExistingCategorizations(existingRes?.categories);
-        if (existingOptions.length) {
-          const chosen = await pickExistingCategorization(
-            params.goal || sec.overview,
-            existingOptions,
-            notify
-          );
-          if (chosen?.items?.length) {
-            selectedItems = chosen.items;
-            selectedMeta = chosen;
-          }
+        if (existingRes?.categories !== undefined) {
+          setCachedExistingCategorizations(sess, sourceId, existingRes.categories);
         }
+        await processExisting(existingRes?.categories);
       } catch (error) {
         logger.warn("suggest_section_categorization existing_categorizations failed", {
           error: error?.message,
@@ -1341,17 +1597,25 @@ export const slideMode = {
   id: "slides",
   label: "Slides",
   description: "Builds and edits slides from existing data",
-  toolNames: new Set([...slideTools.map((t) => t.definition.name), "suggest_analysis"]),
+  toolNames: new Set([
+    ...slideTools.map((t) => t.definition.name),
+    "suggest_slide_skeleton",
+    "design_slide"
+  ]),
   systemPrompt:
     "You are in slides mode. Help the user draft, refine, and finalize presentation-ready slides. Respect existing categorization definitions and confirm updates before applying them.",
   extraInstructions:
+    "*) Slide creation pipeline:\n" +
+    "*) - 1. When the user needs ideas, call suggest_slide_skeleton to generate outline-only options and present them for selection.\n" +
+    "*) - 2. Once an outline is chosen or the user gives a free-form brief, call design_slide (via design_slide_from_suggestion or design_slide with request text) to build the detailed slide draft before making edits.\n" +
+    "*) - 3. If the user already provided a concrete structure (specific sections, layouts, or counts), skip suggest_slide_skeleton entirely and go straight to design_slide.\n" +
     "*) Amendment chaining (STRICT): If the user chooses a suggestion and also requests changes (e.g., 'categorize by wellness journey', 'make it a bar chart', 'shorter title'):\n" +
-    "*) - 1. Call design_slide_from_suggestion with any title/layout overrides.\n" +
+    "*) - 1. Call design_slide_from_suggestion with any title/layout overrides (this re-runs design_slide for the selected outline).\n" +
     "*) - 2. If an amendment mentions a new categorization, call suggest_section_categorization (once) to produce/choose a categorization spec, then call update_slide_section to apply it to ALL relevant sections.\n" +
     "*) - 3. If a visualization needs to change, call update_slide_section for those sections and keep categorization consistent.\n" +
     "*) - 4. If a summarization needs to change, call update_slide_section for those sections.\n" +
     "*) - 5. Confirm the updated slide spec to the user, then stop.\n" +
-    "*) - 6. If the user switches to a different suggestion call update_slide_from_suggestion with the new suggestion id and overrides.\n" +
+    "*) - 6. If the user switches to a different suggestion call update_slide_from_suggestion with the new suggestion id and overrides (this also re-runs design_slide).\n" +
     "*) Prefer slide-level defs + $ref reuse over same_as. If a new categorization replaces one referenced by multiple sections, update the definition once and ensure sections point to the new $ref.\n" +
     "*) You must NOT perform slide updates without calling one of the above functions.",
   enterTriggers: [
