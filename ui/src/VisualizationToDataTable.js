@@ -52,6 +52,9 @@ export function ConvertVisualizationSpecToView( spec, defs ){
         return
     }
 
+    if( !spec.chart ){
+        return
+    }
   /*
   {
     "wellness_journey": {

@@ -20,6 +20,7 @@ import AgentChat from "./AgentChat";
 import clsx from "clsx";
 import { Tab, Tabs } from "@heroui/react";
 import { ConvertVisualizationSpec } from "./VisualizationToDataTable";
+import PrimitiveDrawer from "./PrimitiveDrawer";
 
 const log = getLogger('BoardViewer', { level: 'debug' })
 
@@ -1538,6 +1539,49 @@ export default function BoardViewer({primitive,...props}){
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
     const [agentStatus, setAgentStatus] = useState({activeChat: false})
     const [panelTab, setPanelTab] = useState("info")
+    const [showAddDrawer, setShowAddDrawer] = useState(false)
+
+    const computeAllowedDrawerCategories = ()=>{
+        const allCategories = mainstore.categories()
+        const active = myState.activeBoard
+        const addToFlow = active?.primitive?.type === "flow" ? active.primitive : undefined
+        const addToPage = active?.primitive?.type === "page" ? active.primitive : undefined
+
+        const categoryById = allCategories.reduce((acc, category)=>{
+            acc[category.id] = category
+            return acc
+        }, {})
+
+        if( addToPage ){
+            return [89,145].map(id=>categoryById[id]).filter(Boolean)
+        }
+
+        const baseCategoryIds = [38,81,148,154,130,140,131,142,118,135,136,137,132,133,144]
+        const ordered = baseCategoryIds.map(id=>categoryById[id]).filter(Boolean)
+        const seen = new Set(ordered.map(category=>category.id))
+
+        const appendUnique = (list)=>{
+            for(const category of list){
+                if(category && !seen.has(category.id)){
+                    seen.add(category.id)
+                    ordered.push(category)
+                }
+            }
+        }
+
+        appendUnique(allCategories.filter(category=>category.primitiveType === "search"))
+
+        if( addToFlow ){
+            appendUnique([categoryById[81], categoryById[113]].filter(Boolean))
+        }else{
+            appendUnique(allCategories.filter(category=>category.primitiveType === "entity"))
+        }
+
+        return ordered
+    }
+
+    const allowedDrawerCategories = computeAllowedDrawerCategories()
+    const allowedCategoryIdSet = new Set(allowedDrawerCategories.map(category=>category.id))
     
     if( primitive.type === "flow" && !myState.mainFlowInstances){
         myState.mainFlowInstances = primitive.primitives.origin.allFlowinstance
@@ -1555,28 +1599,34 @@ export default function BoardViewer({primitive,...props}){
 
     window.exportFrames = exportMultiple
 
-    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title new_child", undefined, (ids, event, info, fromRemote)=>{
-        if( myState.current.watchList  ){
-            if( ids.length === 1 && ids[0] === primitive.id && typeof(info) == "string"){
-                const frameUpdate = info.match(/frames\.(.+)\.(.+)/)
-                if( frameUpdate && frameUpdate[2] === "showItems"){
-                    ids = [frameUpdate[1]]
-                }
+    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title new_child delete_primitive", undefined, (ids, event, info, fromRemote)=>{
+        if( ids.length === 1 && ids[0] === primitive.id && typeof(info) == "string"){
+            const frameUpdate = info.match(/frames\.(.+)\.(.+)/)
+            if( frameUpdate && frameUpdate[2] === "showItems"){
+                ids = [frameUpdate[1]]
             }
+        }
 
-            if( event === "new_child"){
-                if( ids[0] === primitive.id ){
-                    const child = info?.child
-                    if( child){
-                        if( !myState[child.id] && child.type !== "chat"){
-                            addBoardToCanvas( child )
-                        }
+        if( event === "new_child"){
+            if( ids[0] === primitive.id ){
+                const child = info?.child
+                if( child){
+                    if( !myState[child.id] && child.type !== "chat"){
+                        addBoardToCanvas( child )
                     }
                 }
-                return false
-            }else if( event === "set_field" && info === "rationale"){
-                return false
             }
+            return false
+        }else if( event === "delete_primitive"){
+            if( ids ){
+                for(const id of ids){
+                    canvas.current.removeFrame( id )
+                }
+            }
+        }else if( event === "set_field" && info === "rationale"){
+            return false
+        }
+        if( myState.current.watchList  ){
 
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
             myState.current.framesToUpdateForRemote = myState.current.framesToUpdateForRemote || []
@@ -2820,6 +2870,43 @@ export default function BoardViewer({primitive,...props}){
             }
         })
     }
+
+    async function handleDropNewPrimitive(e){
+        if( !canvas.current ){
+            return
+        }
+        const categoryIdValue = e.dataTransfer.getData('application/x-category') || e.dataTransfer.getData('text/plain')
+        if(!categoryIdValue){
+            return
+        }
+        const categoryId = Number(categoryIdValue)
+        if(Number.isNaN(categoryId) || !allowedCategoryIdSet.has(categoryId)){
+            return
+        }
+        const dropTarget = document.elementFromPoint(e.clientX, e.clientY)
+        if(dropTarget?.closest('[data-cancel-drop]')){
+            return
+        }
+        e.preventDefault()
+        setShowAddDrawer(false)
+
+
+        let [sceneX, sceneY] = canvas.current.convertClientCoords( {x: e.clientX, y: e.clientY})
+
+        const cat = mainstore.category(categoryId)
+        if(cat){
+            const newPrim = await mainstore.createPrimitive({
+                title: cat.title,
+                type: cat.primitiveType,
+                categoryId: cat.id,
+                parent: primitive,
+                workspaceId: primitive.workspaceId
+            })
+            if(newPrim){
+                addBoardToCanvas(newPrim, {x: sceneX, y: sceneY, s:1})
+            }
+        }
+    }
     async function exportMultiple(ids, byCell){
         const prims = ids.map(d=>mainstore.primitive(d)).filter(d=>d)
         const pptx = createPptx()
@@ -3155,7 +3242,7 @@ export default function BoardViewer({primitive,...props}){
                         </div>
                     }
             </div>}
-            <div className="flex relative w-full h-full @container rounded-lg shadow overflow-clip">
+            <div className="flex relative w-full h-full @container rounded-lg shadow overflow-clip" onDrop={handleDropNewPrimitive} onDragOver={(e)=>e.preventDefault()}>
                 {!dockPaneInfo && <div key='chatbar' className={clsx([
                     'absolute bg-white border border-gray-200 bottom-4 space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
                     agentStatus.activeChat ? 'max-h-[80vh] w-[40vw] 4xl:max-w-3xl min-w-[24rem]' : "w-96 max-h-[80vh]"
@@ -3168,22 +3255,30 @@ export default function BoardViewer({primitive,...props}){
                         primitive={primitive}/>
                 </div>}
                 
-                <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
-                    <div className='p-3 flex place-items-start space-x-2 '>
-                            <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
-                            <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>pickNewItem()} flat placement='left-start' />
-                            <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
-                            {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
-                            {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
-                            {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
-                            {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
-                            {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
-                    </div>
-                    {!dockPaneInfo && collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
-                        <div className='w-[32rem] 3xl:w-[40rem]'>
-                            {collectPaneWidget}
+                <div className='absolute right-4 top-4 z-40 flex flex-col items-end gap-3 pointer-events-none'>
+                    <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border flex flex-col place-items-start divide-y divide-gray-200 pointer-events-auto'>
+                        <div className='p-3 flex place-items-start space-x-2 '>
+                                <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
+                                <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>setShowAddDrawer(!showAddDrawer)} flat placement='left-start' />
+                                <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
+                                {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
+                                {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
+                                {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
+                                {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
+                                {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
                         </div>
-                    </div>}
+                        {!dockPaneInfo && collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
+                            <div className='w-[32rem] 3xl:w-[40rem]'>
+                                {collectPaneWidget}
+                            </div>
+                        </div>}
+                    </div>
+                    <PrimitiveDrawer
+                        open={showAddDrawer}
+                        onClose={()=>setShowAddDrawer(false)}
+                        className='pointer-events-auto mt-1 max-h-[calc(100vh_-_20rem)]'
+                        categories={allowedDrawerCategories}
+                    />
                 </div>
                 {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-40 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
                     {myState.menuOptions?.addToView && <DropdownButton noBorder icon={<PlusIcon className='w-5 h-5'/>} onClick={addToView} flat placement='left-start' />}

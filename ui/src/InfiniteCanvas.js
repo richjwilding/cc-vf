@@ -108,6 +108,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const layerRef = useRef()
     const lineLayerRef = useRef()
     const myState = useRef({renderList: props.render})
+    myState.current.stageRectDirty ??= true
     const [fontsReady, setFontsReady] = useState(false)
 
     if( !fontsReady ){
@@ -164,7 +165,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
     const framePosition = (id)=>{
         if(!myState.current?.frames){
-            return undefined
+            return []
         }
         const list = id ? myState.current.frames.filter(d=>d.id === id)  : myState.current.frames
 
@@ -259,6 +260,46 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
     }
 
+    function markStageRectDirty(){
+        myState.current.stageRectDirty = true
+    }
+
+    function getCachedStageRect(){
+        if(!stageRef.current){
+            return undefined
+        }
+
+        const metrics = {
+            scrollX: window.scrollX ?? window.pageXOffset ?? 0,
+            scrollY: window.scrollY ?? window.pageYOffset ?? 0,
+            innerWidth: window.innerWidth ?? 0,
+            innerHeight: window.innerHeight ?? 0
+        }
+
+        const lastMetrics = myState.current.stageRectViewport
+        if( lastMetrics ){
+            if(
+                lastMetrics.scrollX !== metrics.scrollX ||
+                lastMetrics.scrollY !== metrics.scrollY ||
+                lastMetrics.innerWidth !== metrics.innerWidth ||
+                lastMetrics.innerHeight !== metrics.innerHeight
+            ){
+                myState.current.stageRectDirty = true
+            }
+        }
+
+        if( myState.current.stageRectDirty || !myState.current.stageRect ){
+            const container = stageRef.current.container?.()
+            if( container ){
+                myState.current.stageRect = container.getBoundingClientRect()
+                myState.current.stageRectViewport = metrics
+                myState.current.stageRectDirty = false
+            }
+        }
+
+        return myState.current.stageRect
+    }
+
     useImperativeHandle(ref, () => {
         return {
             exportToPptx,
@@ -279,7 +320,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             updateLinks,
             getLinks,
             refreshFrame,
-            getSelection
+            getSelection,
+            convertEventToScene,
+            convertClientCoords:({x,y})=>convertEventToScene({clientX: x, clientY: y})
         };
       }, []);
 
@@ -1754,6 +1797,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
         const observer = new ResizeObserver((rect)=>{
+            markStageRectDirty()
             resizeFrame(rect[0].contentRect.width, rect[0].contentRect.height)
         });
         observer.observe(frameRef.current);
@@ -2200,6 +2244,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
             myState.current.viewport = {x: tx, y: ty, scale: scale}
             myState.current.stageTransform = {x: -ox, y: -oy, s: ns}
+            markStageRectDirty()
 
             const topLeft = convertStageCoordToScene(0, 0)
             const bottomRight = convertStageCoordToScene(myState.current.width, myState.current.height)
@@ -2219,6 +2264,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             stageRef.current.y(y)
             updateVisibility(-x, -y)
             stageRef.current.batchDraw()
+            markStageRectDirty()
             
             return {x:tx,y:ty, scale:scale}
         }
@@ -2944,13 +2990,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 min = Math.min( 0.03, myState.current.width / (maxX- minX) / 2,  myState.current.height / (maxY - minY) / 2 )
                             }
                         }
-                        let boardScales
+                        let boardScales = []
                         if( props.board && myState.current.frames){
                             boardScales = myState.current.frames.map(frame=>{
                                 const subViews = frame.node.find('.view').map(d=>d.attrs.scaleX / 2 ).filter(d=>d)                        
                                 const innerScale = subViews.reduce((a,d)=>a < d ? a : d, 1)
                                 return (frame.node.attrs.scaleX ?? 1) * innerScale
-                            })
+                            }) 
                         }
                         const max = props.board ? 5 / Math.min(1, ...boardScales) : 8
                         return { min, max }
@@ -3857,8 +3903,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if (!evt) {
                 return [0, 0];
             }
-            const container = stageRef.current?.container?.();
-            const rect = container?.getBoundingClientRect?.();
+            const rect = getCachedStageRect();
 
             let clientX;
             let clientY;
@@ -3881,6 +3926,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 clientX = evt.x;
                 clientY = evt.y;
             }
+
 
             if (typeof clientX === 'number' && typeof clientY === 'number') {
                 let localX = clientX;
@@ -3944,7 +3990,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
         }
-
         window.mainStage = stageRef
     
     const stage = <Stage
