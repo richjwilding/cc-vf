@@ -1540,6 +1540,48 @@ export default function BoardViewer({primitive,...props}){
     const [agentStatus, setAgentStatus] = useState({activeChat: false})
     const [panelTab, setPanelTab] = useState("info")
     const [showAddDrawer, setShowAddDrawer] = useState(false)
+
+    const computeAllowedDrawerCategories = ()=>{
+        const allCategories = mainstore.categories()
+        const active = myState.activeBoard
+        const addToFlow = active?.primitive?.type === "flow" ? active.primitive : undefined
+        const addToPage = active?.primitive?.type === "page" ? active.primitive : undefined
+
+        const categoryById = allCategories.reduce((acc, category)=>{
+            acc[category.id] = category
+            return acc
+        }, {})
+
+        if( addToPage ){
+            return [89,145].map(id=>categoryById[id]).filter(Boolean)
+        }
+
+        const baseCategoryIds = [38,81,148,154,130,140,131,142,118,135,136,137,132,133,144]
+        const ordered = baseCategoryIds.map(id=>categoryById[id]).filter(Boolean)
+        const seen = new Set(ordered.map(category=>category.id))
+
+        const appendUnique = (list)=>{
+            for(const category of list){
+                if(category && !seen.has(category.id)){
+                    seen.add(category.id)
+                    ordered.push(category)
+                }
+            }
+        }
+
+        appendUnique(allCategories.filter(category=>category.primitiveType === "search"))
+
+        if( addToFlow ){
+            appendUnique([categoryById[81], categoryById[113]].filter(Boolean))
+        }else{
+            appendUnique(allCategories.filter(category=>category.primitiveType === "entity"))
+        }
+
+        return ordered
+    }
+
+    const allowedDrawerCategories = computeAllowedDrawerCategories()
+    const allowedCategoryIdSet = new Set(allowedDrawerCategories.map(category=>category.id))
     
     if( primitive.type === "flow" && !myState.mainFlowInstances){
         myState.mainFlowInstances = primitive.primitives.origin.allFlowinstance
@@ -1557,28 +1599,34 @@ export default function BoardViewer({primitive,...props}){
 
     window.exportFrames = exportMultiple
 
-    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title new_child", undefined, (ids, event, info, fromRemote)=>{
-        if( myState.current.watchList  ){
-            if( ids.length === 1 && ids[0] === primitive.id && typeof(info) == "string"){
-                const frameUpdate = info.match(/frames\.(.+)\.(.+)/)
-                if( frameUpdate && frameUpdate[2] === "showItems"){
-                    ids = [frameUpdate[1]]
-                }
+    useDataEvent("relationship_update set_parameter set_field delete_primitive set_title new_child delete_primitive", undefined, (ids, event, info, fromRemote)=>{
+        if( ids.length === 1 && ids[0] === primitive.id && typeof(info) == "string"){
+            const frameUpdate = info.match(/frames\.(.+)\.(.+)/)
+            if( frameUpdate && frameUpdate[2] === "showItems"){
+                ids = [frameUpdate[1]]
             }
+        }
 
-            if( event === "new_child"){
-                if( ids[0] === primitive.id ){
-                    const child = info?.child
-                    if( child){
-                        if( !myState[child.id] && child.type !== "chat"){
-                            addBoardToCanvas( child )
-                        }
+        if( event === "new_child"){
+            if( ids[0] === primitive.id ){
+                const child = info?.child
+                if( child){
+                    if( !myState[child.id] && child.type !== "chat"){
+                        addBoardToCanvas( child )
                     }
                 }
-                return false
-            }else if( event === "set_field" && info === "rationale"){
-                return false
             }
+            return false
+        }else if( event === "delete_primitive"){
+            if( ids ){
+                for(const id of ids){
+                    canvas.current.removeFrame( id )
+                }
+            }
+        }else if( event === "set_field" && info === "rationale"){
+            return false
+        }
+        if( myState.current.watchList  ){
 
             myState.current.framesToUpdate = myState.current.framesToUpdate || []
             myState.current.framesToUpdateForRemote = myState.current.framesToUpdateForRemote || []
@@ -2824,49 +2872,27 @@ export default function BoardViewer({primitive,...props}){
     }
 
     async function handleDropNewPrimitive(e){
-        const categoryId = e.dataTransfer.getData('application/x-category') || e.dataTransfer.getData('text/plain')
-        if(!categoryId){
+        if( !canvas.current ){
+            return
+        }
+        const categoryIdValue = e.dataTransfer.getData('application/x-category') || e.dataTransfer.getData('text/plain')
+        if(!categoryIdValue){
+            return
+        }
+        const categoryId = Number(categoryIdValue)
+        if(Number.isNaN(categoryId) || !allowedCategoryIdSet.has(categoryId)){
+            return
+        }
+        const dropTarget = document.elementFromPoint(e.clientX, e.clientY)
+        if(dropTarget?.closest('[data-cancel-drop]')){
             return
         }
         e.preventDefault()
         setShowAddDrawer(false)
-        let sceneCoords
-        const stage = canvas.current?.stageNode?.()
-        if( stage ){
-            const container = stage.container()
-            if( stage.setPointersPositions ){
-                stage.setPointersPositions({
-                    clientX: e.clientX,
-                    clientY: e.clientY,
-                    currentTarget: container,
-                    target: container
-                })
-            }
-            const pointer = stage.getPointerPosition?.() || stage.getRelativePointerPosition?.()
-            if( pointer && canvas.current.stageToScene ){
-                sceneCoords = canvas.current.stageToScene(pointer.x, pointer.y)
-            }
-        }
-        if( !sceneCoords ){
-            const rect = (stage?.container?.() ?? e.currentTarget).getBoundingClientRect()
-            const localX = e.clientX - rect.left
-            const localY = e.clientY - rect.top
-            if( stage ){
-                const inverse = stage.getAbsoluteTransform?.().copy?.()
-                if( inverse ){
-                    inverse.invert()
-                    const point = inverse.point({x: localX, y: localY})
-                    if( canvas.current?.stageToScene ){
-                        sceneCoords = canvas.current.stageToScene(point.x, point.y)
-                    }else{
-                        sceneCoords = [point.x, point.y]
-                    }
-                }
-            }
-            if( !sceneCoords ){
-                sceneCoords = [localX, localY]
-            }
-        }
+
+
+        let [sceneX, sceneY] = canvas.current.convertClientCoords( {x: e.clientX, y: e.clientY})
+
         const cat = mainstore.category(categoryId)
         if(cat){
             const newPrim = await mainstore.createPrimitive({
@@ -2877,7 +2903,6 @@ export default function BoardViewer({primitive,...props}){
                 workspaceId: primitive.workspaceId
             })
             if(newPrim){
-                const [sceneX, sceneY] = sceneCoords
                 addBoardToCanvas(newPrim, {x: sceneX, y: sceneY, s:1})
             }
         }
@@ -3248,7 +3273,12 @@ export default function BoardViewer({primitive,...props}){
                             </div>
                         </div>}
                     </div>
-                    <PrimitiveDrawer open={showAddDrawer} onClose={()=>setShowAddDrawer(false)} className='pointer-events-auto mt-1' />
+                    <PrimitiveDrawer
+                        open={showAddDrawer}
+                        onClose={()=>setShowAddDrawer(false)}
+                        className='pointer-events-auto mt-1 max-h-[calc(100vh_-_20rem)]'
+                        categories={allowedDrawerCategories}
+                    />
                 </div>
                 {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-40 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
                     {myState.menuOptions?.addToView && <DropdownButton noBorder icon={<PlusIcon className='w-5 h-5'/>} onClick={addToView} flat placement='left-start' />}

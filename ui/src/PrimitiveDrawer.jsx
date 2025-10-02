@@ -1,6 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
 import clsx from 'clsx';
-import MainStore from './MainStore';
 import {HeroIcon} from './HeroIcon';
 import {Input} from '@heroui/react';
 
@@ -47,10 +46,8 @@ function formatTypeLabel(type){
   return {label: friendly, description: ''};
 }
 
-export default function PrimitiveDrawer({open, onClose, className}){
-  const mainstore = MainStore();
+export default function PrimitiveDrawer({open, onClose, className, categories = []}){
   const [query, setQuery] = useState('');
-  const categories = mainstore.categories();
 
   useEffect(()=>{
     if(!open){
@@ -69,9 +66,6 @@ export default function PrimitiveDrawer({open, onClose, className}){
   }, [open, onClose]);
 
   const groups = useMemo(()=>{
-    if(!open){
-      return [];
-    }
     const q = query.trim().toLowerCase();
     const filtered = categories.filter(category=>{
       if(!q){
@@ -104,13 +98,14 @@ export default function PrimitiveDrawer({open, onClose, className}){
         items: group.items.sort(sortByTitle)
       }))
       .sort((a, b)=>a.label.localeCompare(b.label, undefined, {sensitivity: 'base'}));
-  }, [categories, open, query]);
+  }, [categories, query]);
 
   if(!open){
     return null;
   }
 
   const hasResults = groups.length > 0;
+  const hasBaseCategories = categories.length > 0;
 
   return (
     <div
@@ -118,6 +113,7 @@ export default function PrimitiveDrawer({open, onClose, className}){
         'pointer-events-auto w-80 sm:w-96 bg-white shadow-2xl border border-default-200 rounded-2xl flex flex-col overflow-hidden',
         className
       )}
+      data-cancel-drop
       onDragOver={event=>{
         event.preventDefault();
         event.stopPropagation();
@@ -152,8 +148,8 @@ export default function PrimitiveDrawer({open, onClose, className}){
         />
       </div>
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-5">
-        {hasResults ? (
-          groups.map(group=>(
+          {hasResults ? (
+            groups.map(group=>(
             <section key={group.key}>
               <header className="mb-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-default-500">
@@ -194,13 +190,17 @@ export default function PrimitiveDrawer({open, onClose, className}){
               </div>
             </section>
           ))
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center text-default-400 gap-2">
-            <HeroIcon icon="InboxIcon" className="w-10 h-10"/>
-            <p className="text-sm font-medium">No categories matched your search.</p>
-            <p className="text-xs">Try a different keyword or reset the filter.</p>
-          </div>
-        )}
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center text-center text-default-400 gap-2">
+              <HeroIcon icon="InboxIcon" className="w-10 h-10"/>
+              <p className="text-sm font-medium">
+                {hasBaseCategories ? 'No categories matched your search.' : 'No categories available for this board.'}
+              </p>
+              <p className="text-xs">
+                {hasBaseCategories ? 'Try a different keyword or reset the filter.' : 'Switch the active board or adjust its type to enable more options.'}
+              </p>
+            </div>
+          )}
       </div>
     </div>
   );

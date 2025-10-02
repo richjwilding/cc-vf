@@ -668,14 +668,9 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
           }
 
           const sanitizedHistory = sanitizeChatHistory(history);
-          const nextReference = {
-            ...(chat.referenceParameters ?? {}),
-            chat_history: sanitizedHistory,
-            updated_at: new Date().toISOString(),
-          };
 
           try {
-            await chat.setField('referenceParameters', nextReference);
+            await chat.setField('referenceParameters.chat_history', sanitizedHistory);
             const chatId = chat.id ?? chat._id ?? targetChatId;
             setActiveChatInfo((prev) => {
               if (!prev || prev.id !== chatId) {
@@ -683,8 +678,8 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
               }
               return {
                 ...prev,
-                sessionKey: nextReference.session_key ?? prev.sessionKey,
-                updatedAt: nextReference.updated_at,
+                sessionKey: chat.referenceParameters.session_key ?? prev.sessionKey,
+                updatedAt: chat.referenceParameters.updated_at,
               };
             });
             bumpChatVersion();
