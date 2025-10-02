@@ -408,7 +408,7 @@ const searchTools = [
 export const searchMode = {
   id: "search",
   label: "Search",
-  description: "Searches the internet and other external sources for new data",
+  description: "Searches the internet and other external sources for new data, also manages existing extrernal searches in the workspace",
   toolNames: new Set([
     ...searchTools.map((t) => t.definition.name),
     "get_data_sources",

@@ -43,6 +43,44 @@ import { classifyFlowIntent } from "./modules/flow_router.js";
 import { inspect } from 'node:util';
 const logger = getLogger('agent', "debug", 2); // Debug level for moduleA
 
+function stripControlTokens(text) {
+  if (typeof text !== "string") {
+    return "";
+  }
+  return text
+    .replace(/\[\[[^\]]*\]\]/g, " ")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncateForPrompt(text, maxLength = 280) {
+  if (!text) {
+    return "";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return text.slice(0, maxLength).trim();
+}
+
+function sanitizeGeneratedTitle(title) {
+  if (typeof title !== "string") {
+    return "";
+  }
+  const cleaned = title
+    .trim()
+    .replace(/^"+|"+$/g, "")
+    .replace(/^'+|'+$/g, "")
+    .replace(/[\s]+/g, " ")
+    .replace(/[.!?\s]+$/g, "")
+    .trim();
+  if (!cleaned) {
+    return "";
+  }
+  return cleaned.length > 120 ? cleaned.slice(0, 120).trim() : cleaned;
+}
+
 
 const chatSessions = new Map();
 const SESSION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -162,6 +200,7 @@ async function ensureChatPrimitiveRecord(primitive, req, sessionKeyId) {
         owner_id: ownerId,
         owner_type: ownerId ? "user" : "anon",
         updated_at: new Date().toISOString(),
+        title_generated: false,
       },
     },
   };
@@ -666,6 +705,70 @@ export async function handleChat(primitive, options, req, res) {
             chatSessionKey: sessionKeyId,
         }
 
+        let lastAssistantMessageForTitle = null
+        let generatedChatTitleThisRequest = false
+
+        const maybeGenerateChatTitle = async () => {
+          if (generatedChatTitleThisRequest) {
+            return
+          }
+          if (!chatPrimitive) {
+            return
+          }
+          const referenceParameters = chatPrimitive.referenceParameters ?? {}
+          if (referenceParameters.title_generated ) {
+            return
+          }
+          if (!firstUserMessageForTitle || !lastAssistantMessageForTitle) {
+            return
+          }
+
+          const prompt = [
+            "Create a concise descriptive title (maximum 8 words) that captures the main focus of this conversation between a user and an AI agent.",
+            `User message: ${firstUserMessageForTitle}`,
+            `Assistant reply: ${lastAssistantMessageForTitle}`,
+            "Highlight the user's goal or topic in the title.",
+          ].join("\n")
+
+          try {
+            const titleResult = await processAsSingleChunk(prompt, {
+              engine: "o4-mini",
+              output: "Provide your response as a JSON object with a single field called 'title' containing the conversation title (maximum 8 words).",
+            })
+
+            if (!titleResult?.success) {
+              logger.warn(`Failed to generate chat title for ${chatPrimitive.id}`, { error: titleResult?.error || "unknown_error" })
+              return
+            }
+
+            const rawTitle = titleResult.results?.title ?? titleResult.results?.Title ?? ""
+            const sanitizedTitle = sanitizeGeneratedTitle(rawTitle)
+            if (!sanitizedTitle) {
+              return
+            }
+
+            if (chatPrimitive.title !== sanitizedTitle) {
+              try {
+                await dispatchControlUpdate(chatPrimitive.id, "title", sanitizedTitle)
+                chatPrimitive.title = sanitizedTitle
+              } catch (error) {
+                logger.warn(`Failed to update chat title for ${chatPrimitive.id}`, { error: error?.message })
+                return
+              }
+            }
+
+            const nextReference = {
+              ...referenceParameters,
+              title_generated: true,
+              title_generated_at: new Date().toISOString(),
+            }
+            chatPrimitive.referenceParameters = nextReference
+            generatedChatTitleThisRequest = true
+          } catch (error) {
+            logger.warn(`Error while generating chat title for ${chatPrimitive?.id}`, { error: error?.message })
+          }
+        }
+
         const persistState = async () => {
           if (!chatPrimitive) {
             return
@@ -787,6 +890,7 @@ export async function handleChat(primitive, options, req, res) {
 
         const allUserMessages = (req.body.messages || []).filter(d => d.role === "user" && typeof d.content === "string");
         const lastUserMsg = allUserMessages.at(-1)?.content || ''
+        const firstUserMessageForTitle = truncateForPrompt(stripControlTokens(allUserMessages[0]?.content ?? ""))
 
         const allMessages = (req.body.messages || []).filter(d => !d.hidden && typeof d.content === "string");
         const recentUserMessages = allMessages.slice(-5).map(msg => msg.content).filter(Boolean)
@@ -801,6 +905,7 @@ export async function handleChat(primitive, options, req, res) {
         let exitOnly = false
         let routerHandledEnter = false
         let routerHandledExit = false
+        let routerHandledStay = false
         if (routerOutcome?.decisions?.length) {
           for (const decision of routerOutcome.decisions) {
             const action = typeof decision?.action === "string" ? decision.action.toLowerCase() : ""
@@ -813,6 +918,8 @@ export async function handleChat(primitive, options, req, res) {
               scope.deactivateMode()
               exitOnly = true
               routerHandledExit = true
+            } else if (action === "stay") {
+              routerHandledStay = true
             } else if (action === "enter") {
               scope.activateMode(flow)
               routerHandledEnter = true
@@ -826,21 +933,23 @@ export async function handleChat(primitive, options, req, res) {
           }
         }
 
-        if (!routerHandledExit) {
-          for (const [id, def] of Object.entries(flows)) {
-            if (session.mode === id && matchExit(def, lastUserMsg)) {
-              scope.deactivateMode()
-              sendSse({ done: true })
-              await persistState()
-              return
+        if( !routerHandledStay ){
+          if (!routerHandledExit) {
+            for (const [id, def] of Object.entries(flows)) {
+              if (session.mode === id && matchExit(def, lastUserMsg)) {
+                scope.deactivateMode()
+                sendSse({ done: true })
+                await persistState()
+                return
+              }
             }
           }
-        }
-
-        if (!routerHandledEnter) {
-          for (const [id, def] of Object.entries(flows)) {
-            if (session.mode !== id && matchEnter(def, lastUserMsg)) {
-              scope.activateMode(id)
+          
+          if (!routerHandledEnter) {
+            for (const [id, def] of Object.entries(flows)) {
+              if (session.mode !== id && matchEnter(def, lastUserMsg)) {
+                scope.activateMode(id)
+              }
             }
           }
         }
@@ -955,6 +1064,9 @@ export async function handleChat(primitive, options, req, res) {
                         
                         if( fnResult.__WITH_SUMMARY){
                             summary = fnResult.summary
+                            if (typeof summary === "string") {
+                                lastAssistantMessageForTitle = truncateForPrompt(stripControlTokens(summary))
+                            }
                             sendSse({
                                 hidden: true,
                                 content: JSON.stringify({
@@ -964,6 +1076,7 @@ export async function handleChat(primitive, options, req, res) {
                                 })
                             })
                             sendSse({content: summary})
+                            await maybeGenerateChatTitle()
                             flushPendingContexts();
                             sendSse({ done: true });
                             await persistState()
@@ -1001,6 +1114,12 @@ export async function handleChat(primitive, options, req, res) {
                 await persistState()
                 continue;
             }
+
+            if (!funcName) {
+                lastAssistantMessageForTitle = truncateForPrompt(stripControlTokens(assistantContent))
+            }
+
+            await maybeGenerateChatTitle()
 
             // 3️⃣ No function call this round → we’re done
             flushPendingContexts();

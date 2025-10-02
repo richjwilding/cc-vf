@@ -1568,7 +1568,7 @@ export default function BoardViewer({primitive,...props}){
                 if( ids[0] === primitive.id ){
                     const child = info?.child
                     if( child){
-                        if( !myState[child.id] ){
+                        if( !myState[child.id] && child.type !== "chat"){
                             addBoardToCanvas( child )
                         }
                     }

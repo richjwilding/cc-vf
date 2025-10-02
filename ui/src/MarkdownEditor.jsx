@@ -286,7 +286,6 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
       empty:()=>isEditorEmpty( editor ),
       focus:()=>slateRef.current.focus(),
       statusMessage:(status)=>{
-        console.log(`Setting status >> ${status}`)
         if( status ){
           statusMessage.current = [{ type:"paragraph", statusBadge: true, children: [{type: 'badge', badgeType: status, children:[{text: ""}]}]}]
         }else{
@@ -304,7 +303,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
       },
       appendMessages: (newMsgs = [], update) => {
         Editor.withoutNormalizing(editor, () => {
-        const wasAtTop = slateRef.current && (slateRef.current.scrollTop + slateRef.current.clientHeight) === slateRef.current.scrollHeight;
+        const wasAtTop = slateRef.current && (slateRef.current.scrollTop + slateRef.current.clientHeight) >= slateRef.current.scrollHeight;
         const isEmpty = !newMsgs || newMsgs.length === 0
         const nodes = convertInitialValue(newMsgs)
         let done = false
@@ -327,10 +326,7 @@ const MarkdownEditor = forwardRef(function MarkdownEditor({ initialMarkdown, act
         if( statusMessage.current){
           Transforms.insertNodes(editor, statusMessage.current, { at: [editor.children.length] })
         }
-        // insert at the end of the document
         if (slateRef.current && props.scrollToEnd && wasAtTop) {
-          console.log(`--- scroll to bottom`)
-          // you can hook into your scroll‐to‐bottom logic here
           setTimeout(() => {
             if( slateRef.current){
               slateRef.current.scrollTop = slateRef.current.scrollHeight;

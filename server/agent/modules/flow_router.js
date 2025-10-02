@@ -20,7 +20,7 @@ function buildRouterPrompt(flows, activeFlow, recentUsers = []) {
   const lines = [
     "Decide if the agent should enter, exit, or switch flows before answering the user.",
     'Return ONLY JSON shaped like {"decisions":[{"action":"enter|exit|switch","flow":"id","from":"id","to":"id","rationale":"20 word rationale"}]}',
-    "If no change is needed, respond with {\"decisions\":[]}",
+    activeFlow ? "If no change is needed, respond with {\"decisions\":[{\"action\": \"stay\"}]}" : "If no change is needed, respond with {[]}",
     "Do not switch flows unless the user explicitly asks for a different kind of task or tool.",
     "Stay in the current flow if the user appears to be continuing the same thread (e.g., choosing from prior suggestions).",
     "If the user changes use case (ie asks for insights after adding a new serach - or asks for a visualziation after analysis) then you should switch to the new mode",
@@ -43,7 +43,7 @@ function buildRouterPrompt(flows, activeFlow, recentUsers = []) {
   return lines.join("\n");
 }
 
-function normalizeDecisions(decisions, flows) {
+function normalizeDecisions(decisions, flows, activeFlow) {
   const validFlows = new Set(Object.keys(flows ?? {}));
   const result = [];
 
@@ -53,8 +53,12 @@ function normalizeDecisions(decisions, flows) {
     }
 
     const action = typeof decision.action === "string" ? decision.action.toLowerCase() : "";
-    if (!action || !["enter", "exit", "switch"].includes(action)) {
+    if (!action || !["enter", "exit", "switch", "stay"].includes(action)) {
       continue;
+    }
+    if (action === "stay") {
+        result.push({ action: "stay", flow: activeFlow });
+        continue
     }
 
     if (action === "switch") {
@@ -114,7 +118,7 @@ export async function classifyFlowIntent({ message, flows, activeFlow, recentUse
       return null;
     }
 
-    const normalized = normalizeDecisions(parsed.decisions, flows);
+    const normalized = normalizeDecisions(parsed.decisions, flows, activeFlow);
     return { decisions: normalized, raw: parsed.decisions };
   } catch (error) {
     logger.warn(`Flow router classification failed: ${error.message}`);
