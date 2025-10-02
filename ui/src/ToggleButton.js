@@ -1,4 +1,4 @@
-import { Switch } from '@headlessui/react'
+import { Switch } from '@heroui/react'
 import { useEffect, useState } from 'react'
 
 function classNames(...classes) {
@@ -6,7 +6,12 @@ function classNames(...classes) {
 }
 
 export default function TooggleButton(props) {
-  const [enabled, setEnabled] = useState(props.enabled)
+  return <Switch
+              size="sm" 
+              variant={props.variant ?? "bordered"}
+              isSelected={props.enabled} 
+              onValueChange={props.setEnabled}>{props.title}</Switch>
+  /*const [enabled, setEnabled] = useState(props.enabled)
 
   function handleChange(){
     const newState = !enabled
@@ -42,5 +47,5 @@ export default function TooggleButton(props) {
         <span className="font-medium">{props.title}</span>
       </Switch.Label>
     </Switch.Group>
-  )
+  )*/
 }

@@ -7,9 +7,10 @@ import Category from "../model/Category";
 import Workspace from "../model/Workspace";
 import { categorize, generateImage, processPromptOnText } from "../openai_helper";
 import QueryQueue from "../query_queue";
-import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
-import { aggregateItems, compareItems, findCompanyURLByNameLogoDev, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
+import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
+import { aggregateItems, checkAndGenerateSegments, compareItems, findCompanyURLByNameLogoDev, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
 import { replicateWorkflow } from "../workflow";
+import { flattenStructuredResponse } from "../PrimitiveConfig";
 import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
 const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
 
@@ -19,6 +20,9 @@ const logger = getLogger('actionrunner', 'debug'); // Debug level for moduleA
         return await replicateWorkflow( primitive, workspace )
     }
 })*/
+registerAction( "test_cags", undefined, async (primitive, action, options = {}, req)=>{
+    return await checkAndGenerateSegments(primitive, options?.parent ?? primitive, {checkOnly: true, ...options} )
+})
 
 registerAction("lookup_entity", {type: "action"}, async (primitive, action, options, req)=>{
     const config = await getConfig( primitive )
@@ -600,10 +604,108 @@ registerAction( "split_summary", {id: "summary"}, async (primitive, action, opti
         logger.error(e)
     }
 })
+
+
+function collectStructuredSummaryIds(node, acc = new Set()) {
+    if (!node) {
+        return acc;
+    }
+    if (Array.isArray(node)) {
+        for (const entry of node) {
+            collectStructuredSummaryIds(entry, acc);
+        }
+        return acc;
+    }
+    const ids = node.ids;
+    if (Array.isArray(ids)) {
+        for (const value of ids) {
+            if (!value) {
+                continue;
+            }
+            if (typeof value === "string" || typeof value === "number") {
+                acc.add(String(value));
+            } else if (typeof value === "object" && value.id) {
+                acc.add(value.id);
+            }
+        }
+    } else if (typeof ids === "string" || typeof ids === "number") {
+        acc.add(String(ids));
+    }
+    if (Array.isArray(node.subsections)) {
+        collectStructuredSummaryIds(node.subsections, acc);
+    }
+    return acc;
+}
+
+registerAction( "split_structured_summary_sections", {id: 109, type: "categoryId"}, async (primitive, action, options = {}, req)=>{
+    const sections = primitive.referenceParameters?.structured_summary;
+    if (!Array.isArray(sections) || sections.length <= 1) {
+        return { created: [], skipped: true };
+    }
+
+    const parentEntries = Object.entries(primitive.parentPrimitives ?? {}).filter(([k, rels])=>rels.includes("primitives.origin"));
+    const created = [];
+
+    for (let index = 0; index < sections.length; index++) {
+        const section = sections[index];
+        if (!section || typeof section !== "object") {
+            continue;
+        }
+
+        const sectionClone = JSON.parse(JSON.stringify(section));
+        const structuredPayload = [sectionClone];
+        const summaryText = flattenStructuredResponse(structuredPayload, structuredPayload);
+
+        const referenceParameters = {
+            ...(primitive.referenceParameters ?? {}),
+            structured_summary: structuredPayload,
+            summary: summaryText
+        };
+
+        const heading = typeof sectionClone.heading === "string" && sectionClone.heading.trim().length > 0
+            ? sectionClone.heading.trim()
+            : undefined;
+        const primitiveTitle = typeof primitive.title === "string" && primitive.title.trim().length > 0
+            ? primitive.title.trim()
+            : "Summary Section";
+        const fallbackTitle = sections.length > 1
+            ? `${primitiveTitle} - Section ${index + 1}`
+            : primitiveTitle;
+        const title = heading ?? fallbackTitle;
+
+        const newPrimitive = await createPrimitive({
+            workspaceId: primitive.workspaceId,
+            data:{
+                type: primitive.type,
+                title,
+                referenceId: primitive.referenceId,
+                referenceParameters
+            }
+        }, undefined, req);
+
+        for (const [parentId, paths] of parentEntries) {
+            const pathList = Array.isArray(paths) ? paths : (paths ? [paths] : []);
+            if (pathList.length > 0) {
+                await addRelationship(parentId, newPrimitive.id, pathList);
+            }
+        }
+
+        const sectionIds = Array.from(collectStructuredSummaryIds(sectionClone));
+        if (sectionIds.length > 0) {
+            await addRelationshipToMultiple(newPrimitive.id, sectionIds, "source", primitive.workspaceId);
+        }
+
+        created.push(newPrimitive.id);
+    }
+
+    return { created };
+});
+
 registerAction( "keyword_metrics", undefined, async (primitive, action, options = {}, req)=>{
     const result = await getGoogleAdKeywordMetrics(options.keywords, options.geo, req)
     let data
     //const result = await getGoogleAdKeywordMetrics(primitive.title, req)
+
 
     if( result.success){
         data = result.results[0]
@@ -619,3 +721,35 @@ registerAction( "keyword_metrics", undefined, async (primitive, action, options 
         return updated
     }
 })
+registerAction( "generate_image", undefined, async (primitive, action, options = {}, req)=>{
+    const config = await getConfig( primitive )
+
+    if( !config.prompt ){
+        return
+    }
+    const styles = {
+                                        "drawing": "A detailed pencil sketch in black and white, with fine shading and crosshatching. Style should resemble a hand-drawn illustration in an artist’s sketchbook, with realistic proportions, clean lines, and intricate detail.",
+                                        "cartoon": "A colorful cartoon-style illustration with bold outlines, exaggerated expressions, and simplified forms. The style should be playful, vibrant, and engaging, similar to a modern animated show, with flat colors and dynamic poses.",
+                                        "photo": "A high-resolution, photorealistic image that looks like it was taken with a professional DSLR camera. Use realistic lighting, natural textures, depth of field, and accurate proportions. The result should be indistinguishable from an actual photograph.",
+                                        "infographic": "A clean, modern infographic-style design with vector graphics, icons, and clear typography. The layout should be minimal, well-organized, and visually appealing, optimized for communicating information clearly with charts, symbols, and color coding.",
+                                        "pixelArt": "A retro 8-bit pixel art scene with blocky, low-resolution characters and environments. Each element should be constructed from small, square pixels with a limited color palette, evoking the style of classic video games from the 1980s.",
+                                        "illustration": "A hand-drawn illustration in a sketchy marker and ink style, with soft shading, textured lines, and a slightly whimsical feel. The colors should look like they were applied with markers or watercolor, giving the image warmth and a human touch."
+                                        }
+
+
+    const prompt = [
+        config.prompt,
+        config.style ? styles[config.style] : undefined,
+        config.color,
+        "Do not include any text"
+    ].filter(Boolean).join(". ")
+
+    const response = await generateImage(prompt, { size: config.aspect, background: config.background })
+    if (response.success) {
+        console.log(`Got image data`)
+        await uploadDataToBucket(response.data, primitive.id, 'cc_vf_images')
+        dispatchControlUpdate(primitive.id, "imageCount", (primitive.imageCount ?? 0) + 1)
+        console.log(`done`, primitive.id)
+    }
+})
+    

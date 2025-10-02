@@ -430,6 +430,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
     function createFrame(options = {}){
         const target = stageRef.current?.children[0]
+        if( !target ){
+            return
+        }
         let frameId = myState.current?.frames?.length ?? 0
         const frame = new Konva.Group({
             x: options.x ?? 0,
@@ -496,11 +499,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             console.log(`defer anim request`)
         }
         if( myState.current.animationQueue?.length > 0){
-            myState.current.animationRequest = requestAnimationFrame(()=>{
-                const tick = performance.now()
+            myState.current.animationRequest = requestAnimationFrame((tick)=>{
                 for(const d of myState.current.animationQueue){
-                    if(d.callback){
-                        if( d.node.getLayer()){
+                    const l = d.node.getLayer()
+                    const c = l && l.getCanvas()
+                    
+                    if( c && c.width > 0 && c.height > 0  ){
+                        if(d.callback){
                             if(d.callback(tick)){
                                 d.node.draw()
                             }
@@ -1650,6 +1655,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
 
     function refreshFrame(id, newItems ){
+        if( !stageRef.current ){
+            return
+        }
         const force = newItems !== undefined
         const item = myState.current.renderList.find(d=>d?.id === id)
         if( item ){
@@ -2328,7 +2336,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
 
                 [x, y] = convertStageCoordToScene(px, py )
-                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame", "pin"], true))
+                let found = orderInteractiveNodes(findTrackedNodesAtPosition( x, y, ["primitive", "frame",  "pin"], true, false, true))
                 let item = found[0]
                 if( !item ){
                     myState.current.panForDrag = true
@@ -2988,7 +2996,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         }
 
-        function findTrackedNodesAtPosition(px,py, classes, includeFrame = false, forClick){
+        function findTrackedNodesAtPosition(px,py, classes, includeFrame = false, forClick, forDrag){
             if( !myState.current?.frames){return}
             if( classes ){
                 classes = [classes].flat()
@@ -3010,14 +3018,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 const inFrame = inExapndedFrame && clipped.l <= px && clipped.t <= py &&  clipped.r >= px && clipped.b >= py
                 if( inExapndedFrame ){
                     for(const d of frame.lastNodes){
-                        if( !inFrame && !d.attrs.expandedClick){
-                            continue
-                        }
-                        if( props.enableShapeSelection === false){
-                            if( d.attrs.name?.includes("shape_element")){
-                                continue
-                            }
-                        }
                         let x = px - frame.node.attrs.x
                         let y = py - frame.node.attrs.y
                         x /= frame.scale
@@ -3056,6 +3056,20 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 }
                                 checked.add( d._id)
                                 if( addMajor ){
+                                    if( !inFrame && !d.attrs.expandedClick){
+                                        continue
+                                    }
+                                    if( props.enableShapeSelection === false){
+                                        if( d.attrs.name?.includes("shape_element")){
+                                            continue
+                                        }
+                                    }
+                                    if( forClick && d.attrs.name?.includes("no_select")){
+                                        continue
+                                    }
+                                    if( forDrag && d.attrs.name?.includes("no_drag")){
+                                        continue
+                                    }
                                     found.push(d)
                                 }
                             }
@@ -3372,7 +3386,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 return
             }
             let [x, y] = convertEventToScene(e)
-            const clickable_names = ["widget", "inf_track", "frame_label",...Object.keys(props.selectable), ...Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
+            const clickable_names = ["widget", "inf_track", "frame_label",...Object.keys(props.selectable ?? {}), ...Object.keys(props.callbacks?.onClick ?? {})].filter((d,i,a)=>a.indexOf(d) === i)
             if( clickable_names.length === 0 ){
                 return
             }

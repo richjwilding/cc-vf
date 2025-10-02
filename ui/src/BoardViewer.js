@@ -357,7 +357,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
             view.underlying ? ` (${primitiveToRender.plainId})` : ""
           }`;
 
-    const canvasMargin = view.inPage ? [0, 0, 0, 0] : (view.noTitle || view.inFlow) ? [0, 0, 0, 0] : [20, 20, 20, 20];
+    const canvasMargin = view.inPage ? [0, 0, 0, 0] : (view.noTitle || view.inFlow) ? [0, 0, 0, 0] : [10, 10, 10, 10];
   
     // Optional indicator builder
     const indicators = undefined//view.primitive.flowElement ? () => buildIndicators(primitiveToRender, undefined, undefined, myState) : undefined;
@@ -446,6 +446,17 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
           items: stageOptions => {
             const data = myState[d.id].data;
             const viewConfig = myState[d.id].viewConfig;
+
+            const configNames = view.primitive.type === "element" ? ["width", "height"] : ["width"] 
+            const sizeSource = view.parentRender ? myState[view.parentRender].primitive.frames : primitive.frames;
+            if (sizeSource?.[d.id]) {
+            configNames.forEach(name => {
+                if (sizeSource[d.id][name] !== undefined) {
+                renderOptions[name] = sizeSource[d.id][name];
+                }
+            });
+            }
+
             return renderDatatable({
                 id: d.id,
                 primitive: d,
@@ -1398,7 +1409,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
             const theme = themes[themeKey] || themes.default;
             myState[stateId].theme = theme
 
-            if( !myState[stateId].renderSubPages && !RENDERSUB){
+            if( myState.showSlideSuggestions  || (!myState[stateId].renderSubPages && !RENDERSUB)){
                 for(let child of childNodes){
                     myState[child.id] ||= {
                         id: child.id, 
@@ -1419,7 +1430,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                     myState[stateId].renderData = {
                         placeholder: true,
                         sections: visuals.map(d=>{
-                            if( d.type == "visualization"){
+                            if( d.type == "visualization" && d.chart){
                                 return {
                                     visualization: ConvertVisualizationSpec( d,  basePrimitive.slide_state?.data?.slideSpec?.defs)
                                 }
@@ -1557,7 +1568,7 @@ export default function BoardViewer({primitive,...props}){
                 if( ids[0] === primitive.id ){
                     const child = info?.child
                     if( child){
-                        if( !myState[child.id] ){
+                        if( !myState[child.id] && child.type !== "chat"){
                             addBoardToCanvas( child )
                         }
                     }
@@ -1662,7 +1673,9 @@ export default function BoardViewer({primitive,...props}){
                                             const elements = framePrimitive.primitives.origin.allElement
                                             const theme = myState[framePrimitive.id].theme
                                             elements.forEach(d=>myState[d.id].theme = theme)
-                                            needRefresh = [...needRefresh, ...elements.map(d=>d.id)]
+                                            if( needRefresh ){
+                                                needRefresh = [...needRefresh, ...elements.map(d=>d.id)]
+                                            }
                                             doFrame = false
                                         }else{
                                             let dIds = ids.filter(d=>d !== frameId)
@@ -1853,7 +1866,7 @@ export default function BoardViewer({primitive,...props}){
                 prepareBoard(d)
             }
         }
-        const allBoards = Object.values(myState).filter(d=>d && d.isBoard).map(d=>d.primitive)
+        const allBoards = Object.values(myState).filter(d=>d && d.isBoard).map(d=>d.primitive).filter(Boolean)
         const renderedSet = allBoards.map(d=>renderView(d))
         return [allBoards, renderedSet]
     }, [primitive?.id, update])
@@ -2715,7 +2728,7 @@ export default function BoardViewer({primitive,...props}){
                categoryList = [89, 145]
             }else{
                 categoryList = [
-                    38, 81, 130, 140, 131,142,118, 135,  136, 137,132,133,144,
+                    38, 81, 148, 154, 130, 140, 131,142,118, 135,  136, 137,132,133,144,
                     ...mainstore.categories().filter(d=>d.primitiveType === "search").map(d=>d.id),
                     ...(addToFlow ? [81,113] : mainstore.categories().filter(d=>d.primitiveType === "entity").map(d=>d.id)),
                 ].flat()
@@ -2951,7 +2964,7 @@ export default function BoardViewer({primitive,...props}){
 
                         if( pages.length > 0){
                             for(const page of pages){
-                                const background = root.find(".background")[0]
+                                const background = page.find(".background")[0]
                                 const backgroundColor = background?.attrs.fill
                                 const childFrames = root.node.find(d=>d.attrs.pageTrack === page.attrs.pageIdx)
                                 const aggNode = new Konva.Group({

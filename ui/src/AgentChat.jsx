@@ -1,19 +1,150 @@
 // ChatComponent.jsx (React)
-import { useEffect, useState, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useState, useRef, forwardRef, useImperativeHandle, useCallback, useMemo, useReducer } from 'react';
 import MarkdownEditor from './MarkdownEditor';
 import MainStore from './MainStore';
 import clsx from 'clsx';
-import { Logo } from './logo';
-import { PrimitiveCard } from './PrimitiveCard';
 import { HeroIcon } from './HeroIcon';
 import { Badge } from './@components/badge';
 import { deepEqualIgnoreOrder, isObjectId } from './SharedTransforms';
 import { Button } from '@heroui/react';
 import { Icon } from '@iconify/react/dist/iconify.js';
+import useDataEvent from './CustomHook';
+
+const MODE_ICON_MAP = {
+  search: 'MagnifyingGlassIcon',
+  insights: 'ChartBarIcon',
+  slides: 'PresentationChartLineIcon',
+  viz: 'ChartPieIcon',
+  flow_builder: 'PuzzlePieceIcon',
+  summary: 'DocumentTextIcon',
+};
+
+const DEFAULT_MODE_ICON = 'Squares2X2Icon';
+
+function sanitizeChatHistory(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  const limit = 500;
+  const trimmed = messages.slice(-limit);
+
+  return trimmed
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+
+      const safe = {
+        role: typeof entry.role === 'string' ? entry.role : 'assistant',
+        content: typeof entry.content === 'string' ? entry.content : '',
+      };
+
+      if (entry.hidden) {
+        safe.hidden = true;
+      }
+
+      if (entry.preview) {
+        safe.preview = true;
+      }
+
+      if (entry.context && typeof entry.context === 'object') {
+        safe.context = entry.context;
+      }
+
+      if (entry.resultFor && typeof entry.resultFor === 'string') {
+        safe.resultFor = entry.resultFor;
+      }
+
+      if (entry.name && typeof entry.name === 'string') {
+        safe.name = entry.name;
+      }
+
+      return safe;
+    })
+    .filter(Boolean);
+}
 
 //export default function AgentChat({primitive, ...props}) {
+function ChatSessionToolbar({
+  availableChats,
+  activeChatId,
+  activeUpdatedAt,
+  pending,
+  chatLoading,
+  onSelect,
+  onCreate,
+  onDelete,
+}) {
+  const hasChats = (availableChats ?? []).length > 0;
+  return (
+    <div className="w-full flex flex-col gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs font-medium text-slate-500" htmlFor="agent-chat-session">
+          Session
+        </label>
+        <select
+          id="agent-chat-session"
+          value={activeChatId ?? ''}
+          onChange={(event) => onSelect?.(event.target.value || null)}
+          disabled={chatLoading || pending}
+          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400"
+        >
+          <option value="" disabled={!hasChats}>
+            {hasChats ? 'Select chat session' : 'No chats available'}
+          </option>
+          {availableChats.map((chat) => {
+            const chatId = chat?.id ?? chat?._id;
+            const title = chat?.title ?? `Chat ${chat?.plainId ?? ''}`;
+            return (
+              <option key={chatId} value={chatId}>
+                {title}
+              </option>
+            );
+          })}
+        </select>
+        <Button
+          variant="light"
+          size="sm"
+          onPress={onCreate}
+          isDisabled={chatLoading || pending}
+          className="gap-1"
+        >
+          <HeroIcon icon="PlusCircleIcon" className="h-4 w-4" />
+          New chat
+        </Button>
+        <Button
+          variant="light"
+          color="danger"
+          size="sm"
+          onPress={onDelete}
+          isDisabled={chatLoading || pending || !activeChatId}
+          className="gap-1"
+        >
+          <HeroIcon icon="TrashIcon" className="h-4 w-4" />
+          Delete
+        </Button>
+      </div>
+      {activeUpdatedAt && (
+        <span className="text-xs text-slate-500">
+          Updated {new Date(activeUpdatedAt).toLocaleString()}
+        </span>
+      )}
+    </div>
+  );
+}
+
 const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, ...props}, ref){
-      const [messages, setMessages] = useState([        
+      const mainstore = useMemo(() => MainStore(), []);
+      const [messages, setMessages] = useState([
+
+
+        
+        /*{
+    "hidden": false,
+    "role": "assistant",
+    "content": "Absolutely! Here are a few additional ideas for visualizations using Reddit data to complement your current Instagram-focused slide:\n\n1. **Sentiment Comparison Chart:**  \n   Visualize the overall sentiment (positive, neutral, negative) of Reddit discussions about Thorne’s purchase drivers and barriers. This could be a stacked bar or pie chart, showing whether Reddit users are more skeptical, enthusiastic, or mixed compared to Instagram.\n\n2. **Theme Heatmap:**  \n   Create a heatmap showing which specific product attributes (e.g., ingredient transparency, clinical evidence, price, taste) are discussed most frequently on Reddit versus Instagram. This would highlight where conversations overlap and where they diverge.\n\n3. **Quote Cloud or Highlighted Comments:**  \n   Feature a “voice of the customer” section with representative Reddit quotes for each major purchase driver or barrier. This adds qualitative depth and shows how Reddit users articulate their reasoning.\n\n4. **Journey Mapping:**  \n   Map out the typical “wellness journey” or decision process as described by Reddit users—what triggers their interest, what research they do, what convinces or deters them. This could be a flow diagram or annotated timeline.\n\n5. **Influencer vs. Peer Signal:**  \n   Compare the influence of peer recommendations versus influencer/celebrity mentions on Reddit (which tends to be more peer-driven) versus Instagram. This could be a side-by-side bar chart or a network diagram.\n\n6. **Barrier Deep Dive:**  \n   Use Reddit data to do a deeper dive into a specific barrier (e.g., skepticism about efficacy or price concerns), showing sub-themes or the most common questions/complaints.\n\nIf any of these ideas interest you, let me know which one(s) you’d like to explore further!"
+}*/
         /*{
             "hidden": false,
             "role": "assistant",
@@ -52,10 +183,86 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
       const [pending, setPending] = useState(false);
       const [context, setContext] = useState(false);
       const [chatState, setChatState] = useState({});
-      const [externalContext, setExternalContext] = useState({});
+      const [externalContext, setExternalContext] = useState(props.context ?? {});
       const readerRef = useRef(null);
       const actionData = useRef([])
       const insertedCount = useRef(0)
+      const [modeSummary, setModeSummary] = useState({ available: [], active: null });
+      const modeRefreshController = useRef(null);
+      const [availableChats, setAvailableChats] = useState([]);
+      const [activeChatInfo, setActiveChatInfo] = useState(null);
+      const [chatLoading, setChatLoading] = useState(false);
+      const [chatVersion, bumpChatVersion] = useReducer((count) => count + 1, 0);
+      const messagesRef = useRef(messages);
+      useDataEvent('relationship_update remove_primitives', primitive?.id, () => bumpChatVersion());
+      const chatEventIds = useMemo(() => (availableChats ?? []).map((chat) => chat?.id ?? chat?._id).filter(Boolean), [availableChats]);
+      useDataEvent('control_update set_field', chatEventIds, () => bumpChatVersion());
+
+      useEffect(() => {
+        if (!primitive?.id) {
+          setAvailableChats([]);
+          return;
+        }
+
+        const parent = mainstore.primitive(primitive.id) ?? primitive;
+        const chatCollection = parent?.primitives?.chat.allItems ?? []
+
+        const resolved = chatCollection.map((chat) => {
+          const chatId = chat?.id ?? chat?._id;
+          return mainstore.primitive(chatId) ?? chat;
+        }).filter(Boolean);
+
+        const seen = new Set();
+        const deduped = [];
+        for (const chat of resolved) {
+          const cid = chat?.id ?? chat?._id;
+          if (!cid || seen.has(cid)) {
+            continue;
+          }
+          seen.add(cid);
+          deduped.push(chat);
+        }
+
+        deduped.sort((a, b) => {
+          const aTime = new Date(a?.referenceParameters?.updated_at ?? 0).getTime();
+          const bTime = new Date(b?.referenceParameters?.updated_at ?? 0).getTime();
+          return bTime - aTime;
+        });
+
+        setAvailableChats(deduped);
+      }, [primitive?.id, mainstore, chatVersion]);
+
+      const applyAgentMode = useCallback((modeData) => {
+        if (!modeData) {
+          setModeSummary({ available: [], active: null });
+          return;
+        }
+
+        setModeSummary((prev) => {
+          const nextAvailable = modeData.available ?? [];
+          const prevAvailable = prev?.available ?? [];
+          const unchanged =
+            prev?.active === modeData.active &&
+            prevAvailable.length === nextAvailable.length &&
+            prevAvailable.every((item, idx) => {
+              const candidate = nextAvailable[idx] ?? {};
+              return (
+                item.id === candidate.id &&
+                item.label === candidate.label &&
+                item.icon === candidate.icon
+              );
+            });
+
+          if (unchanged) {
+            return prev;
+          }
+
+          return {
+            available: nextAvailable,
+            active: modeData.active ?? null,
+          };
+        });
+      }, []);
 
       function setAgentStatus(status){
         if( editorRef.current ){          
@@ -64,7 +271,6 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
       }
     
       useEffect(()=>{
-        const mainstore = MainStore()
         updateStatus( {active: !inputBox.current?.empty(), messages})
         if( externalContext ){
           const ext = [externalContext].flat().filter(Boolean)
@@ -102,7 +308,11 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
           }
           setChatState( latestState )
         }
-      }, [messages, externalContext])
+      }, [messages, externalContext, mainstore])
+
+      useEffect(() => {
+        messagesRef.current = messages;
+      }, [messages]);
 
       useImperativeHandle(ref, () => {
         return {
@@ -112,12 +322,12 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         }
       }, [])
 
-      useEffect(() => {
+/*      useEffect(() => {
         if (insertedCount.current === 0 && messages.length > 0) {
           editorRef.current.appendMessages(messages.filter(d=>!d.hidden))
           insertedCount.current = messages.length
         }
-      }, [messages])
+      }, [messages])*/
     
       // whenever messages grows, append only the tail
       useEffect(() => {
@@ -183,19 +393,26 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         setMessages(h => {
           const lastMsg = h[h.length - 1]
           if (lastMsg.role === 'assistant' && !lastMsg.preview && !lastMsg.context && !other.context){
-                return [...h.slice(0, -1), { hidden, updated: true, role:'assistant', content: text, ...other }];
+                return [...h.slice(0, -1), {...other, updated: true, role:'assistant', content: text, hidden }];
           }
-          return [...h, { hidden, role:'assistant', content: text, ...other }];
+          return [...h, {...other, role:'assistant', content: text, hidden }];
         });
       }
-    
+
       async function sendChat() {
-        if( pending){return}
-        if( inputBox.current?.empty() ){
+        if( pending || chatLoading){return}
+        const rawInput = inputBox.current?.value?.();
+        const draft = typeof rawInput === 'string' ? rawInput.trim() : '';
+        if (!draft) {
+          return;
+        }
+        const activeSession = await ensureChatSession()
+        if( !activeSession){
           return
         }
+        const sessionChatId = activeSession?.id ?? activeSession?._id;
         setPending(true)
-        const userMsg = { role: 'user', content: inputBox.current?.value().trim() };
+        const userMsg = { role: 'user', content: draft };
         //const nextFull = [...messages, userMsg, { role: 'assistant', content: "[[update:Thinking...]]"}]
         const nextFull = [...messages, userMsg]//, { role: 'assistant', content: "[[update:Thinking...]]"}]
         setAgentStatus("agent_responding")
@@ -208,15 +425,22 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         const res = await fetch(`/api/primitive/${primitive.id}/agent`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-              messages: nextFull, 
+          body: JSON.stringify({
+              messages: nextFull,
               options: {
-                parentId: primitive.origin?.id, 
-                agentScope: agentScope, 
+                parentId: primitive.origin?.id,
+                agentScope: agentScope,
                 immediateContext: externalContext ? [externalContext].flat().map(d=>d.id) : undefined,
-                mode:props.mode
+                mode:props.mode,
+                chatPrimitiveId: activeSession.id,
+                chatSessionKey: activeSession.sessionKey,
               }}),
         });
+        if (!res.ok || !res.body) {
+          setAgentStatus()
+          setPending(false)
+          return
+        }
         const reader = res.body.getReader();
         const dec    = new TextDecoder();
         let buffer   = '';
@@ -239,6 +463,11 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
             if (!part.startsWith('data:')) continue;
             const payload = JSON.parse(part.slice(5).trim());
       
+            if (payload.agent_mode) {
+              applyAgentMode(payload.agent_mode);
+              continue;
+            }
+
             if (payload.content) {
               if( payload.content.startsWith("__SC_BK")){
                 const rewind = payload.content.match(/__SC_BK(\d+)__/)
@@ -284,7 +513,9 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
                 })
                 contextText = `[[action_item:${itemId}:${text}]]`
               }
-              updateAssistantUI(contextText, payload.context.context?.canCreate ? false :true, payload);
+              const hidden = payload.context.context?.canCreate ? false :true
+              console.log(hidden)
+              updateAssistantUI(contextText, hidden, payload);
                 displayContent = ""
             }else if(payload.preview){
               const {preview, ...other} =  payload
@@ -297,11 +528,106 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
               setPending(false)
               reader.cancel();
               readerRef.current = null;
+              persistChatHistory(messagesRef.current, { chatId: sessionChatId })
               return;
             }
           }
         }
       }
+
+      const immediateContextIds = useMemo(() => {
+        const source = externalContext && [externalContext].flat().filter(Boolean).length > 0
+          ? [externalContext].flat().filter(Boolean)
+          : [context].flat().filter(Boolean);
+        return source?.map((item) => item?.id)?.filter(Boolean) ?? [];
+      }, [externalContext, context]);
+
+      const refreshModeSummary = useCallback(async (ids) => {
+        if (!primitive?.id) {
+          return;
+        }
+
+        const controller = new AbortController();
+        if (modeRefreshController.current) {
+          modeRefreshController.current.abort();
+        }
+        modeRefreshController.current = controller;
+
+        let reader;
+        try {
+          
+          const res = await fetch(`/api/primitive/${primitive.id}/agent`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [],
+              options: {
+                parentId: primitive.origin?.id,
+                agentScope,
+                immediateContext: ids?.length ? ids : undefined,
+                modePing: true,
+              },
+            }),
+            signal: controller.signal,
+          });
+
+          if (!res.ok || !res.body) {
+            return;
+          }
+
+          reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let finished = false;
+
+          while (!finished) {
+            const { value, done } = await reader.read();
+            if (done) {
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();
+            for (const part of parts) {
+              if (!part.startsWith('data:')) continue;
+              const payload = JSON.parse(part.slice(5).trim());
+              if (payload.agent_mode) {
+                applyAgentMode(payload.agent_mode);
+              }
+              if (payload.done) {
+                finished = true;
+              }
+            }
+          }
+        } catch (error) {
+          if (!controller.signal.aborted && error.name !== 'AbortError') {
+            console.warn('Mode refresh failed', error);
+          }
+        } finally {
+          if (reader) {
+            try {
+              await reader.cancel?.();
+            } catch (_) {
+              // ignore cancellation errors
+            }
+            reader.releaseLock?.();
+          }
+
+          if (modeRefreshController.current === controller) {
+            modeRefreshController.current = null;
+          }
+        }
+      }, [primitive?.id, primitive?.origin?.id, agentScope?.constrainTo, applyAgentMode]);
+
+      const modeRefreshKey = immediateContextIds.length ? immediateContextIds.join(',') : 'none';
+
+      useEffect(() => {
+        refreshModeSummary(immediateContextIds);
+      }, [refreshModeSummary, modeRefreshKey]);
+
+      useEffect(() => () => {
+        modeRefreshController.current?.abort?.();
+      }, []);
 
       function handleInputKeyPress(e){
         if(e.key === "Enter"){
@@ -320,16 +646,287 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
           })
         }
       }
+      const persistChatHistory = useCallback(
+        async (history, options = {}) => {
+          const targetChatId = options.chatId ?? options.chatPrimitiveId ?? activeChatInfo?.id;
+          if (!targetChatId) {
+            return;
+          }
+
+          let chat = mainstore.primitive(targetChatId);
+          if (!chat && typeof mainstore.fetchPrimitive === 'function') {
+            try {
+              await mainstore.fetchPrimitive(targetChatId);
+              chat = mainstore.primitive(targetChatId);
+            } catch (error) {
+              console.warn('Failed to load chat for persistence', error);
+            }
+          }
+
+          if (!chat || typeof chat.setField !== 'function') {
+            return;
+          }
+
+          const sanitizedHistory = sanitizeChatHistory(history);
+          const nextReference = {
+            ...(chat.referenceParameters ?? {}),
+            chat_history: sanitizedHistory,
+            updated_at: new Date().toISOString(),
+          };
+
+          try {
+            await chat.setField('referenceParameters', nextReference);
+            const chatId = chat.id ?? chat._id ?? targetChatId;
+            setActiveChatInfo((prev) => {
+              if (!prev || prev.id !== chatId) {
+                return prev;
+              }
+              return {
+                ...prev,
+                sessionKey: nextReference.session_key ?? prev.sessionKey,
+                updatedAt: nextReference.updated_at,
+              };
+            });
+            bumpChatVersion();
+          } catch (error) {
+            console.warn('Failed to persist chat history', error);
+          }
+        },
+        [activeChatInfo?.id, mainstore, bumpChatVersion]
+      );
+
+      const applyChatSelection = useCallback(async (chatId, chatData) => {
+        if (!chatId) {
+          setActiveChatInfo(null);
+          insertedCount.current = 0;
+          actionData.current = [];
+          editorRef.current?.clear?.();
+          setMessages([]);
+          messagesRef.current = [];
+          inputBox.current?.clear?.();
+          setAgentStatus();
+          setPending(false);
+          updateStatus({ active: false, messages: [] });
+          return null;
+        }
+
+        setChatLoading(true);
+        try {
+          const resolvedId = chatId ?? chatData?.id ?? chatData?._id;
+          let target = chatData ?? mainstore.primitive(resolvedId);
+          if (!target && mainstore.fetchPrimitive) {
+            await mainstore.fetchPrimitive(resolvedId);
+            target = mainstore.primitive(resolvedId);
+          }
+
+          if (!target) {
+            return null;
+          }
+
+          const history = Array.isArray(target.referenceParameters?.chat_history)
+            ? target.referenceParameters.chat_history
+            : [];
+
+          insertedCount.current = 0;
+          actionData.current = [];
+          editorRef.current?.clear?.();
+          setMessages(history);
+          messagesRef.current = history;
+          inputBox.current?.clear?.();
+          setAgentStatus();
+          setPending(false);
+
+          const sessionState = target.referenceParameters?.agent_state?.session;
+          if (sessionState !== undefined) {
+            setChatState(sessionState);
+            props.setChatState?.(sessionState);
+          } else {
+            setChatState({});
+            props.setChatState?.(undefined);
+          }
+
+          const info = {
+            id: target.id ?? target._id ?? resolvedId,
+            sessionKey: target.referenceParameters?.session_key,
+            title: target.title,
+            updatedAt: target.referenceParameters?.updated_at,
+          };
+          setActiveChatInfo(info);
+          updateStatus({ active: history.length > 0, messages: history });
+          return info;
+        } finally {
+          setChatLoading(false);
+        }
+      }, [mainstore, props.setChatState, updateStatus]);
+
+      useEffect(() => {
+        if (!activeChatInfo?.id) {
+          return;
+        }
+
+        const targetId = activeChatInfo.id;
+        const updated = availableChats.find((chat) => {
+          const cid = chat?.id ?? chat?._id;
+          return cid === targetId;
+        });
+
+        if (!updated) {
+          return;
+        }
+
+        const nextSessionKey = updated.referenceParameters?.session_key;
+        const nextUpdatedAt = updated.referenceParameters?.updated_at;
+        const nextTitle = updated.title ?? updated.referenceParameters?.title;
+
+        setActiveChatInfo((prev) => {
+          if (!prev || prev.id !== targetId) {
+            return prev;
+          }
+
+          const sameSession = prev.sessionKey === nextSessionKey || (!nextSessionKey && !prev.sessionKey);
+          const sameUpdatedAt = prev.updatedAt === nextUpdatedAt || (!nextUpdatedAt && !prev.updatedAt);
+          const sameTitle = (!nextTitle && !prev.title) || prev.title === nextTitle;
+
+          if (sameSession && sameUpdatedAt && sameTitle) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            sessionKey: nextSessionKey ?? prev.sessionKey,
+            updatedAt: nextUpdatedAt ?? prev.updatedAt,
+            title: nextTitle ?? prev.title,
+          };
+        });
+      }, [availableChats, activeChatInfo?.id]);
+
+      const createChatSession = useCallback(async () => {
+        if (!primitive?.id || typeof mainstore.createPrimitive !== 'function') {
+          return null;
+        }
+
+        setChatLoading(true);
+        try {
+          let parentPrimitive = mainstore.primitive(primitive.id);
+          if (!parentPrimitive && typeof mainstore.fetchPrimitive === 'function') {
+            await mainstore.fetchPrimitive(primitive.id);
+            parentPrimitive = mainstore.primitive(primitive.id);
+          }
+
+          if (!parentPrimitive) {
+            parentPrimitive = primitive;
+          }
+
+          const now = new Date().toISOString();
+          const title = primitive?.title ? `Agent chat - ${primitive.title}` : 'Agent chat';
+          const created = await mainstore.createPrimitive({
+            title,
+            type: 'chat',
+            parent: parentPrimitive,
+            parentPath: 'chat',
+            workspaceId: primitive.workspaceId,
+            referenceParameters: {
+              chat_history: [],
+              updated_at: now,
+            },
+          });
+
+          if (!created) {
+            return null;
+          }
+
+          bumpChatVersion();
+          return await applyChatSelection(created.id ?? created._id, created);
+        } catch (error) {
+          console.warn('Failed to create chat', error);
+          return null;
+        } finally {
+          setChatLoading(false);
+        }
+      }, [primitive, mainstore, applyChatSelection, bumpChatVersion]);
+
+      const ensureChatSession = useCallback(async () => {
+        if (activeChatInfo?.id) {
+          return activeChatInfo;
+        }
+        return await createChatSession();
+      }, [activeChatInfo, createChatSession]);
+
+      const handleSelectChat = useCallback(async (chatId) => {
+        await applyChatSelection(chatId);
+      }, [applyChatSelection]);
+
+      const handleStartNewChat = useCallback(async () => {
+        await createChatSession();
+      }, [createChatSession]);
+
+      const handleDeleteChat = useCallback(async () => {
+        if (!activeChatInfo?.id) {
+          return;
+        }
+        setChatLoading(true);
+        try {
+          const target = mainstore.primitive(activeChatInfo.id) ?? { id: activeChatInfo.id };
+          await mainstore.removePrimitive(target);
+          bumpChatVersion();
+          setActiveChatInfo(null);
+          insertedCount.current = 0;
+          actionData.current = [];
+          editorRef.current?.clear?.();
+          setMessages([]);
+          messagesRef.current = [];
+          inputBox.current?.clear?.();
+          setAgentStatus();
+          setPending(false);
+          updateStatus({ active: false, messages: [] });
+        } catch (error) {
+          console.warn('Failed to delete chat', error);
+        } finally {
+          setChatLoading(false);
+        }
+      }, [activeChatInfo?.id, mainstore, bumpChatVersion, updateStatus]);
+      useEffect(() => {
+        if (!availableChats.length) {
+          if (activeChatInfo) {
+            setActiveChatInfo(null);
+            insertedCount.current = 0;
+            actionData.current = [];
+            editorRef.current?.clear?.();
+            setMessages([]);
+            messagesRef.current = [];
+            inputBox.current?.clear?.();
+            setAgentStatus();
+            setPending(false);
+            updateStatus({ active: false, messages: [] });
+          }
+          return;
+        }
+
+        const exists = activeChatInfo && availableChats.some((chat) => {
+          const cid = chat?.id ?? chat?._id;
+          return cid === activeChatInfo.id;
+        });
+
+        if (!exists) {
+          const nextChat = availableChats[0];
+          applyChatSelection(nextChat?.id ?? nextChat?._id);
+        }
+      }, [availableChats, activeChatInfo, applyChatSelection, updateStatus]);
       function rewind(){
         const msgToRemove = messages.at(-1)
+        if (!msgToRemove) {
+          return
+        }
         editorRef.current.appendMessages(undefined, true)
         if( msgToRemove.hidden ){
           console.log(`SKIP REMOVAL FROM SLATE OF HIDDEN MESSAFE`)
         }
-        setMessages(messages.slice(0,  msgToRemove.hidden ? -2 : -1))
+        const trimmed = messages.slice(0,  msgToRemove.hidden ? -2 : -1)
+        setMessages(trimmed)
         setPending(false)
         console.log(msgToRemove)
        // insertedCount.current = insertedCount.current - 1
+        persistChatHistory(trimmed)
       }
       function clear(){
         insertedCount.current = 0
@@ -339,11 +936,12 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         updateStatus({active: true, messages: []})
         actionData.current = []
         setPending(false)
+        persistChatHistory([])
       }
       function actionCallback(id){
         const {action, data} = actionData.current[id]
         console.log(data)
-        MainStore().doPrimitiveAction( primitive, `run_agent_${action}`, data)
+        mainstore.doPrimitiveAction( primitive, `run_agent_${action}`, data)
       }
     
       function handleInputFocus(){
@@ -354,7 +952,17 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
       }
       return (
           <>
-            {context && <div className={clsx([
+            <ChatSessionToolbar
+              availableChats={availableChats}
+              activeChatId={activeChatInfo?.id ?? null}
+              activeUpdatedAt={activeChatInfo?.updatedAt ?? null}
+              pending={pending}
+              chatLoading={chatLoading}
+              onSelect={handleSelectChat}
+              onCreate={handleStartNewChat}
+              onDelete={handleDeleteChat}
+            />
+            {props.showContext !== false && context && <div className={clsx([
                     "w-full flex flex-col space-y-2 border-b px-1 py-2 max-w-full w-full",
                 ])}>
                   <p className='text-xs text-gray-400 font-semibold '>Context</p>
@@ -377,6 +985,28 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
             {messages.length > 0 && <div className="flex flex-1 items-stretch oveflow-y-auto min-h-32 w-full mb-2">
                 <MarkdownEditor actionCallback={actionCallback} scrollToEnd={true} float={true} ref={editorRef} controlled={false}/>
             </div>}
+            {modeSummary?.available?.length > 0 && (
+              <div className="w-full flex flex-wrap items-center gap-2 mb-2">
+                {modeSummary.available.map((mode) => {
+                  const icon = mode.icon || MODE_ICON_MAP[mode.id] || DEFAULT_MODE_ICON;
+                  const isActive = mode.id === modeSummary.active;
+                  return (
+                    <div
+                      key={mode.id}
+                      className={clsx(
+                        'flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-colors',
+                        isActive
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                          : 'bg-slate-100 text-slate-600 border-transparent'
+                      )}
+                    >
+                      <HeroIcon icon={icon} className={clsx('h-4 w-4', isActive ? 'text-white' : 'text-slate-500')} />
+                      <span>{mode.label || mode.id}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <div className={clsx([
                     "w-full flex space-x-2",
                     props.seperateInput ? "mt-4 bg-white shadow-lg p-3 rounded-lg border"  : "pt-3" 
@@ -384,9 +1014,15 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
                 <div className="flex flex-1 items-stretch flex flex-1 items-stretch max-h-60 overflow-y-scroll">
                     <MarkdownEditor onFocus={handleInputFocus} onBlur={handleInputBlur} ref={inputBox} initialMarkdown={""} onKeyUp={handleInputKeyPress} float={props.seperateInput}/>
                 </div>
-                <Button variant='light' radius='full' isIconOnly size="sm" onPress={()=>sendChat()} ><Icon icon="solar:round-arrow-up-linear" className='w-6 h-6 text-default-600 hover:text-default-800'/></Button>
-                <Button variant='light' radius='full' isIconOnly size="sm" onPress={rewind}><Icon icon="solar:rewind-back-circle-outline" className='w-6 h-6 text-default-600 hover:text-default-800'/></Button>
-                <Button variant='light' radius='full' isIconOnly size="sm" onPress={clear}><Icon icon="solar:trash-bin-trash-linear" className='w-6 h-6 text-default-600 hover:text-default-800'/></Button>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={()=>sendChat()} isDisabled={pending || chatLoading}>
+                  <Icon icon="solar:round-arrow-up-linear" className='w-6 h-6 text-default-600 hover:text-default-800'/>
+                </Button>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={rewind} isDisabled={pending || chatLoading}>
+                  <Icon icon="solar:rewind-back-circle-outline" className='w-6 h-6 text-default-600 hover:text-default-800'/>
+                </Button>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={clear} isDisabled={pending || chatLoading}>
+                  <Icon icon="solar:trash-bin-trash-linear" className='w-6 h-6 text-default-600 hover:text-default-800'/>
+                </Button>
             </div>
         </>
 

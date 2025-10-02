@@ -323,6 +323,11 @@ const PrimitiveConfig = {
             needCategory:true,
             defaultReferenceId: 131
         },
+        "chat": {
+            needParent: true,
+            needCategory:false,
+            defaultTitle: false
+        },
     },
     types: ["hypothesis", 
         "learning",
@@ -354,7 +359,8 @@ const PrimitiveConfig = {
         "flowinstance",
         "categorizer",
         "action",
-        "page"
+        "page",
+        "chat"
     ],
     pageview:{
         "board":{

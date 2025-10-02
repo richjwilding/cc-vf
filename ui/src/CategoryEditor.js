@@ -1,215 +1,379 @@
-import { useState, useMemo, useReducer } from 'react'
+import { useState, useMemo, useReducer, useCallback } from 'react'
+import {
+  Button,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ScrollShadow,
+  Spinner,
+} from '@heroui/react'
+import CategoryIdSelector from './@components/CategoryIdSelector'
 import { HeroIcon } from './HeroIcon'
 import { PrimitiveCard } from './PrimitiveCard'
-import DropdownButton from './DropdownButton'
 import useDataEvent from './CustomHook'
 import MainStore from './MainStore'
 import ConfirmationPopup from './ConfirmationPopup'
-import { Spinner } from '@react-pdf-viewer/core'
-import Popup from './Popup'
+import PrimitiveDetails from './@components/PrimitiveDetails'
 
+export default function GenericEditor({ primitive, ...props }) {
 
-export default function GenericEditor({item, primitive,...props}) {  
-  const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
+  const [eventRelationships, updateRelationships] = useReducer((x) => x + 1, 0)
   const [confirmRemove, setConfirmRemove] = useState(false)
-  const [deleteMessage, setDeleteMessage] = useState( `Are you sure you want to delete this ${primitive.displayType}?` )
+  const [deleteMessage, setDeleteMessage] = useState(
+    `Are you sure you want to delete this ${primitive.displayType ?? 'item'}?`
+  )
+  const [internalOpen, setInternalOpen] = useState(true)
+  const [selectorResetKey, setSelectorResetKey] = useState(0)
 
-  useDataEvent("relationship_update set_field set_parameter set_title", [primitive.id, primitive.primitives.allUniqueCategory.map(d=>d.id)], updateRelationships)
-    const [parameters, setParameters] = useState({})
-  
-  const [open, setOpen] = useState(true)
-  const list = useMemo(()=>{
-    if( primitive.metadata?.subCategories === "inherit"){
+  useDataEvent(
+    'relationship_update set_field set_parameter set_title',
+    [primitive.id, primitive.primitives.allUniqueCategory.map((d) => d.id)],
+    updateRelationships
+  )
+
+  const availableCategories = useMemo(
+    () => props.options?.filter(Boolean) ?? [],
+    [props.options]
+  )
+
+  const list = useMemo(() => {
+    if (primitive.metadata?.subCategories === 'inherit') {
       return undefined
     }
-    return props.set ? props.set(primitive) : primitive.primitives.allItems
-  }, [primitive.id, eventRelationships])
-  const targets = undefined
-
-  if( !primitive ){
-    return undefined
-  }
-
-  const items = props.options.map((category)=>{
-    return {
-      key:category.id,
-      title: <div key='title' className='flex place-items-center'><HeroIcon key='icon' icon={category.icon} className='w-6 h-6 pr-2'/>{category.title}</div>,
-      action: ()=>{
-        MainStore().createPrimitive({
-          categoryId: category.id,
-          type: category.primitiveType,
-          title: null,
-          parent: primitive,
-        })
-      }
+    if (props.set) {
+      return props.set(primitive)
     }
-  })
-  
-  const promptConfirmRemove = ()=>{
+    return primitive.primitives.allItems
+  }, [primitive, props.set, eventRelationships])
+
+  const isOpen = props.setOpen ? true : internalOpen
+
+  const handleClose = useCallback(() => {
+    if (props.setOpen) {
+      props.setOpen(false)
+    } else {
+      setInternalOpen(false)
+    }
+  }, [props.setOpen, setInternalOpen])
+
+  const promptConfirmRemove = useCallback(() => {
     const children = primitive.primitives.uniqueAllItems
-    if( children.length > 0){
-      setDeleteMessage(`Deletion of this item will also delete ${children.length} child items`)
+    if (children.length > 0) {
+      setDeleteMessage(
+        `Deletion of this item will also delete ${children.length} child items`
+      )
     }
-
     setConfirmRemove(true)
-  }
-  function copyToClipboard(){
-    const out = primitive.primitives.allUniqueCategory.map(d=>`${d.title}${d.referenceParameters?.description ? `:${d.referenceParameters?.description}` : ""}`).join("|")
-    navigator.clipboard.writeText(out)
-  }
-  async function pasteFromClipboard(){
-    if (navigator.clipboard && navigator.clipboard.readText) {
-      navigator.clipboard.readText().then(async function(data) {
-        const items = data.split("|")
-        const category = props.options[0]
-        for( const d of items){
-          const [title, description] = d.split(":").map(d=>d.trim())
-          await MainStore().createPrimitive({
-            categoryId: category.id,
-            type: category.primitiveType,
-            title,
-            parent: primitive,
-            referenceParameters:{
-              description
-            }
-          })
-        }
+  }, [primitive, setConfirmRemove, setDeleteMessage])
+
+  const handleRemove = useCallback(async () => {
+    setConfirmRemove(false)
+    await MainStore().removePrimitive(primitive)
+    handleClose()
+  }, [handleClose, primitive, setConfirmRemove])
+
+  const copyToClipboard = useCallback(() => {
+    const out = primitive.primitives.allUniqueCategory
+      .map((d) =>
+        `${d.title}${
+          d.referenceParameters?.description
+            ? `:${d.referenceParameters?.description}`
+            : ''
+        }`
+      )
+      .join('|')
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(out)
+    }
+  }, [primitive])
+
+  const pasteFromClipboard = useCallback(async () => {
+    if (!navigator?.clipboard?.readText) {
+      return
+    }
+    const fallbackCategory = availableCategories[0]
+    if (!fallbackCategory) {
+      return
+    }
+    const data = await navigator.clipboard.readText()
+    if (!data) {
+      return
+    }
+    const items = data.split('|')
+    for (const entry of items) {
+      if (!entry) {
+        continue
+      }
+      const [title, description] = entry.split(':').map((d) => d.trim())
+      await MainStore().createPrimitive({
+        categoryId: fallbackCategory.id,
+        type: fallbackCategory.primitiveType,
+        title,
+        parent: primitive,
+        referenceParameters: {
+          description,
+        },
       })
     }
-  }
+  }, [availableCategories, primitive])
 
-  const handleRemove = async function(){
-    setConfirmRemove(false)
-    MainStore().removePrimitive(primitive)
-      if( props.setOpen ){
-          props.setOpen(false)
-      }else{
-          setOpen(false)
-      }
-  }
+  const waiting =
+    primitive.processing?.categorize &&
+    primitive.processing?.categorize.status !== 'complete'
 
-  const handleClose = function(){
-      if( props.setOpen ){
-          props.setOpen(false)
-      }else{
-          setOpen(false)
-      }
-  }
+  const baseActions = useMemo(() => {
+    const defaultActions = props.target
+      ? [
+          {
+            key: 'categorize',
+            title: 'Auto discover categories from data',
+            handler: async () =>
+              await MainStore().doPrimitiveAction(props.target, 'categorize', {
+                parent: primitive.id,
+                source: primitive.id,
+              }),
+          },
+          {
+            key: 'categorize2',
+            title: 'Auto discover categories from data (alt)',
+            handler: async () =>
+              await MainStore().doPrimitiveAction(props.target, 'categorize', {
+                parent: primitive.id,
+                source: primitive.id,
+                alternative: true,
+              }),
+          },
+        ]
+      : []
 
-  const waiting = primitive.processing?.categorize && primitive.processing?.categorize.status !== "complete"
+    const extraActions = (props.actions || []).map((action) => ({
+      key: action.key,
+      title: action.title,
+      handler:
+        action.action ??
+        (async () =>
+          await MainStore().doPrimitiveAction(props.target, action.key, {
+            parent: primitive.id,
+            source: primitive.id,
+          })),
+    }))
 
-    function validateAndSetParameter( paramaterName, paramater, value ){
-        if( paramater.type === "float" ){
-            console.log(value)
-            if( isNaN(parseFloat(value)) ){
-                return false
-            }            
-        }
-        setParameters({
-            ...parameters,
-            [paramaterName]: value
-        })
-        return true
-
-    }
-
-    const actions = [
+    return [
+      ...defaultActions,
+      ...extraActions,
       {
-        key: "categorize", 
-        title: "Auto discover categories from data",
-        action: async ()=>await MainStore().doPrimitiveAction(props.target, "categorize", {parent: primitive.id, source: primitive.id})
+        key: 'copy',
+        title: 'Copy to clipboard',
+        handler: copyToClipboard,
       },
       {
-        key: "categorize2", 
-        title: "Auto discover categories from data (alt)",
-        action: async ()=>await MainStore().doPrimitiveAction(props.target, "categorize", {parent: primitive.id, source: primitive.id, alternative: true})
+        key: 'create',
+        title: 'Create from clipboard',
+        handler: pasteFromClipboard,
       },
-      ...(props.actions || [])
     ]
+  }, [copyToClipboard, pasteFromClipboard, primitive.id, props.actions, props.target])
+
+  const actionHandlers = useMemo(() => {
+    const map = new Map()
+    baseActions.forEach((action) => map.set(action.key, action.handler))
+    return map
+  }, [baseActions])
+
+  const handleSelectorChange = useCallback(
+    async (selections) => {
+      const selection = Array.isArray(selections)
+        ? selections[selections.length - 1]
+        : undefined
+      if (!selection?.categoryId) {
+        return
+      }
+      const categoryId = parseInt(selection.categoryId, 10)
+      if (Number.isNaN(categoryId)) {
+        return
+      }
+      const category = availableCategories.find(
+        (entry) => String(entry.id) === String(categoryId)
+      )
+      if (!category) {
+        return
+      }
+      await MainStore().createPrimitive({
+        categoryId: category.id,
+        type: category.primitiveType,
+        title: null,
+        parent: primitive,
+      })
+      setSelectorResetKey((value) => value + 1)
+    },
+    [availableCategories, primitive]
+  )
+  if (!primitive) {
+    return null
+  }
+
+  const listTitle = props.listTitle ?? props.listLabel ?? 'Category items'
 
   return (
     <>
-      <Popup setOpen={handleClose} >
-        {({ activeOption }) => (
-            <>
-              
-              <PrimitiveCard.Banner key='banner' primitive={primitive}/>
-              <PrimitiveCard key='title' primitive={primitive} showEdit={true} showId={false} major={true}/>
-              {primitive?.metadata?.parameters && <>
-                <p className='mt-4 text-gray-500 text-xs'>Parameters</p>
-                <div className='p-4 bg-gray-50 rounded-md border border-gray-200'>
-                  <PrimitiveCard.Parameters primitive={primitive} editing={true} fullList={true} />
-                </div>
-              </>}
-              {list && <p className='mt-4 text-gray-500 text-xs'>Category items</p>}
-              {list && <div className='overscroll-contain overflow-y-scroll max-h-[50vh] rounded-md border border-gray-200 p-3 my-2 space-y-3 bg-gray-50 '>
-                {(list.length === 0) && 
-                  <div className='w-full p-2'>
-                    <button
-                    type="button"
-                    className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                  >
-                    <span className="mt-2 block text-sm font-semibold text-gray-900">Nothing to show</span>
-                  </button>
+      <Modal
+        isOpen={isOpen}
+        onClose={handleClose}
+        size="4xl"
+        scrollBehavior="inside"
+      >
+        <ModalContent className="relative max-h-[90vh]">
+          <ModalHeader className="flex flex-col gap-1">
+            <span className="flex items-center gap-2 text-tiny font-semibold uppercase text-default-500">
+              {primitive.metadata?.icon && (
+                <HeroIcon
+                  icon={primitive.metadata.icon}
+                  className="h-4 w-4 text-default-400"
+                />
+              )}
+              {primitive.displayType ?? primitive.metadata?.title ?? 'Item'}
+            </span>
+          </ModalHeader>
+          <ModalBody className="space-y-5">
+            <div className="space-y-3">
+              <PrimitiveCard
+                key="title"
+                primitive={primitive}
+                showEdit
+                showId={false}
+                major
+              />
+              {primitive?.metadata?.parameters && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase text-default-500">
+                    Parameters
+                  </p>
+                  <div className="rounded-large border border-default-200 bg-default-50 p-4">
+                    <PrimitiveDetails primitive={primitive} editing fullList />
                   </div>
-                }
-                {list && list.map((child)=>(
-                  <PrimitiveCard.Variant key={child.id} primitive={child} showEdit={true} editable={true} listType={props.listType}/>
-                ))}
-              </div>}
-              <div className='w-full space-x-2 mt-2'>
-                <DropdownButton flat={true} items={items} title='Add item' className='shrink-0 grow-0 h-8' dropdownWidth='w-96' align='left'/>
-                {actions && <DropdownButton flat={true} items={
-                  [...actions.map((d)=>{
-                    return {
-                      key: d.key,
-                      title: d.title,
-                      action: d.action ?? (async ()=>await MainStore().doPrimitiveAction(props.target, d.key, {parent: primitive.id, source: primitive.id}))
-                    }
-                  }),
-                  {
-                    key: "copy",
-                    title: "Copy to clipboard",
-                    action: copyToClipboard
-                  },
-                  {
-                    key: "create",
-                    title: "Create from clipboard",
-                    action: pasteFromClipboard
-                  }
-                ]
-                  } title='Action' className='shrink-0 grow-0 h-8' dropdownWidth='w-max' align='left'/>}
-                  <button
-                    type="button"
-                    onClick={async (e)=>{e.stopPropagation();await primitive.removeChildren()}}
-                    className={`bg-white border-gray-300 text-gray-500 hover:bg-gray-50 focus:border-indigo-500 focus:ring-indigo-500 relative inline-flex items-center rounded-md border px-2 py-2 text-sm font-medium shrink-0 grow-0 h-8 focus:outline-none`}
-                  >
-                    Delete all
-                  </button>
-              </div>
-              <div key='button_bar' className="mt-6 flex items-center w-full gap-x-6 justify-between">
-                {primitive && primitive.id &&   <button
-                  type="button"
-                  className="inline-flex w-full justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:w-auto"
-                  onClick={promptConfirmRemove}
-                >
-                  Delete
-                </button>}
-                  <button
-                    disabled={false}
-                    onClick={handleClose}
-                    className="inline-flex justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm disabled:bg-gray-400 hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                    >
-                    Close
-                  </button>
                 </div>
-                {waiting && <div key='wait' className='z-50 absolute bg-gray-400/50 backdrop-blur-sm w-full h-full top-0 left-0 rounded-lg place-items-center justify-center flex'>
-                  <Spinner className='animate-spin'/>
-                </div>}
-            </>
+              )}
+            </div>
+
+            {availableCategories.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase text-default-500">
+                  Add item
+                </p>
+                <CategoryIdSelector
+                  key={selectorResetKey}
+                  allowNone
+                  availableCategories={availableCategories}
+                  className="w-full"
+                  disabled={waiting}
+                  item={{ allowNone: true, placeholder: 'Select category' }}
+                  onSelectionChange={handleSelectorChange}
+                  selectionMode="single"
+                  showCount={false}
+                />
+              </div>
+            )}
+
+            {Array.isArray(list) && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase text-default-500">
+                  {listTitle}
+                </p>
+                <ScrollShadow
+                  hideScrollBar
+                  orientation="vertical"
+                  className="max-h-[50vh] space-y-3 rounded-large border border-default-200 bg-default-50 p-3"
+                >
+                  {list.length === 0 ? (
+                    <div className="flex h-32 items-center justify-center rounded-large border border-dashed border-default-300 bg-default-100 text-sm text-default-500">
+                      Nothing to show
+                    </div>
+                  ) : (
+                    list.map((child) => (
+                      <PrimitiveCard.Variant
+                        key={child.id}
+                        primitive={child}
+                        showEdit
+                        editable
+                        listType={props.listType}
+                      />
+                    ))
+                  )}
+                </ScrollShadow>
+              </div>
+            )}
+
+            {(baseActions.length > 0 || list?.length) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {baseActions.length > 0 && (
+                  <Dropdown>
+                    <DropdownTrigger>
+                      <Button size="sm" variant="bordered">
+                        Actions
+                      </Button>
+                    </DropdownTrigger>
+                    <DropdownMenu
+                      aria-label="Category editor actions"
+                      variant="flat"
+                      onAction={(key) => {
+                        const handler = actionHandlers.get(key)
+                        if (handler) {
+                          handler()
+                        }
+                      }}
+                    >
+                      {baseActions.map((action) => (
+                        <DropdownItem key={action.key}>{action.title}</DropdownItem>
+                      ))}
+                    </DropdownMenu>
+                  </Dropdown>
+                )}
+                <Button
+                  size="sm"
+                  variant="bordered"
+                  onPress={async () => {
+                    await primitive.removeChildren()
+                  }}
+                  isDisabled={!list || list.length === 0}
+                >
+                  Delete all
+                </Button>
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter className="flex items-center justify-between">
+            <span className="text-tiny text-default-400">#{primitive.plainId}</span>
+            <div className="flex items-center gap-2">
+              <Button color="danger" onPress={promptConfirmRemove} variant="solid">
+                Delete
+              </Button>
+              <Button color="primary" onPress={handleClose} variant="solid">
+                Close
+              </Button>
+            </div>
+          </ModalFooter>
+          {waiting && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center rounded-large bg-default-200/60 backdrop-blur-sm">
+              <Spinner color="primary" />
+            </div>
           )}
-        </Popup>
-      {confirmRemove && <ConfirmationPopup title="Confirm deletion" confirm={handleRemove} message={deleteMessage} cancel={()=>setConfirmRemove(false)}/>}
-      </>
+        </ModalContent>
+      </Modal>
+      {confirmRemove && (
+        <ConfirmationPopup
+          title="Confirm deletion"
+          confirm={handleRemove}
+          message={deleteMessage}
+          cancel={() => setConfirmRemove(false)}
+        />
+      )}
+    </>
   )
 }

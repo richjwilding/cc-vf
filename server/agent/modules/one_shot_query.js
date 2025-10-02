@@ -56,7 +56,9 @@ export async function implementation(params, scope, notify){
                             pass.end()
                             return
                         }
-                        if (delta) pass.write(delta);
+                        if (delta){
+                            pass.write(delta)
+                        }
                     }catch(e){
                         logger.error(`Got error`,  {chatId: scope.chatUUID})
                         logger.error(e)

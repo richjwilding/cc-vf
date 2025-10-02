@@ -48,6 +48,9 @@ import { DescriptionDetails, DescriptionList, DescriptionTerm } from './@compone
 import { useSmoothGradient } from './@components/SmoothGradient';
 import { Button, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger } from '@heroui/react';
 import { Icon } from '@iconify/react/dist/iconify.js';
+import CategoryIdSelector from './@components/CategoryIdSelector';
+import { DebouncedInput } from './@components/DebouncedInput';
+import { DebouncedNumberInput } from './@components/DebouncedNumberInput';
 
 export const ExpandArrow = function(props) {
   return (
@@ -65,7 +68,7 @@ let mainstore = MainStore()
       if( item.type === "boolean"){
         const thisVal = item.value !== undefined ? item.value : item.default
         if( props.editable || props.editing){
-          return <TooggleButton small enabled={thisVal} setEnabled={(v)=>{
+          return <TooggleButton small title={props.title} enabled={thisVal} setEnabled={(v)=>{
             if(props.callback){
               props.callback(v)
             }else{
@@ -250,84 +253,21 @@ let mainstore = MainStore()
             className={props.compact ? "" : 'ml-auto w-full'}
           />
       }else if( item.type === "categoryId"){
-        let list = []
-        if( props.allowNone || item.allowNone){
-                list.push({key: "none", title: "No items", categoryId: undefined, category: undefined})
-        }
-
-        let available = item.referenceIds ? item.referenceIds.map(d=>mainstore.category(d)) : mainstore.categories()
-        let itemCountByType
-        if( props.activeOnly || item.activeOnly){
-          //const ids = props.primitive.primitives.descendants.map(d=>d.referenceId).filter((d,i,a)=>a.indexOf(d) === i)
-          if( props.primitive || props.primitiveList){
-            
-            const items = mainstore.uniquePrimitives((props.primitiveList ?? [props.primitive]).map(d=>{
-              if(d.type === "category"){
-                return d.origin
-              }else if(d.type === "query"){
-                return d.primitives.imports.allItems
-              }
-              return d
-            }).flat())
-            const itp = items.map(d=>d.itemsForProcessing).flat()
-            let lookups = mainstore.uniquePrimitives([itp, itp.map(d=>d.primitives.directDescendants)].flat(Infinity))
-            if( lookups.length > 0){
-
-              lookups = [...items, ...lookups]
-              itemCountByType = {}
-              for(const d of lookups){
-                itemCountByType[d.referenceId] = (itemCountByType[d.referenceId] ?? 0) + 1
-              }
-              const ids = lookups.map(d=>d.referenceId).flat().filter((d,i,a)=>a.indexOf(d) === i)
-              available = available.filter(d=>ids.includes(d.id))
-            }
-          }else{
-           // available = []
-          }
-        }
-        if( item.filterForExtractor){
-          available = available.filter(d=>d.ai?.extract)
-        }
-        
-        for( const cat of available){
-          if(item.referenceIds ||  ["entity","evidence","result","category","query","activity","marketsegment","detail","summary"].includes(cat.primitiveType) ){
-            list.push({title: cat.title, count: itemCountByType ? itemCountByType[cat.id] : undefined,categoryId: cat.id, category: cat, icon: cat.icon})
-          }
-        }                
-
-        const setSource = (idx)=>{
-          const source = list[idx]
-
-          if( props.callback ){
-            const res = {}
-            props.callback(parseInt(source.categoryId))
-          }else{
-            if( item.key ){
-              props.primitive.setParameter( item.key, parseInt(source.categoryId))
-            }
-          }
-        }
-
-
-        let selectedItem = list.findIndex(d=>parseInt(item.value) === d.categoryId)
-        if(props.local ){
-          if( item.value === undefined && (item.activeOnly || props.activeOnly)){
-            if( props.primitiveList ){                
-              selectedItem = list.findIndex((d)=>(d.categoryId === props.primitiveList[0]?.referenceId))
-            }
-          }
-        }
-
-        return <MyCombo 
-          disabled={item.locked}
-          showCount={itemCountByType}
-          selectedItem={selectedItem} 
-          setSelectedItem={setSource}
-          small={props.compact || props.inline}
-          portal
-          items={list.map((d, idx)=>{return {id:idx, ...d}})}
-            className={props.compact ? "" : 'ml-auto w-full'}
+        return (
+          <CategoryIdSelector
+            {...props}
+            title={item.title}
+            activeOnly={props.activeOnly}
+            allowNone={props.allowNone}
+            item={item}
+            local={props.local}
+            primitive={props.primitive}
+            primitiveList={props.primitiveList}
+            selectedValues={item.value}
+            selectionMode={item.multi ? "multiple" : props.selectionMode}
+            showCount
           />
+        )
       }else if( item.type === "category_source"){
         let list = []
 
@@ -573,13 +513,8 @@ let mainstore = MainStore()
           list.push({key: "full_content", title: "Content"})
         }
 
-        let index = list.findIndex((d)=>item.value === d.key)
-        if( index === -1 ){
-         // index = list.findIndex((d)=>defaultConfig.field === d.key)
-        }
-
-        const setField = (idx=>{
-          const field = list[idx]
+        const setField = (key=>{
+          const field = list.find(d=>d.key === key)
           if( props.callback ){
             props.callback(field.key)
           }else{
@@ -588,11 +523,12 @@ let mainstore = MainStore()
         })
 
         return <MyCombo 
-          selectedItem={index} 
+          selectedItem={item.value} 
+          title={props.title}
           disabled={item.locked}
           small={props.inline}
           setSelectedItem={setField}
-          items={list.map((d, idx)=>{return {id:idx, ...d}})}
+          items={list.map((d)=>{return {id:d.key, ...d}})}
             className={props.leftAlign ? '' : 'ml-auto'}
           />
 
@@ -717,6 +653,7 @@ let mainstore = MainStore()
                 />)
       }else if( item.type === "option_list"){
         return (<MyCombo 
+                  title={item.title}
                   items={item.options.map((d)=>{return (typeof(d) === "object" && d !== null) ? d : {id: d, title: d}})}
                   selectedItem={item.value}
                   multiple={props.primitive?.metadata?.parameters?.[item.key]?.multi}
@@ -809,7 +746,18 @@ let mainstore = MainStore()
         }
         return (
           <div className='ml-auto flex place-items-start space-x-2 w-full'>
-          <EditableTextField
+            <DebouncedInput 
+              area={item.type === "long_string"}
+              label={item.title}
+              value={item.value} 
+              onChange={value => {
+                if(props.callback){
+                  return props.callback(value)
+                }
+                return props.primitive.setParameter(item.key, value)
+              }}
+            />
+          {false && <EditableTextField
             {...props} 
             submitOnEnter={true} 
             value={item.value} 
@@ -821,7 +769,7 @@ let mainstore = MainStore()
             callback={props.callback ? props.callback : (value)=>{
                 return props.primitive.setParameter(item.key, value)
             }}
-          />
+          />}
             <a href={url} className='p-1' target="_blank">
                 <LinkIcon className='w-5'/>
               </a>
@@ -856,6 +804,37 @@ let mainstore = MainStore()
               </div>
         }
       }
+
+      if( item.type === "number" ){
+        return <DebouncedNumberInput 
+          label={item.title}
+          value={item.value} 
+          minValue={0}
+          onChange={value => {
+            if( !isNaN(value)){
+              return props.primitive.setParameter(item.key, value)
+            }
+          }}
+        />
+      }
+
+      return <DebouncedInput 
+          area={item.type === "long_string"}
+          label={item.title}
+          value={item.value} 
+          onChange={value => {
+            if( item.type === "integer" || item.type === "number"){
+              value = parseInt( value )
+              if( isNaN(value)){
+                return
+              }
+            }
+            if(props.callback){
+              return props.callback(value)
+            }
+            return props.primitive.setParameter(item.key, value)
+          }}
+        />
 
       return <EditableTextField
         {...props} 
@@ -1337,20 +1316,15 @@ const Parameters = function({primitive, ...props}){
   let potentialTarget = fieldsBeingProcessed(primitive)
 
   if( props.showTitles !== false && !props.includeTitle){
-          return <DescriptionList inContainer={true}>
+          return <div className='flex flex-col space-y-3'>
             {details.map((item, idx)=>(
               <>
-              <DescriptionTerm  inContainer={true}>
-                  {(props.showTitles === undefined || props.showTitles === true) && <p className={`pl-1 py-1 mr-2 shrink-0 grow-0 ${props.showAsSecondary ? "text-xs" : ""}`}>{item.title}</p>}
-                </DescriptionTerm>
-                <DescriptionDetails inContainer={true}>
                   {potentialTarget && potentialTarget.includes(`referenceParameters.${item.key}`)
                     ? <div className='w-full p-3.5 bg-gray-100 rounded animate-pulse'/>
-                    : <RenderItem editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} items={props.items} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
+                    : <RenderItem title={item.title} editing={props.editable ?? true}  editable={props.editable ?? true} primitive={primitive} items={props.items} compact={props.compact || props.compactList} leftAlign={props.leftAlign} showTitles={props.showTitles} item={item} inline={props.inline} secondary={(props.inline && idx > 0) || props.showAsSecondary}/>
                   }
-                </DescriptionDetails>
               </>))}
-          </DescriptionList>
+          </div>
   }
 
   return <div 
@@ -1740,7 +1714,11 @@ const Categories = function({primitive, ...props}){
     }
   }
 
-  let list = props.directOnly ? primitive.primitives.origin.allUniqueCategory : primitive.primitives.allUniqueCategory
+  let list = [
+    ...(props.directOnly ? primitive.primitives.origin.allUniqueCategory : primitive.primitives.allUniqueCategory),
+    ...(primitive.findParentPrimitives({type: ["board", "flow"]}).flatMap(d=>d.primitives.origin.allCategory))
+  ].filter(Boolean)
+  
   if( !props.includeResult ){
     if( primitive.metadata?.resultCategories ){
       const excludeIds = primitive.primitives.results.uniqueAllIds

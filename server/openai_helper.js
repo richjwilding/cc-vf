@@ -1395,17 +1395,19 @@ export async function generateImage(prompt, options = {}, tries = 3){
     const sizes = {
     }
 
-    let size = {"wide": "1792x1024", "square":"1024x1024", "tall":"1024x1792"}[options.size] 
+    let size = {"wide": "1536x1024", "square":"1024x1024", "portrait":"1024x1536", "tall":"1024x1536"}[options.size ?? "square" ]
     
     try{
+        //let fullprompt = "I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS:" + prompt
         let fullprompt = "I NEED to test how the tool works with extremely simple prompts. DO NOT add any detail, just use it AS-IS:" + prompt
         console.log(`Build image `, fullprompt)
 
         const response = await openai.images.generate({
-            model: "dall-e-3",
+            model: "gpt-image-1",
             prompt: fullprompt,
+            background: options.background ?? "auto",
             size: size,
-            response_format: "b64_json"
+            //response_format: "b64_json"
         });
         console.log(response?.data)
 

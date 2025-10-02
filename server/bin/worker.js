@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import * as dotenv from 'dotenv' 
-import crypto from 'crypto';
+import crypto from 'crypto'
 import { updateBrightDataWhitelist } from '../brightdata.js';
 const express = require('express');
 const { getRedisBase, getPubSubClients } = require('../redis.js');

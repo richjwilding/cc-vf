@@ -187,14 +187,23 @@ export function streamingResponseHandler( notify, fragmentList ){
             return entry._content
         })
         let backup = ""
-        let lastSentLength = lastSent.length
-        if( lastSent.endsWith("]]") && out.slice(lastSentLength - 2) != "]]"){
-            backup = "__SC_BK2__"
-            lastSentLength -= 2
+        let startIdx = 0
+        if( lastSent.length > 0 ){
+            const maxPrefix = Math.min(lastSent.length, out.length)
+            let prefixLen = 0
+            while( prefixLen < maxPrefix && lastSent[prefixLen] === out[prefixLen]){
+                prefixLen++
+            }
+            if( prefixLen < lastSent.length ){
+                const rewindCount = lastSent.length - prefixLen
+                backup = `__SC_BK${rewindCount}__`
+            }
+            startIdx = prefixLen
         }
-        const delta = out.slice(lastSentLength)
-        if( delta.length > 0){
-            notify(backup + delta, false)
+        const delta = out.slice(startIdx)
+        const payload = backup + delta
+        if( payload.length > 0 ){
+            notify(payload, false)
         }
         lastSent = out
 
@@ -299,7 +308,37 @@ export async function resolveId(id_or_ids, scope){
 }
 export async function getDataForAgentAction(params, scope){
     let items = [], toSummarize = []
-    let sources = await resolveId(params.sourceIds, {...scope, projection: "_id referenceId workspaceId primitives type flowElement"})
+
+    const directTypes = new Set(["view", "query", "filter", "search", "summary"]);
+    let sourceIds = params.sourceIds;
+
+    if (!sourceIds || sourceIds.length === 0) {
+        const connectedIds = new Set();
+        const immediate = scope.immediateContext ?? [];
+
+        for (const item of immediate) {
+            if (!item) continue;
+
+            if (directTypes.has(item.type) && item.id) {
+                connectedIds.add(item.id);
+            }
+
+            const importIds = item.primitives?.imports;
+            if (Array.isArray(importIds)) {
+                importIds.filter(Boolean).forEach((id) => connectedIds.add(id));
+            }
+        }
+
+        if (connectedIds.size > 0) {
+            sourceIds = Array.from(connectedIds);
+        }
+    }
+
+    if (!sourceIds || sourceIds.length === 0) {
+        throw new Error("No connected data sources available. Use get_connected_data or select a view/query (call get_data_sources if nothing is connected).");
+    }
+
+    let sources = await resolveId(sourceIds, {...scope, projection: "_id referenceId workspaceId primitives type flowElement"})
 
     let field = "context"
     if( params.field === "title"){
@@ -339,7 +378,8 @@ export function categoryDetailsForAgent(category){
 }
 export function getCategoryParameterNameForAgent( category, {fallback = false, forSample} = {}){
     const fields = category.parameters
-    let paramsForAgent = Object.keys(fields).filter(d=>forSample ? (fields[d].agent === "sample" || fields[d].agent === true) : fields[d].agent === true) 
+    //let paramsForAgent = Object.keys(fields).filter(d=>forSample ? (fields[d].agent === "sample" || fields[d].agent === true) : fields[d].agent === true) 
+    let paramsForAgent = Object.keys(fields).filter(d=>fields[d].agent) 
     if( paramsForAgent.length === 0 && fallback){
         paramsForAgent = Object.keys(fields)
     }

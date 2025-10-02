@@ -271,7 +271,7 @@ export async function scaffoldWorkflow( flow, options = {} ){
         for( const source of sources){
             logger.debug(`-- For ${source.title}`, {flow: flow.id, source: source.id});
             
-            const {segments, cleared} = await checkAndGenerateSegments( source, source, {...options, clear: true, by_axis: true})
+            const {segments, cleared} = await checkAndGenerateSegments( source, source, {...options, clear: true, by_axis: true, local: true})
             logger.debug(`-- got ${segments.length} segments`, {flow: flow.id, source: source.id});
             if( cleared.length > 0){
                 console.log(`${cleared.length} segments removed - checking and removing hanging flow instances`)
@@ -932,6 +932,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
             
             delete d["_nested"]
             delete d["_oldId"]
+            delete d["renderConfig"]
             delete d["flowElement"]
             d.workspaceId = flowInstance.workspaceId
         })

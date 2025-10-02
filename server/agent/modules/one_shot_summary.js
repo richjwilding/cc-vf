@@ -2,22 +2,25 @@ import { getLogger } from "../../logger";
 import { summarizeMultiple } from "../../openai_helper";
 import { reviseUserRequest } from "../../prompt_helper";
 import { extractFlatNodes } from "../../task_processor";
+import { flattenStructuredResponse } from "../../PrimitiveConfig.js";
 import { getDataForAgentAction, streamingResponseHandler } from "../utils";
 
 const logger = getLogger('agent_module_one_shot_summary', "debug", 2); // Debug level for moduleA
 
-export async function implementation(params, scope, notify){
+export async function implementation(params, scope, notify = ()=>{}){
    try{
    
         notify("Planning...")
         const revised = await reviseUserRequest(params.query + "\nUse markdown to format the result into an easily to read output.", {expansive: true, id_limit: 20, engine: "o4-mini"})
     
-        if( params.sourceIds?.length === 0){
-            return {failed: "need one or more sourceIds"}
-        }
-        
         notify("Fetching data...")
-        let [items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( params, scope)
+        let items, toSummarize, resolvedSourceIds
+        try{
+            ;[items, toSummarize, resolvedSourceIds] = await getDataForAgentAction( params, scope)
+        }catch(e){
+            logger.warn("one_shot_summary aborted", { error: e?.message, chatId: scope.chatUUID })
+            return { error: e?.message ?? "Unable to locate connected data sources" }
+        }
 
         notify(`[[chat_scope:${resolvedSourceIds.join(",")}]]`, false, true)
 
@@ -67,8 +70,37 @@ export async function implementation(params, scope, notify){
         }
 
 
-        let out = ""
-        let nodeResult = results?.summary?.structure
+        let structured = results?.summary?.structure ?? null
+        let plain = results?.summary?.plain ?? null
+        if( structured ){
+            try {
+                plain = flattenStructuredResponse(structured, structured)
+            } catch(err) {
+                logger.warn("Failed to flatten structured summary", { error: err?.message })
+            }
+        }else if( !plain ){
+            if( typeof results?.summary === "string" ){
+                plain = results.summary
+            }else if( Array.isArray(results?.summary) ){
+                plain = results.summary.map((entry)=>{
+                    if( typeof entry === "string" ){
+                        return entry
+                    }
+                    if( entry?.plain ){
+                        return entry.plain
+                    }
+                    if( entry?.summary && typeof entry.summary === "string" ){
+                        return entry.summary
+                    }
+                    return JSON.stringify(entry)
+                }).filter(Boolean).join("\n\n")
+            }else if( results?.summary?.summary ){
+                plain = results.summary.summary
+            }
+        }
+
+        const out = typeof plain === "string" ? plain.trim() : ""
+        let nodeResult = structured
         if( nodeResult ){
             const idsForSections = extractFlatNodes(nodeResult).map(d=>d.ids)
             const allIds = idsForSections.flat().filter((d,i,a)=>d && a.indexOf(d) === i)
@@ -78,7 +110,14 @@ export async function implementation(params, scope, notify){
             }
         }
         
-        return {summary: out, result: out, __ALREADY_SENT: true}
+        return {
+            summary: out,
+            result: out,
+            plain: out,
+            structured,
+            references: resolvedSourceIds,
+            __ALREADY_SENT: true
+        }
     }catch(e){
         logger.error(`error in agent query`,  {chatId: scope.chatUUID})
         logger.error(e)
@@ -117,6 +156,6 @@ export const definition = {
               "description": "Optional list of object types to include in the retrieval step, aligned to the summarization."
             }
           },
-          "required": ["query","sourceIds"]
+          "required": ["query"]
         }
       }

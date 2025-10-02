@@ -24,7 +24,8 @@ function mapChart( chart ){
         "bubble": {
             type: "heatmap",
             size: "scale",
-            bubble: true
+            bubble: true,
+            counts: "number"
         },
     }
     const kind = chart?.kind ?? "bar"
@@ -47,6 +48,9 @@ export function ConvertVisualizationSpec( spec, defs ){
     return ConvertVisualizationSpecToView( spec, defs )
 }
 export function ConvertVisualizationSpecToView( spec, defs ){
+    if( !spec.chart){
+        return
+    }
 
   /*
   {
@@ -92,30 +96,28 @@ export function ConvertVisualizationSpecToView( spec, defs ){
         let filter = [null]
         const baseDef = axisDef.definition ?? axisDef
         if( baseDef){
-            let def
+            let def = baseDef
             if( baseDef.$ref){
                 def = defs.categorizations?.[baseDef.$ref.replace("categorizations.", "")]
             }
-            if( def ){
-                if( def.categorization_id){
-                    return {
-                        type: "category",
-                        primitiveId: def.categorization_id,
-                        filter
-                    }
+            if( def.categorization_id){
+                return {
+                    type: "category",
+                    primitiveId: def.categorization_id,
+                    filter
                 }
-            }else if( baseDef.parameter){
+            }else if( def.parameter){
 
                 const pC = {
                     type: "parameter",
-                    parameter: baseDef.parameter,
+                    parameter: def.parameter,
                     filter
                 }
 
-                const match = meta.find(d=>d.parameters?.[baseDef.parameter]?.axisType)
+                const match = meta.find(d=>d.parameters?.[def.parameter]?.axisType)
                 if( match){
-                        pC.passType = match.parameters[baseDef.parameter].axisType
-                        pC.axisData = match.parameters[baseDef.parameter].axisData
+                        pC.passType = match.parameters[def.parameter].axisType
+                        pC.axisData = match.parameters[def.parameter].axisData
                 }
                 return pC
             }
@@ -168,18 +170,29 @@ export function ConvertVisualizationSpecToView( spec, defs ){
                 }
             ]
         }else if( axis.length === 2){
-            columns = {type: "none", filter: []}
-            rows = {type: "none", filter: []}
-            viewFilters = [
-                {
-                    ...axis[0],
-                    treatment: "allocation"
-                },
-                {
-                    ...axis[1],
-                    treatment: "allocation"
-                }
-            ]
+            if( spec.chart.kind === "pie"){
+
+                rows = {type: "none", filter: []}
+                viewFilters = [
+                    {
+                        ...axis[1],
+                        treatment: "allocation"
+                    }
+                ]
+            }else{
+                columns = {type: "none", filter: []}
+                rows = {type: "none", filter: []}
+                viewFilters = [
+                    {
+                        ...axis[0],
+                        treatment: "allocation"
+                    },
+                    {
+                        ...axis[1],
+                        treatment: "allocation"
+                    }
+                ]
+            }
         }
     }
 

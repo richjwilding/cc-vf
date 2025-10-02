@@ -20,7 +20,7 @@ export async function implementation(params, scope, notify){
         const categories = []
         for(const d of sources){
             const theseCategories = await getDataForImportDB( d, {
-                pipelineSteps: pipeline_root_categories
+                pipelineSteps: pipeline_root_categories(scope.workspaceId)
             })
             console.log(theseCategories)
             categories.push( theseCategories.map(d=>({

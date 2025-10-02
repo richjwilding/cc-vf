@@ -11,6 +11,7 @@ import {
   Input,
   Autocomplete,
   AutocompleteItem,
+  Chip,
   Form,
   Modal,
   ModalContent,
@@ -62,6 +63,10 @@ export default function WorkspaceEditor({isOpen, onClose, workspace, newWorkspac
   const [tags, setTags] = useState(workspace?.tags ?? []);
   const [selectedUsers, setSelectedUsers] = useState(workspace?.users || []);
   const [updating, setUpdating] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const mainstore = MainStore();
+  const orgUsers = mainstore.activeOrganization?.members?.map(m => mainstore.user(m.userId)).filter(Boolean) ?? [];
 
   useEffect(()=>{
      if (!isOpen) return
@@ -72,7 +77,7 @@ export default function WorkspaceEditor({isOpen, onClose, workspace, newWorkspac
     setColor(workspace?.color ?? 'slate');
     setLogoUrl(workspace?.logoUrl);
     setTags(workspace?.tags ?? []);
-    setSelectedUsers(workspace?.users ?? []);
+    setSelectedUsers((workspace?.users ?? []).map(u => typeof u === "string" ? mainstore.user(u) || {id: u} : u));
     setUpdating(false)
     console.log("reset")
   }, [isOpen, workspace, newWorkspace])
@@ -97,6 +102,25 @@ export default function WorkspaceEditor({isOpen, onClose, workspace, newWorkspac
       setColor( companyColor )
     }
   },[companyLogo?.src, companyColor])
+
+   const addExistingUser = (key) => {
+    const user = orgUsers.find(u => u.id === key);
+    if (user && !selectedUsers.some(u => u.id === user.id)) {
+      setSelectedUsers([...selectedUsers, user]);
+    }
+  };
+
+  const addExternalUser = () => {
+    const email = inviteEmail.trim();
+    if (email && !selectedUsers.some(u => (u.email || u.id) === email)) {
+      setSelectedUsers([...selectedUsers, { email }]);
+    }
+    setInviteEmail("");
+  };
+
+  const removeUser = (key) => {
+    setSelectedUsers(selectedUsers.filter(u => (u.id || u.email) !== key));
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -212,6 +236,67 @@ export default function WorkspaceEditor({isOpen, onClose, workspace, newWorkspac
                   onChange={value => setCompany(value)}
                   placeholder="Enter Company"
                 />
+                <div className="col-span-3 flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {selectedUsers.map(u => {
+                      const key = u.id || u.email;
+                      return (
+                        <Chip
+                          key={key}
+                          onClose={() => removeUser(key)}
+                          startContent={
+                            <Avatar
+                              size="sm"
+                              src={u.avatarUrl}
+                              name={u.name || u.email}
+                              imgProps={{ referrerPolicy: 'no-referrer' }}
+                            />
+                          }
+                        >
+                          {u.name || u.email}
+                        </Chip>
+                      );
+                    })}
+                  </div>
+                  <Autocomplete
+                    label="Add team member"
+                    labelPlacement="outside"
+                    placeholder="Search users"
+                    selectedKey={null}
+                    inputValue={userSearch}
+                    onInputChange={setUserSearch}
+                    onSelectionChange={(key) => {
+                      addExistingUser(key);
+                      setUserSearch('');
+                    }}
+                  >
+                    {orgUsers.map(user => (
+                      <AutocompleteItem key={user.id} textValue={user.name}>
+                        <div className="flex items-center gap-2">
+                          <Avatar
+                            size="sm"
+                            src={user.avatarUrl}
+                            name={user.name}
+                            imgProps={{ referrerPolicy: 'no-referrer' }}
+                          />
+                          <span>{user.name}</span>
+                        </div>
+                      </AutocompleteItem>
+                    ))}
+                  </Autocomplete>
+                  <div className="flex gap-2">
+                    <Input
+                      type="email"
+                      label="Invite by email"
+                      labelPlacement="outside"
+                      value={inviteEmail}
+                      onChange={e => setInviteEmail(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addExternalUser(); } }}
+                      placeholder="name@example.com"
+                    />
+                    <Button className="mt-auto" variant="flat" onPress={addExternalUser}>Add</Button>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-6 flex w-full justify-end gap-2">

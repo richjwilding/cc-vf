@@ -30,6 +30,7 @@ import Organization from './model/Organization';
 dotenv.config()
 import stripeWebhooks from './stripeWebhooks.js';
 import stripeCheckout from './stripeCheckout.js';
+import { getRedisBase } from './redis.js';
 
 
 export const userCache = new NodeCache({ stdTTL: 300, checkperiod: 60 })

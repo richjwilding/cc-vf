@@ -74,6 +74,216 @@ export function extractMarkdown(html, fullHTML = false) {
     }
 }
 
+function normalizeFetchedContent(input, resolvedOverride, originalUrl){
+    if( !input || typeof input !== 'object' ){
+        return input
+    }
+    const resolved = resolvedOverride ?? input.resolvedUrl ?? originalUrl
+    const out = {...input}
+    if( resolved ){
+        out.resolvedUrl = resolved
+    }
+    const text = typeof out.fullText === 'string'
+        ? out.fullText
+        : (typeof out.plain === 'string' ? out.plain : undefined)
+    if( text && typeof out.fullText !== 'string' ){
+        out.fullText = text
+    }
+    if( text && (typeof out.description !== 'string' || out.description.length === 0) ){
+        out.description = text.split(" ").slice(0,400).join(" ")
+    }
+    return out
+}
+
+function makeAbsoluteUrl(candidate, baseUrl){
+    if( typeof candidate !== 'string' ){
+        return undefined
+    }
+    let text = candidate.trim()
+    if( !text ){
+        return undefined
+    }
+    if( text.includes('$') ){
+        text = text.split('$')[0]
+    }
+    if( text.startsWith('//') ){
+        text = `https:${text}`
+    }
+    try{
+        const absolute = new URL(text, baseUrl)
+        return absolute.toString()
+    }catch(err){
+        return undefined
+    }
+}
+
+export function extractPdfLinksFromHtml(html, baseUrl){
+    if( typeof html !== 'string' || html.length === 0 ){
+        return []
+    }
+    let root
+    try{
+        root = parse(html)
+    }catch(error){
+        return []
+    }
+    if( !root ){
+        return []
+    }
+    const results = []
+    const seen = new Set()
+    const pushCandidate = (url, meta = {})=>{
+        const absolute = makeAbsoluteUrl(url, baseUrl)
+        if( !absolute ){
+            return
+        }
+        const key = absolute.toLowerCase()
+        if( seen.has(key) ){
+            return
+        }
+        seen.add(key)
+        const cleanMeta = {...meta}
+        if( typeof cleanMeta.label === 'string' ){
+            const trimmed = cleanMeta.label.replace(/\s+/g, ' ').trim()
+            cleanMeta.label = trimmed.length > 0 ? trimmed : undefined
+        }
+        if( typeof cleanMeta.context === 'string' ){
+            const trimmed = cleanMeta.context.replace(/\s+/g, ' ').trim()
+            cleanMeta.context = trimmed.length > 0 ? trimmed.slice(0, 280) : undefined
+        }
+        results.push({
+            url: absolute,
+            ...cleanMeta
+        })
+    }
+
+    const buildContext = (node)=>{
+        try{
+            const text = node?.parentNode?.textContent ?? node?.textContent ?? ''
+            return text ? text.replace(/\s+/g, ' ').trim() : undefined
+        }catch(err){
+            return undefined
+        }
+    }
+
+    root.querySelectorAll('object').forEach((node)=>{
+        const type = node.getAttribute('type')?.toLowerCase() ?? ''
+        if( type.includes('pdf') ){
+            const data = node.getAttribute('data')
+            if( data ){
+                pushCandidate(data, {source: 'object', label: node.getAttribute('title'), context: buildContext(node)})
+            }
+        }
+    })
+
+    root.querySelectorAll('embed').forEach((node)=>{
+        const type = node.getAttribute('type')?.toLowerCase() ?? ''
+        if( type.includes('pdf') ){
+            const src = node.getAttribute('src') ?? node.getAttribute('data')
+            if( src ){
+                pushCandidate(src, {source: 'embed', label: node.getAttribute('title'), context: buildContext(node)})
+            }
+        }
+    })
+
+    root.querySelectorAll('iframe').forEach((node)=>{
+        const src = node.getAttribute('src')
+        if( src && (src.toLowerCase().includes('.pdf') || src.toLowerCase().includes('/download')) ){
+            pushCandidate(src, {source: 'iframe', context: buildContext(node)})
+        }
+    })
+
+    const anchorNodes = root.querySelectorAll('a')
+    anchorNodes.forEach((node)=>{
+        const label = node.innerText || node.textContent
+        const hrefCandidates = new Set()
+        const href = node.getAttribute('href')
+        if( href ){
+            hrefCandidates.add(href)
+        }
+        const originalHref = node.getAttribute('data-uw-original-href')
+        if( originalHref ){
+            hrefCandidates.add(originalHref)
+        }
+        const dataHref = node.getAttribute('data-href')
+        if( dataHref ){
+            hrefCandidates.add(dataHref)
+        }
+        const uwExternal = node.getAttribute('uw-rm-external-link-id')
+        if( uwExternal ){
+            hrefCandidates.add(uwExternal)
+        }
+        const downloadAttr = node.getAttribute('data-download-url') ?? node.getAttribute('data-file')
+        if( downloadAttr ){
+            hrefCandidates.add(downloadAttr)
+        }
+        const onclick = node.getAttribute('onclick')
+        if( onclick ){
+            const directMatches = onclick.match(/['"](https?:[^'"\s]+\.pdf[^'"]*)['"]/gi)
+            if( directMatches ){
+                directMatches.forEach((match)=>{
+                    const cleaned = match.replace(/["']/g, '')
+                    hrefCandidates.add(cleaned)
+                })
+            }
+            const clickMatches = onclick.match(/['"](\/[^'"\s]*Click\/[^'"\s]*)['"]/gi)
+            if( clickMatches ){
+                clickMatches.forEach((match)=>{
+                    const cleaned = match.replace(/["']/g, '')
+                    hrefCandidates.add(cleaned)
+                })
+            }
+        }
+
+        hrefCandidates.forEach((candidate)=>{
+            if( typeof candidate !== 'string' ){
+                return
+            }
+            const lower = candidate.toLowerCase()
+            const likelyPdf = lower.includes('.pdf') || lower.includes('/click/') || lower.includes('/download')
+            if( !likelyPdf ){
+                return
+            }
+            pushCandidate(candidate, {
+                source: 'anchor',
+                label,
+                context: buildContext(node)
+            })
+        })
+    })
+
+    // Fallback regex for any remaining pdf references
+    const genericRegex = /href=["']([^"']+\.pdf[^"']*)["']/gi
+    let match
+    while( (match = genericRegex.exec(html)) !== null ){
+        pushCandidate(match[1], {source: 'regex'})
+    }
+
+    const clickRegex = /['"](\/Click\/[^'"\s]+)['"]/gi
+    while( (match = clickRegex.exec(html)) !== null ){
+        pushCandidate(match[1], {source: 'regex_click'})
+    }
+
+    return results
+}
+
+export async function fetchPdfLinksFromPage(url, options = {}){
+    if( typeof url === 'string' && url.trim().toLowerCase().endsWith('.pdf') ){
+        return [{url}]
+    }
+    try{
+        const html = await fetchAsTextViaProxy(url, options)
+        if( !html ){
+            return []
+        }
+        return extractPdfLinksFromHtml(html, url)
+    }catch(error){
+        console.log(`Error in fetchPdfLinksFromPage ${url}`)
+        console.log(error)
+        return []
+    }
+}
+
 let adconfig = {}
 
 var ObjectId = require('mongoose').Types.ObjectId;
@@ -1532,7 +1742,10 @@ export async function grabUrlAsPdf(url, id, text_only = false, prioritize_embedd
             console.log(`Awaiting  page`)
             //let response
             let response = await fetchViaProxy( url, {proxy: process.env.BRIGHTDATA_DC_PROXY, useAxios: true } )
-            const contentType = response.headers.get('zr-content-type') ?? response.headers.get('content-type')
+            if( response.status !== 200){
+                return
+            }
+            const contentType = response.headers.get('content-type')
 
             console.log(`Got content type ${contentType}`)
 
@@ -1551,7 +1764,7 @@ export async function grabUrlAsPdf(url, id, text_only = false, prioritize_embedd
             const data = response.data;
             const pdfSignature = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2D]); // %PDF-
             const isPdf = data.subarray(0, pdfSignature.length).equals(pdfSignature);
-            if(isPdf){
+            if(!isPdf){
                 console.log(`DIDNT GET PDF for ${url}`)
             }
 
@@ -2621,6 +2834,43 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
                                 embeddedPdfs.push(pdfUrl);
                             }
                         }
+                        if( embeddedPdfs.length === 0){
+                            const clickLinkRegex = /<a[^>]*href=["']([^"']*\/Click\/[^"']*)["'][^>]*>(.*?)<\/a>/gims
+                            let clickMatch
+                            while( (clickMatch = clickLinkRegex.exec(results)) !== null ){
+                                const rawHref = clickMatch[1]
+                                const labelHtml = clickMatch[2] ?? ""
+                                const labelText = labelHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+                                const uwOriginalMatch = /data-uw-original-href=["']([^"']+)["']/i.exec(clickMatch[0])
+                                const externalLinkMatch = /uw-rm-external-link-id=["']([^"']+)["']/i.exec(clickMatch[0])
+                                let candidate = externalLinkMatch?.[1] ?? uwOriginalMatch?.[1] ?? rawHref
+                                if( !candidate ){
+                                    continue
+                                }
+                                if( candidate.includes('$') ){
+                                    candidate = candidate.split('$')[0]
+                                }
+                                const likelyPdf = /view\s*pdf|annual\s*report|form\s*10k|download/i.test(labelText)
+                                if( likelyPdf || /\.pdf/i.test(candidate) ){
+                                    embeddedPdfs.push(candidate)
+                                }
+                            }
+                        }
+                        if( embeddedPdfs.length > 1 ){
+                            const seen = new Set()
+                            for(let i = embeddedPdfs.length - 1; i >= 0; i--){
+                                const key = embeddedPdfs[i]?.trim().toLowerCase()
+                                if( !key ){
+                                    embeddedPdfs.splice(i, 1)
+                                    continue
+                                }
+                                if( seen.has(key) ){
+                                    embeddedPdfs.splice(i,1)
+                                }else{
+                                    seen.add(key)
+                                }
+                            }
+                        }
                         if( embeddedPdfs.length > 0){
                             let thisUrl = embeddedPdfs[0]
 
@@ -2630,9 +2880,19 @@ export async function fetchURLAsTextAlternative( url, full_options = {} ){
 
                             console.log( `Found embedded ${thisUrl} - fetching`)
 
-                            //return await fetchURLAsTextAlternative( thisUrl, options)
-                            //return downloadURLContentViaProxy( thisUrl)
-                            return grabUrlAsPdf(thisUrl, undefined, true)
+                            const pdfResult = await grabUrlAsPdf(thisUrl, undefined, true)
+                            if( pdfResult?.plain ){
+                                const pdfText = pdfResult.plain
+                                return normalizeFetchedContent({
+                                    title: `Download from ${thisUrl}`,
+                                    fullText: pdfText,
+                                    description: pdfText.split(" ").slice(0,400).join(" "),
+                                    resolvedUrl: thisUrl,
+                                    sourceUrl: url,
+                                    plain: pdfText
+                                }, thisUrl, url)
+                            }
+                            return normalizeFetchedContent(pdfResult, thisUrl, url)
                         }
                     }
 
@@ -2741,7 +3001,7 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                 const item = {}
                 item.fullText = text
                 item.description = item.fullText.split(" ").slice(0,400).join(" ")
-                return item
+                return normalizeFetchedContent(item, undefined, url)
             }
             return undefined
         }else if( url && url.match(/^(https?:\/\/)?(www\.)?(facebook|fb)\.com\//)){
@@ -2753,7 +3013,7 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                 item.fullText = text.join("\n")
                 item.description = item.fullText.split(" ").slice(0,400).join(" ")
                 console.log(item.description)
-                return item
+                return normalizeFetchedContent(item, undefined, url)
             }
             return undefined
         }
@@ -2766,7 +3026,7 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                 if( videoDetails.transcript ){
                     item.description = videoDetails.transcript.split(" ").slice(0,400).join(" ")
                 }
-                return item
+                return normalizeFetchedContent(item, undefined, url)
             }
             return undefined
             
@@ -2822,11 +3082,13 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                 const data = await grabUrlAsPdf( url, undefined, true, preferEmbeddedPdf )
                 console.log("got text")
                 if( data?.plain ){
-                    return{
+                    return normalizeFetchedContent({
                         title: `Download from ${url}`,
                         fullText: data.plain, 
-                        description: data.plain?.split(" ").slice(0,400).join(" ")
-                    }
+                        description: data.plain?.split(" ").slice(0,400).join(" "),
+                        resolvedUrl: url,
+                        plain: data.plain
+                    }, url, url)
                 }
             }}
            // {title: "Article", exec: !asArticle ? async ()=>await fetchURLAsArticle( url ) : undefined},
@@ -2843,7 +3105,7 @@ export async function fetchURLPlainText( url, asArticle = false, preferEmbeddedP
                     }
                 }else{
                     console.log(`Success ${attempt.title} : ${url}`)
-                    return result
+                    return normalizeFetchedContent(result, undefined, url)
                 }
             }
         }

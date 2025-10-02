@@ -1,4 +1,5 @@
-export const pipeline_root_categories = [
+export function pipeline_root_categories(workspaceId){
+  return [
     /// prior stages should have selected source documents 
     {
     $project: {
@@ -33,7 +34,7 @@ export const pipeline_root_categories = [
         {
           $match: {
             deleted: { $exists: false },
-            workspaceId: "689207ad204c0ab912af2817"            
+            workspaceId        
           }
         },
         {
@@ -80,7 +81,7 @@ export const pipeline_root_categories = [
         {
           $match: {
              deleted: { $exists: false },
-            workspaceId: "689207ad204c0ab912af2817"          
+            workspaceId         
           }
         },        
         {
@@ -105,7 +106,7 @@ export const pipeline_root_categories = [
         {
           $match: {
             deleted: { $exists: false },
-            workspaceId: "689207ad204c0ab912af2817"            
+            workspaceId           
           }
         },
           {
@@ -128,3 +129,4 @@ export const pipeline_root_categories = [
   }
   }
 ]
+}

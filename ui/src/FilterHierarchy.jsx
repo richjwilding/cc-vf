@@ -1,0 +1,705 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import MainStore from './MainStore'
+import { HeroIcon } from './HeroIcon'
+import CollectionUtils from './CollectionHelper'
+import PrimitiveConfig from './PrimitiveConfig'
+import HierarchyNavigator from './HierarchyNavigator'
+import Popup from './Popup'
+import clsx from 'clsx'
+import { Icon } from '@iconify/react/dist/iconify.js'
+import PrimitivePicker from './PrimitivePicker'
+import NewPrimitivePanel from './NewPrimitivePanel'
+
+function FilterBadge({ label, value }){
+  if (value === undefined || value === null) return null
+  let text = Array.isArray(value) ? (value.length === 0 ? '[]' : value.join(', ')) : String(value)
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    try { text = JSON.stringify(value) } catch(e){ text = String(value) }
+  }
+  return (
+    <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
+      <span className="uppercase text-[9px] text-slate-500 mr-1">{label}</span>{text}
+    </span>
+  )
+}
+
+function valueToLabel(v){
+  if (v === undefined || v === null) return 'null'
+  if (typeof v === 'string'){
+    if (v.toLowerCase && v.toLowerCase() === 'uncategorized') return 'Uncategorized'
+    return v
+  }
+  if (typeof v === 'number' || typeof v === 'boolean'){
+    return String(v)
+  }
+  // Object handling
+  // 1) Ranges
+  const gte = v.gte ?? v.min_value
+  const lte = v.lte ?? v.max_value
+  if (gte !== undefined || lte !== undefined){
+    if (gte !== undefined && lte !== undefined) return `${gte} – ${lte}`
+    if (gte !== undefined) return `>= ${gte}`
+    if (lte !== undefined) return `<= ${lte}`
+  }
+  // 2) Category-like objects
+  if (v.category_title) return String(v.category_title)
+  if (v.title) return String(v.title)
+  if (v.name) return String(v.name)
+  // 3) Try category lookup by id
+  try{
+    const cat = MainStore().category?.(v.id)
+    if (cat?.title) return cat.title
+  }catch(e){ /* ignore */ }
+  // 4) Fallback JSON
+  try { return JSON.stringify(v) } catch(e){ return String(v) }
+}
+
+function ValuesChips({ values, tone = 'default' }){
+  if (values == null) return null
+  const arr = Array.isArray(values) ? values : [values]
+  const toLabel = (v) => valueToLabel(v)
+  const shown = arr.slice(0, 3)
+  const more = Math.max(0, arr.length - shown.length)
+  const toneClass = tone === 'include' ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : tone === 'exclude' ? 'bg-rose-50 border-rose-200 text-rose-800'
+                    : 'bg-slate-50 border-slate-200 text-slate-700'
+  return (
+    <div className="flex flex-wrap gap-1">
+      {shown.map((v, i) => (
+        <span key={i} className={"inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium border " + toneClass}>
+          {toLabel(v)}
+        </span>
+      ))}
+      {more > 0 && (
+        <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 border border-slate-200">+{more} more</span>
+      )}
+    </div>
+  )
+}
+
+function toArray(val){
+  if (val == null) return []
+  return Array.isArray(val) ? val : [val]
+}
+
+
+function FilterRow({ f }){
+  // Support multiple shapes (legacy and normalized)
+  const type = f.type || f.originalType
+  const param = f.parameter || f.param
+  const parentCatTitle = f.categorization ? f.categorization?.title : undefined
+  // Gather include/exclude value sources
+  const includeVals = [
+    ...toArray(f.include_value),
+    ...toArray(f.include_values),
+    ...toArray(f.include_categories),
+    ...toArray(f.include)
+  ]
+  const excludeVals = [
+    ...toArray(f.exclude_value),
+    ...toArray(f.exclude_values),
+    ...toArray(f.exclude_categories),
+    ...toArray(f.exlude_categories),
+    ...toArray(f.exlude_values),
+    ...toArray(f.exclude)
+  ]
+  // Fallbacks: legacy fields
+  const legacyValues = f.values ?? f.check
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {param && <FilterBadge label="param" value={param} />}
+        {parentCatTitle && <FilterBadge label="cat" value={parentCatTitle} />}
+        {f.invert !== undefined && <FilterBadge label="invert" value={f.invert ? 'true' : 'false'} />}
+        {f.includeNulls !== undefined && <FilterBadge label="nulls" value={f.includeNulls ? 'include' : 'exclude'} />}
+        {f.sourcePrimId && <FilterBadge label="source" value={f.sourcePrimId} />}
+        {!parentCatTitle && f.relationship && <FilterBadge label="rel" value={Array.isArray(f.relationship) ? f.relationship.join('.') : f.relationship} />}
+        {f.pivot !== undefined && <FilterBadge label="pivot" value={f.pivot} />}
+        {includeVals.length > 0 && (
+          <span className="inline-flex items-center gap-1">
+            <span className="text-[10px] uppercase text-emerald-700 font-semibold">include</span>
+            <ValuesChips values={includeVals} tone="include" />
+          </span>
+        )}
+        {excludeVals.length > 0 && (
+          <span className="inline-flex items-center gap-1">
+            <span className="text-[10px] uppercase text-rose-700 font-semibold">exclude</span>
+            <ValuesChips values={excludeVals} tone="exclude" />
+          </span>
+        )}
+        {includeVals.length === 0 && excludeVals.length === 0 && legacyValues !== undefined && (
+          <ValuesChips values={legacyValues} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function gatherFilters(node){
+  const out = []
+  // Example shape: node.filters is array
+  if (Array.isArray(node.filters)) out.push(...node.filters)
+  // Normalized shape put under .filters.explore/.filters.axis
+  const fObj = node.filters
+  if (fObj && !Array.isArray(fObj)){
+    if (Array.isArray(fObj.explore?.filters)) out.push(...fObj.explore.filters)
+    if (fObj.axis?.column) out.push({ originalType:'axis', ...fObj.axis.column })
+    if (fObj.axis?.row) out.push({ originalType:'axis', ...fObj.axis.row })
+  }
+  return out
+}
+
+function isDataSourceNode(node){
+  const sc = node?.sourceCounts || {}
+  const imp = sc.import ?? 0
+  const org = sc.origin ?? 0
+  const alt = sc.alt_origin ?? 0
+  return imp === 0 && (org > 0 || alt > 0)
+}
+
+function nodeIdPart(node, fallback){
+  if (!node) return fallback
+  if (node.node?.id !== undefined) return node.node.id
+  if (node.node?.plainId !== undefined) return node.node.plainId
+  return fallback
+}
+
+function buildNodeKey(node, parentKey, index){
+  const suffix = nodeIdPart(node, `idx-${index}`)
+  if (!parentKey) return `root-${suffix}`
+  return `${parentKey}.${suffix}`
+}
+
+function formatSourceBadge(node, keyBase, idx){
+  const badgeKey = `${keyBase}::source::${nodeIdPart(node, idx)}`
+  const title = node?.node?.title ?? `#${node?.node?.plainId ?? ''}`
+  const count = node?.count ?? 0
+  return { key: badgeKey, title, count }
+}
+
+function computeLayout(node, expandedKeys, parentKey = null, index = 0){
+  if (!node) return null
+  const key = buildNodeKey(node, parentKey, index)
+  const expanded = expandedKeys.has(key)
+  const children = Array.isArray(node.children) ? node.children : []
+  const localFilters = gatherFilters(node)
+
+  const directSources = children.filter(isDataSourceNode)
+  const normalChildren = children.filter((c)=>!isDataSourceNode(c))
+  const directSourceBadges = directSources.map((ds, idx)=>formatSourceBadge(ds, key, idx))
+  const childLayouts = normalChildren.map((child, childIdx)=>computeLayout(child, expandedKeys, key, childIdx)).filter(Boolean)
+
+  const aggregatedSources = [
+    ...directSourceBadges,
+    ...childLayouts.flatMap((child)=>child.allSources)
+  ]
+
+  const descendantFilterCount = childLayouts.reduce((sum, child)=>sum + child.descendantFilterCount + (child.localFilters?.length ?? 0), 0)
+
+  const incomingExpanded = children.reduce((acc, child)=>acc + (child?.count ?? 0), 0)
+  const directSourcesInput = directSources.reduce((acc, child)=>{
+    //const scImport = child?.sourceCounts?.import
+    //if (typeof scImport === 'number') return acc + scImport
+    return acc + (child?.count ?? 0)
+  }, 0)
+  const childCollapsedInput = childLayouts.reduce((sum, child)=>sum + (child.collapsedIncomingCount ?? child.expandedIncomingCount), 0)
+  const hasChildren = children.length > 0
+  const fallbackImport = node?.sourceCounts?.import ?? incomingExpanded
+  const collapsedIncomingCount = hasChildren ? (directSourcesInput + childCollapsedInput) : fallbackImport
+
+  return {
+    key,
+    node,
+    expanded,
+    localFilters,
+    expandedIncomingCount: incomingExpanded,
+    collapsedIncomingCount,
+    outCount: node?.count ?? 0,
+    directSources: directSourceBadges,
+    allSources: aggregatedSources,
+    descendantFilterCount,
+    children: childLayouts
+  }
+}
+
+function TreeNode({ layout, depth = 0, onToggle, page }){
+  const { node, expanded, expandedIncomingCount, collapsedIncomingCount, outCount, directSources, allSources, localFilters, descendantFilterCount, children, key } = layout
+  const incomingCount = expanded ? expandedIncomingCount : collapsedIncomingCount
+  const filters = localFilters
+  const mainstore = MainStore()
+  const primitiveId = node?.node?.id
+  const prim = node?.primitive ?? mainstore.primitive?.(primitiveId)
+  const title = prim?.title ?? node?.node?.title ?? `#${prim?.plainId ?? node?.node?.plainId ?? ''}`
+  const nodeTypes = node.nodeTypes || {}
+  const nodeTypeKeys = Object.keys(nodeTypes)
+  const [showEditor, setShowEditor] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(title)
+  const hasChildren = children.length > 0
+
+  const effectivedNestedFilterCount = expanded ? 0 : descendantFilterCount
+
+  const nestedFilterMessage = `${descendantFilterCount} nested filter${descendantFilterCount === 1 ? '' : 's'} applied deeper`
+  const nodeIcon = prim.metadata?.icon ?? "QuestionMarkCircleIcon"
+  const canRename = prim?.type === 'view' && page?.id && prim?.parentPrimitiveIds?.includes(page.id)
+  const renameId = useMemo(() => `fh-rename-${String(key).replace(/[^a-zA-Z0-9_-]/g, '-')}`, [key])
+
+  useEffect(() => {
+    if (!isRenaming){
+      setTitleDraft(title)
+    }
+  }, [title, isRenaming])
+
+  const commitRename = useCallback(() => {
+    if (!prim) return
+    const trimmed = (titleDraft ?? '').trim()
+    setIsRenaming(false)
+    if (!trimmed || trimmed === prim.title) return
+    try{
+      prim.setField('title', trimmed)
+    }catch(err){
+      console.error('Failed to rename view', err)
+    }
+  }, [prim, titleDraft])
+
+  const beginRename = (event) => {
+    event?.stopPropagation?.()
+    if (!canRename) return
+    setIsRenaming(true)
+    requestAnimationFrame(() => {
+      const el = document.getElementById(renameId)
+      el?.focus()
+      el?.select()
+    })
+  }
+
+  return (
+    <div className={clsx(depth > 0 && 'pl-2 border-l border-slate-200 ml-2')}>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+        <div className="flex w-full items-center justify-between text-left">
+          <div className="flex items-center gap-2 truncate">
+            <HeroIcon icon={nodeIcon} className="h-3.5 w-3.5 text-slate-500"/>
+            {isRenaming ? (
+              <input
+                id={renameId}
+                className="w-full max-w-xs rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-ccgreen-500"
+                value={titleDraft}
+                onChange={(e)=>setTitleDraft(e.target.value)}
+                onKeyDown={(e)=>{
+                  if (e.key === 'Enter'){
+                    commitRename()
+                  }else if(e.key === 'Escape'){
+                    setIsRenaming(false)
+                    setTitleDraft(title)
+                  }
+                }}
+                onBlur={commitRename}
+              />
+            ) : (
+              <span className="text-sm font-semibold text-slate-700 truncate">{title}</span>
+            )}
+            {canRename && !isRenaming && (
+              <button
+                type="button"
+                className="inline-flex items-center rounded border border-transparent px-1 py-0.5 text-[10px] font-medium text-slate-500 hover:text-slate-700"
+                onClick={beginRename}
+                aria-label="Rename view"
+              >
+                <Icon icon="solar:pen-2-linear" className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-500 ml-2 shrink-0 flex items-center gap-1">
+            {(incomingCount !== outCount) && <span><span className="font-semibold text-slate-700">{incomingCount}</span> filtered to</span>}
+            <span><span className="font-semibold text-slate-700">{outCount}</span> items</span>
+          </div>
+        </div>
+        <div className="mt-2 space-y-2">
+          {nodeTypeKeys.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {nodeTypeKeys.map((rid) => {
+                const info = nodeTypes[rid] || {}
+                let icon = undefined
+                try{
+                  icon = mainstore.category?.(rid)?.icon
+                }catch(e){ icon = undefined }
+                return (
+                  <span key={rid} className="inline-flex items-center gap-1 rounded-md bg-white px-1.5 py-0.5 text-[11px] text-slate-700 border border-slate-200">
+                    {icon && <HeroIcon icon={icon} className="h-3.5 w-3.5 text-slate-500"/>}
+                    <span className="font-medium">{info.type ?? rid}</span>
+                    <span className="text-slate-500">({info.count ?? 0})</span>
+                  </span>
+                )
+              })}
+            </div>
+          )}
+          <div className="text-xs text-slate-500 pt-1.5 w-full flex items-center justify-between">
+            {filters.length > 0 
+                ? <div className="text-[11px] text-slate-500">Filters</div>
+                : <div className="text-[11px] text-slate-500">{effectivedNestedFilterCount === 0 ? "No filters are applied." : `No filters at this stage, ${nestedFilterMessage}`}</div>
+            }
+            {prim && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"
+                onClick={(e)=>{e.stopPropagation(); setShowEditor(true)}}
+              >
+                <Icon icon={filters.length > 0 ? 'solar:settings-linear' : 'solar:funnel-add-linear'} className="h-3.5 w-3.5" />
+                <span>{filters.length > 0 ? 'Edit' : 'Add'}</span>
+              </button>
+            )}
+          </div>
+          {filters.length > 0 && <>
+              {filters.map((f, i) => (<FilterRow key={i} f={f} />))}
+              {descendantFilterCount > 0 && <div className="text-[11px] text-slate-500 justify-self-end">+{nestedFilterMessage}</div>}
+            </>}
+          {expanded ? (
+            directSources.length > 0 && children.length === 0 && (
+              <div className="flex flex-col gap-1">
+                {directSources.map((source) => (
+                  <div key={source.key} className="inline-flex items-center gap-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900 border border-amber-200">
+                    <span className="inline-flex items-center rounded bg-amber-200 px-1 py-0.5 text-[10px] font-semibold text-amber-900">SOURCE</span>
+                    <span className="font-medium truncate">{source.title}</span>
+                    <span className="text-amber-800">({source.count})</span>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : (
+            <>
+              <div className="text-xs text-slate-500 ">Sources</div>
+              {allSources.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  {allSources.map((source) => (
+                    <div key={source.key} className="inline-flex items-center gap-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900 border border-amber-200">
+                      <span className="inline-flex items-center rounded bg-amber-200 px-1 py-0.5 text-[10px] font-semibold text-amber-900">SOURCE</span>
+                      <span className="font-medium truncate">{source.title}</span>
+                      <span className="text-amber-800">({source.count})</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {hasChildren && (
+          <button
+            type="button"
+            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            onClick={() => onToggle(key)}
+          >
+            <HeroIcon icon={expanded ? 'ChevronUpIcon' : 'ChevronDownIcon'} className="h-3.5 w-3.5" />
+            <span>{expanded ? 'Collapse' : 'Expand'}</span>
+          </button>
+        )}
+      </div>
+      {showEditor && (
+        <Popup showCancel={true} setOpen={setShowEditor} title={`Edit filters — ${title}`} width="max-w-3xl">
+          {() => <FilterEditor primitive={prim} onClose={()=>setShowEditor(false)} />}
+        </Popup>
+      )}
+      {expanded && children.length > 0 && (
+        <div className="mt-1 space-y-1">
+          {children.map((childLayout) => (
+            <TreeNode key={childLayout.key} layout={childLayout} depth={depth + 1} onToggle={onToggle} page={page} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FilterEditor({ primitive, onClose }){
+  const mainstore = MainStore()
+  const items = primitive.itemsForProcessingWithFilter(undefined, { ignoreFinalViewFilter: true })
+  const columnAxis = CollectionUtils.primitiveAxis(primitive, 'column', items)
+  const rowAxis = CollectionUtils.primitiveAxis(primitive, 'row', items)
+  const colFilter = PrimitiveConfig.decodeExploreFilter(primitive.referenceParameters?.explore?.axis?.column?.filter)
+  const rowFilter = PrimitiveConfig.decodeExploreFilter(primitive.referenceParameters?.explore?.axis?.row?.filter)
+  const axisOptions = CollectionUtils.axisFromCollection(items, primitive).map(d=>{
+    const out = { ...d }
+    if (d.relationship){ out.relationship = [d.relationship].flat(); out.access = out.relationship.length }
+    return out
+  })
+  const localFilters = CollectionUtils.getExploreFilters(primitive, axisOptions)
+  const viewFilters = primitive.referenceParameters?.explore?.filters?.map((_, i)=>CollectionUtils.primitiveAxis(primitive, i, items)) ?? []
+  const { extents } = CollectionUtils.mapCollectionByAxis(items, columnAxis, rowAxis, viewFilters, [], primitive.referenceParameters?.explore?.viewPivot)
+
+  const sets = [
+    { selection: 'column', mode: 'column', title: 'Columns', list: colFilter, axis: columnAxis },
+    { selection: 'row', mode: 'row', title: 'Rows', list: rowFilter, axis: rowAxis },
+    ...localFilters.map((d, idx)=>({ axis: axisOptions[d.option], selection: `filterGroup${idx}`, title: `Filter by ${axisOptions[d.option]?.title}`, deleteIdx: idx, treatment: d.treatment, mode: idx, list: d.filter }))
+  ]
+
+  const addViewFilter = (item)=>{
+    const axis = axisOptions[item]
+    if (!axis) return
+    const local = primitive.referenceParameters?.explore?.filters ?? []
+    const track = (primitive.referenceParameters?.explore?.filterTrack ?? 0) + 1
+    const newFilter = { track, sourcePrimId: axis.primitiveId, type: axis.type, subtype: axis.subtype, parameter: axis.parameter, relationship: axis.relationship, treatment: 'filter', access: axis.access, value: undefined }
+    local.push(newFilter)
+    primitive.setField('referenceParameters.explore.filters', local)
+    primitive.setField('referenceParameters.explore.filterTrack', track)
+  }
+
+  const filterList = CollectionUtils.buildFilterPane(sets, extents, {
+    mainstore,
+    updateAxisFilter: (item, mode, setAll, axisExtents)=>{
+      let currentFilter
+      if (mode === 'row') currentFilter = rowFilter
+      else if (mode === 'column') currentFilter = colFilter
+      else currentFilter = PrimitiveConfig.decodeExploreFilter(primitive.referenceParameters?.explore?.filters?.[mode]?.filter)
+      CollectionUtils.updateAxisFilter(primitive, mode, currentFilter, item, setAll, axisExtents)
+    },
+    deleteViewFilter: (idx)=>{
+      const filter = viewFilters[idx]
+      let filters = primitive.referenceParameters?.explore?.filters
+      filters = filters.filter(d=>d.track !== filter.track)
+      primitive.setField('referenceParameters.explore.filters', filters)
+    }
+  })
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className='w-full px-1 py-2 text-sm flex place-items-center justify-between text-gray-600 font-normal'>
+        <HierarchyNavigator noBorder portal icon={<HeroIcon icon='FunnelPlus' className='w-5 h-5 ' />} items={CollectionUtils.axisToHierarchy(axisOptions)} flat placement='left-start' action={(d)=>addViewFilter(d.id)} dropdownWidth='w-64' className='ml-auto hover:text-ccgreen-800 hover:shadow-md' />
+      </div>
+      <div className='w-full p-2 text-sm space-y-2 max-h-[60vh] overflow-y-auto'>
+        {filterList}
+      </div>
+    </div>
+  )
+}
+
+export default function FilterHierarchy({ root, page }){
+  const mainstore = MainStore()
+  const categories = mainstore.categories?.() ?? []
+  const viewCategory = useMemo(() => {
+    return categories.find((cat)=>cat.primitiveType === 'view' && cat.active !== false) 
+        ?? categories.find((cat)=>cat.primitiveType === 'view')
+  }, [categories])
+  const searchCategories = useMemo(() => categories.filter((cat)=>cat.primitiveType === 'search'), [categories])
+  const [selectedSearchCategoryId, setSelectedSearchCategoryId] = useState(() => searchCategories[0]?.id ?? null)
+  const selectedSearchCategory = useMemo(() => searchCategories.find((cat)=>cat.id === selectedSearchCategoryId) ?? null, [searchCategories, selectedSearchCategoryId])
+  useEffect(() => {
+    if (searchCategories.length === 0){
+      if (selectedSearchCategoryId !== null){
+        setSelectedSearchCategoryId(null)
+      }
+      return
+    }
+    const exists = searchCategories.some((cat)=>cat.id === selectedSearchCategoryId)
+    if (!exists){
+      setSelectedSearchCategoryId(searchCategories[0].id)
+    }
+  }, [searchCategories, selectedSearchCategoryId])
+
+  const rootKey = useMemo(() => root ? buildNodeKey(root, null, 0) : null, [root])
+  const [expandedKeys, setExpandedKeys] = useState(() => {
+    if (!rootKey) return new Set()
+    return new Set([rootKey])
+  })
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [showNewSearch, setShowNewSearch] = useState(false)
+  const [isWorking, setIsWorking] = useState(false)
+  const [errorMessage, setErrorMessage] = useState(null)
+
+  useEffect(() => {
+    if (!rootKey){
+      setExpandedKeys(new Set())
+    }else{
+      setExpandedKeys(new Set([rootKey]))
+    }
+  }, [rootKey])
+
+  const createViewForSource = useCallback(async (source, options = {}) => {
+    if (!page || !viewCategory || !source) return null
+    const importEntry = { id: source.id }
+    if (options.filters){
+      importEntry.filters = options.filters
+    }
+    try{
+      const viewTitle = options.title?.trim?.() ? options.title.trim() : (source.title ?? `View of #${source.plainId ?? source.id}`)
+      const newView = await mainstore.createPrimitive({
+        title: viewTitle,
+        type: viewCategory.primitiveType ?? 'view',
+        categoryId: viewCategory.id,
+        referenceParameters: {
+          target: 'items',
+          importConfig: [importEntry]
+        },
+        parent: page,
+        workspaceId: page.workspaceId
+      })
+      if (newView){
+        await newView.addRelationshipAndWait(source, 'imports')
+        await page.addRelationshipAndWait(newView, 'imports')
+      }
+      return newView
+    }catch(err){
+      console.error('Failed to create view for source', err)
+      throw err
+    }
+  }, [mainstore, page, viewCategory])
+
+  const layout = useMemo(() => {
+    if (!root) return null
+    return computeLayout(root, expandedKeys, null, 0)
+  }, [root, expandedKeys])
+
+  const handleToggle = (key) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)){
+        next.delete(key)
+      }else{
+        next.add(key)
+      }
+      return next
+    })
+  }
+
+
+  const handleExistingSelection = useCallback(async (picked) => {
+    setPickerOpen(false)
+    const target = Array.isArray(picked) ? picked[0] : picked
+    if (!target || target.id === page?.id) return
+    setErrorMessage(null)
+    setIsWorking(true)
+    try{
+      await createViewForSource(target, { title: target.title })
+    }catch(err){
+      setErrorMessage('Unable to connect to that source right now. Please try again.')
+    }finally{
+      setIsWorking(false)
+    }
+  }, [createViewForSource, page?.id])
+
+  const handleNewSearchSubmit = useCallback(async (struct) => {
+    if (isWorking) return
+    if (!page || !selectedSearchCategory) return
+    setErrorMessage(null)
+    setIsWorking(true)
+    try{
+      const searchTitle = struct?.title?.trim?.() ? struct.title.trim() : `New ${selectedSearchCategory.title}`
+      const referenceParameters = struct?.referenceParameters ?? {}
+      const categoryId = struct?.referenceId ?? selectedSearchCategory.id
+      const newSearch = await mainstore.createPrimitive({
+        title: searchTitle,
+        type: 'search',
+        categoryId,
+        referenceParameters,
+        parent: page,
+        workspaceId: page.workspaceId
+      })
+      if (newSearch){
+        await createViewForSource(newSearch, { title: searchTitle })
+        setShowNewSearch(false)
+      }
+    }catch(err){
+      console.error('Failed to create new search', err)
+      setErrorMessage('Unable to create that search. Check the details and try again.')
+    }finally{
+      setIsWorking(false)
+    }
+  }, [createViewForSource, isWorking, mainstore, page, selectedSearchCategory])
+
+  const openExistingPicker = () => {
+    setErrorMessage(null)
+    setPickerOpen(true)
+  }
+
+  const openNewSearchModal = () => {
+    if (searchCategories.length === 0) return
+    setErrorMessage(null)
+    setShowNewSearch(true)
+  }
+  if (!layout) return null
+
+  const disableActions = isWorking || !page || !viewCategory
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-slate-700">Connect data sources</p>
+          <p className="text-xs text-slate-500">Add existing searches or create new ones. We wrap each source in a view so filters stay scoped to this page.</p>
+        </div>
+        <div className="mt-3 flex flex-col gap-2">
+          <button
+            type="button"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={openExistingPicker}
+            disabled={disableActions}
+          >
+            <Icon icon="solar:link-round-bold-duotone" className="h-4 w-4" />
+            Link existing source
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={openNewSearchModal}
+            disabled={disableActions || searchCategories.length === 0}
+          >
+            <Icon icon="solar:magnifer-plus-broken" className="h-4 w-4" />
+            New search data source
+          </button>
+        </div>
+        {isWorking && <div className="mt-2 text-[11px] text-slate-500">Working…</div>}
+        {errorMessage && <div className="mt-2 rounded-md bg-rose-50 px-2 py-1 text-[11px] text-rose-700 border border-rose-200">{errorMessage}</div>}
+      </div>
+      <div className="space-y-1">
+        <TreeNode layout={layout} onToggle={handleToggle} page={page} />
+      </div>
+      {pickerOpen && (
+        <PrimitivePicker
+          type={["search", "view", "query"]}
+          callback={handleExistingSelection}
+          setOpen={setPickerOpen}
+          exclude={page ? [page] : undefined}
+        />
+      )}
+      {showNewSearch && (
+        <Popup showCancel={true} setOpen={setShowNewSearch} title="Create a new search" width="max-w-lg">
+          {() => (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600" htmlFor="fh-search-category">Search type</label>
+                <select
+                  id="fh-search-category"
+                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-ccgreen-500"
+                  value={selectedSearchCategoryId ?? ''}
+                  onChange={(e)=>{
+                    const value = e.target.value
+                    if (!value){
+                      setSelectedSearchCategoryId(null)
+                      return
+                    }
+                    const match = searchCategories.find((cat)=>String(cat.id) === value)
+                    setSelectedSearchCategoryId(match ? match.id : null)
+                  }}
+                >
+                  {searchCategories.map((cat)=>(
+                    <option key={cat.id} value={cat.id}>{cat.title}</option>
+                  ))}
+                </select>
+              </div>
+              {selectedSearchCategory ? (
+                <NewPrimitivePanel
+                  key={selectedSearchCategory.id}
+                  selectedCategory={selectedSearchCategory}
+                  primitiveList={[]}
+                  newPrimitiveCallback={handleNewSearchSubmit}
+                  cancel={()=>setShowNewSearch(false)}
+                  addText={isWorking ? 'Creating…' : 'Create & link'}
+                />
+              ) : (
+                <div className="text-sm text-slate-500">No search categories are available.</div>
+              )}
+            </div>
+          )}
+        </Popup>
+      )}
+    </div>
+  )
+}

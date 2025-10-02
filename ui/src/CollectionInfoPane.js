@@ -23,7 +23,7 @@ import { CheckboxField, Checkbox as LegacyCheckbox } from "./@components/checkbo
 import { AdjustmentsVerticalIcon, BackwardIcon, CloudArrowDownIcon, PlayCircleIcon, StopCircleIcon, TrashIcon } from "@heroicons/react/24/outline"
 import { Table } from "./Table"
 import { Label } from "./@components/fieldset"
-import { Button, Input, NumberInput, Select, SelectItem, Slider, Switch } from "@heroui/react"
+import { Button, Input, NumberInput, ScrollShadow, Select, SelectItem, Slider, Switch } from "@heroui/react"
 import { Checkbox } from "@heroui/react";
 import InputWithSync from "./InputWithSync"
 import { Icon } from "@iconify/react/dist/iconify.js"
@@ -758,7 +758,8 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                             value={viewConfigs[activeView]?.id}
                             zIndex={50}
                         />
-                        <div className='w-full overflow-y-scroll space-y-8 max-h-[50vh] h-full flex flex-col'>
+                        <div className='w-full flex'>
+                        <ScrollShadow className='w-full overflow-y-scroll space-y-8 max-h-[50vh] h-full flex flex-col'>
                             {viewConfig && (!viewConfig.config || viewConfig.config.length === 0) && <p className='text-sm text-gray-500 text-center'>No settings</p>}
                             {viewConfig && viewConfig.config && Object.keys(viewConfig.config).map(d => {
                                 const currentValue = frame.renderConfig?.hasOwnProperty(d) ? frame.renderConfig[d] : viewConfig.config[d].default
@@ -849,6 +850,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                         />
                                 }
                             })}
+                        </ScrollShadow>
                         </div>
                         {(frame.type === "query" || frame.type === "view") && <Switch size="sm" key="show_axis_pins" isSelected={frame.renderConfig?.showAxisPin} onValueChange={(v) => { frame.setField('renderConfig.showAxisPin', v); updateFrame() }}>Show axis pins</Switch>}
                     </div>
@@ -986,9 +988,9 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
             let activeFlowInstance, flowInstanceToShow
             if (frame.type === "flow") {
                 activeFlowInstance = props.flowInstances[frame.referenceParameters?.explore?.view ?? 0]
-                if (frame.flowElement) {
+                //if (frame.flowElement) {
                     flowInstanceToShow = activeFlowInstance
-                }
+                //}
             }
 
             return <><div className="space-y-2">
@@ -1013,6 +1015,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                 {!filters && (frame.type === "flow" && !frame.flowElement) && <UIHelper.Button outline title="New Instance" onClick={() => mainstore.doPrimitiveAction(frame, "create_flowinstance")} />}
                 {!filters && (frame.type === "flow" && frame.flowElement && props.inFlowInstance.id) && <UIHelper.Button outline title="Run flow as step" onClick={() => mainstore.doPrimitiveAction(props.inFlowInstance, "run_flowinstance_from_step", { from: frame.id, force: true })} />}
                 {!filters && (frame.type === "flow" && frame.flowElement && flowInstanceToShow) && <UIHelper.Button outline title="Run subflow" onClick={() => mainstore.doPrimitiveAction(flowInstanceToShow, "run_subflow", { subFlowId: frame.id })} />}
+                {!filters && (frame.type === "flow" && !frame.flowElement && flowInstanceToShow) && <UIHelper.Button outline title="Run instance" onClick={() => mainstore.doPrimitiveAction(flowInstanceToShow, "run_subflow", { subFlowId: frame.id })} />}
                 {!filters && (frame.type === "flow") && flowInstanceToShow &&
                     <UIHelper.Button outline title="Scaffold instance" onClick={() => {
                         mainstore.doPrimitiveAction(flowInstanceToShow, "instance_scaffold")
@@ -1059,9 +1062,23 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                             const theme = themes[themeKey] || themes.default;
                                             const themePaletterComponents = Object.keys(theme.palette ?? {})
                                             const currentText = frame.referenceParameters?.text_color ?? "primary"
+                                            const sectionStyle = frame.renderConfig?.themeStyle ?? "normal"
 
                                             return (
                                                 <div className="space-y-3">
+                                                            <Select
+                                                                className="w-full"
+                                                                label="Style"
+                                                                size="sm"
+                                                                variant="bordered"
+                                                                selectedKeys={[sectionStyle]}
+                                                                disallowEmptySelection={true}
+                                                                onSelectionChange={(v) => {
+                                                                    frame.setField(`renderConfig.themeStyle`, Array.from(v)[0])
+                                                                }}>
+                                                                <SelectItem key="normal">Paragraph</SelectItem>
+                                                                <SelectItem key="panel">Call out</SelectItem>
+                                                            </Select>
                                                     <div className="flex items-center space-x-2">
                                                         <Select
                                                             className="max-w-[10rem]"
@@ -1147,8 +1164,8 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                                                             size = null
                                                                                         } else {
                                                                                             size = Math.min(Math.max(1, value), 144)
+                                                                                            frame.setField(`referenceParameters.sections.${d}.fontSize`, size)
                                                                                         }
-                                                                                        frame.setField(`referenceParameters.sections.${d}.fontSize`, size)
                                                                                         return true
                                                                                     }}
                                                                                 />
@@ -1158,6 +1175,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                                                     size="sm"
                                                                                     variant="bordered"
                                                                                     selectedKeys={[fontStyle]}
+                                                                                    disallowEmptySelection={true}
                                                                                     onSelectionChange={(v) => {
                                                                                         frame.setField(`referenceParameters.sections.${d}.fontStyle`, Array.from(v)[0])
                                                                                     }}>
@@ -1168,12 +1186,14 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                                                 </Select>
                                                                             </div>
                                                                             {frame.referenceParameters?.extract === "items" && <>
+
                                                                                 <Select
                                                                                     className="w-full"
-                                                                                    label="Render style"
+                                                                                    label="Render mode"
                                                                                     size="sm"
                                                                                     variant="bordered"
                                                                                     selectedKeys={[sectionStyle]}
+                                                                                    disallowEmptySelection={true}
                                                                                     onSelectionChange={(v) => {
                                                                                         frame.setField(`referenceParameters.sections.${d}.sectionStyle`, Array.from(v)[0])
                                                                                     }}>
@@ -1183,15 +1203,16 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                                                     <SelectItem key="detailsBullets">Detailed bullets</SelectItem>
                                                                                     <SelectItem key="quotes">Quotes</SelectItem>
                                                                                     <SelectItem key="sentiment">sentiment</SelectItem>
-                                                                                    <SelectItem key="organizations">Company logos</SelectItem>
+                                                                                    <SelectItem key="company_logos">Company logos</SelectItem>
+                                                                                    <SelectItem key="organizations">Company details</SelectItem>
                                                                                 </Select>
-                                                                                {(sectionStyle === "detailsBullets" || sectionStyle === "quotes") && <DebouncedNumberInput
+                                                                                {(sectionStyle === "detailsBullets" || sectionStyle === "quotes"|| sectionStyle === "company_logos") && <DebouncedNumberInput
                                                                                     value={itemCount}
                                                                                     variant="bordered"
                                                                                     size="sm"
                                                                                     label="Item limit"
-                                                                                    minValue={1}
-                                                                                    maxValue={10}
+                                                                                    minValue={0}
+                                                                                    maxValue={50}
                                                                                     onValueChange={(value) => {
                                                                                         frame.setField(`referenceParameters.sections.${d}.itemCount`, value)
                                                                                         return true
