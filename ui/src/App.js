@@ -9,7 +9,7 @@ import { library } from '@fortawesome/fontawesome-svg-core'
 import { faLinkedin } from '@fortawesome/free-brands-svg-icons'
 import { faTags, faFilter } from '@fortawesome/pro-light-svg-icons';
 import { faRobot, faTrash, faChevronDown, faCircleInfo, faSpider, faSpinner, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
-import { PrimitivePage } from './PrimitivePage';
+import { PrimitiveViewRouter } from './PrimitiveViewRouter';
 import SideNav from './SideNav';
 import SignIn from './SignIn';
 import HomeScreen from './HomeScreen';
@@ -199,7 +199,7 @@ function App() {
                   <Route path="/account/" element={<AccountScreen/>}/>
                   <Route path="/queue/:id?" element={<QueuePage />}/>
                   <Route path="/workflows/:id?" element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage}/>}/>
-                  <Route path="/item/:id" element={<PrimitivePage key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
+                  <Route path="/item/:id" element={<PrimitiveViewRouter key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
                   <Route path="/project/:id" element={<ProjectScreen/>}/>
                 </Route>
             </Routes>
