@@ -2830,9 +2830,43 @@ export default function BoardViewer({primitive,...props}){
         }
         e.preventDefault()
         setShowAddDrawer(false)
-        const rect = e.currentTarget.getBoundingClientRect()
-        const x = e.clientX - rect.left
-        const y = e.clientY - rect.top
+        let sceneCoords
+        const stage = canvas.current?.stageNode?.()
+        if( stage ){
+            const container = stage.container()
+            if( stage.setPointersPositions ){
+                stage.setPointersPositions({
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    currentTarget: container,
+                    target: container
+                })
+            }
+            const pointer = stage.getPointerPosition?.() || stage.getRelativePointerPosition?.()
+            if( pointer && canvas.current.stageToScene ){
+                sceneCoords = canvas.current.stageToScene(pointer.x, pointer.y)
+            }
+        }
+        if( !sceneCoords ){
+            const rect = (stage?.container?.() ?? e.currentTarget).getBoundingClientRect()
+            const localX = e.clientX - rect.left
+            const localY = e.clientY - rect.top
+            if( stage ){
+                const inverse = stage.getAbsoluteTransform?.().copy?.()
+                if( inverse ){
+                    inverse.invert()
+                    const point = inverse.point({x: localX, y: localY})
+                    if( canvas.current?.stageToScene ){
+                        sceneCoords = canvas.current.stageToScene(point.x, point.y)
+                    }else{
+                        sceneCoords = [point.x, point.y]
+                    }
+                }
+            }
+            if( !sceneCoords ){
+                sceneCoords = [localX, localY]
+            }
+        }
         const cat = mainstore.category(categoryId)
         if(cat){
             const newPrim = await mainstore.createPrimitive({
@@ -2843,7 +2877,8 @@ export default function BoardViewer({primitive,...props}){
                 workspaceId: primitive.workspaceId
             })
             if(newPrim){
-                addBoardToCanvas(newPrim, {x, y, s:1})
+                const [sceneX, sceneY] = sceneCoords
+                addBoardToCanvas(newPrim, {x: sceneX, y: sceneY, s:1})
             }
         }
     }
@@ -3195,23 +3230,25 @@ export default function BoardViewer({primitive,...props}){
                         primitive={primitive}/>
                 </div>}
                 
-                <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
-                    <div className='p-3 flex place-items-start space-x-2 '>
-                            <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
-                            <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>setShowAddDrawer(!showAddDrawer)} flat placement='left-start' />
-                            <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
-                            {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
-                            {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
-                            {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
-                            {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
-                            {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
-                    </div>
-                    {showAddDrawer && <PrimitiveDrawer open={showAddDrawer} onClose={()=>setShowAddDrawer(false)} />}
-                    {!dockPaneInfo && collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
-                        <div className='w-[32rem] 3xl:w-[40rem]'>
-                            {collectPaneWidget}
+                <div className='absolute right-4 top-4 z-40 flex flex-col items-end gap-3 pointer-events-none'>
+                    <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border flex flex-col place-items-start divide-y divide-gray-200 pointer-events-auto'>
+                        <div className='p-3 flex place-items-start space-x-2 '>
+                                <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
+                                <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>setShowAddDrawer(!showAddDrawer)} flat placement='left-start' />
+                                <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
+                                {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
+                                {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
+                                {<DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false)} flat placement='left-start' />}
+                                {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
+                                {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
                         </div>
-                    </div>}
+                        {!dockPaneInfo && collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
+                            <div className='w-[32rem] 3xl:w-[40rem]'>
+                                {collectPaneWidget}
+                            </div>
+                        </div>}
+                    </div>
+                    <PrimitiveDrawer open={showAddDrawer} onClose={()=>setShowAddDrawer(false)} className='pointer-events-auto mt-1' />
                 </div>
                 {<div ref={menu} key='toolbar' className='bg-white rounded-md shadow-lg border-gray-200 border absolute z-40 p-1.5 flex flex-col place-items-start space-y-2 invisible'>
                     {myState.menuOptions?.addToView && <DropdownButton noBorder icon={<PlusIcon className='w-5 h-5'/>} onClick={addToView} flat placement='left-start' />}

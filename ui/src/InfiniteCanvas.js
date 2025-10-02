@@ -279,7 +279,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             updateLinks,
             getLinks,
             refreshFrame,
-            getSelection
+            getSelection,
+            stageToScene: convertStageCoordToScene
         };
       }, []);
 
@@ -3944,7 +3945,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
         }
-
         window.mainStage = stageRef
     
     const stage = <Stage
