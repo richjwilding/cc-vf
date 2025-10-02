@@ -2408,10 +2408,6 @@ export async function getDataForProcessing(primitive, action = {}, source, optio
         list = startList || await primitiveDescendents(source, undefined, {fullDocument:true})
         type = "evidence"
         console.log(`GOT for evidence ${list.length}`)
-    }else if(target === "level2" ){
-        throw "DEPRECATED"
-        list = startList || await primitiveChildren(source)
-        list = (await Promise.all(list.map(async (d)=>await primitiveChildren(d)))).flat()
     }else if( target.slice(0,8) === "results."){
         list = await primitivePrimitives(source, target )
         console.log(`GOT for result ${list.length}`)
@@ -2432,30 +2428,6 @@ export async function getDataForProcessing(primitive, action = {}, source, optio
         const parentIds = list.map(d=>d.id)
         list = await fetchDirectChildren({parentIds, referenceId, type, workspaceId: primitive.workspaceId})
         console.log(`Direct child items = ${list.length}`)*/
-    }else if( target === "parents"){
-        throw "DEPRECATED"
-        list = await primitiveListOrigin( [source], 1)
-        console.log(`TOTAL parents = ${list.length}`)
-    }else if( target === "hierarchy"){
-        throw "DEPRECATED"
-        list = await primitiveListOrigin( [source], "hierarchy", undefined, "ALL", referenceId)
-        console.log(`TOTAL parents = ${list.length}`)
-    }else if( target === "items_parent_descend"){
-        throw "DEPRECATED"
-        list = await getDataForImport( source )
-        console.log(`TOTAL Stage 1 = ${list.length}`)
-        
-        const pivot = primitive.referenceParameters.pivot ?? 1
-        list = await primitiveListOrigin( list, pivot, undefined, primitive.referenceParameters.pivotBy)
-        console.log(`TOTAL Stage 2 = ${list.length}`)
-        
-        let out = []
-        for( const d of list){
-            out.push( await primitiveDescendents(d, type, {fullDocument:true, paths: ["origin", "auto", "ref"]}))
-        }
-        list = uniquePrimitives( out.flat(Infinity) )
-        console.log(`TOTAL Stage 3  = ${list.length}`)
-
     }
     if( configSource?.pivot && configSource.pivot > 0){            
         console.log(`Primitive pivot = ${configSource.pivot} / ${configSource.pivotBy}`)
