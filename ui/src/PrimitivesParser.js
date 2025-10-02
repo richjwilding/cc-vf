@@ -260,7 +260,7 @@ const storeActions = {
 }
 
 const ORIGIN_KEYS   = ['link', 'origin', 'auto'];
-const COMMON_SKIP   = new Set(['imports', 'config', 'inputs']);
+const COMMON_SKIP   = new Set(['imports', 'chat', 'config', 'inputs']);
 const DIRECT_SKIP   = new Set(['ref', 'link']);
 
 

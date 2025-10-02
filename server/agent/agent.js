@@ -26,7 +26,8 @@ import * as one_shot_query from "./modules/one_shot_query.js";
 import * as suggest_categories from "./modules/suggest_categories.js";
 import * as object_params from "./modules/object_params.js";
 import * as suggest_visualizations from "./modules/suggest_visualizations.js";
-import * as suggest_analysis from "./modules/suggest_analysis.js";
+import * as suggest_slide_skeleton from "./modules/suggest_slide_skeleton.js";
+import * as design_slide from "./modules/design_slide.js";
 import * as get_data_sources from "./modules/get_data_sources.js";
 import * as get_connected_data from "./modules/get_connected_data.js";
 import * as sample_data from "./modules/sample_data.js";
@@ -41,6 +42,44 @@ import { summaryTools } from "./modules/summary.js";
 import { classifyFlowIntent } from "./modules/flow_router.js";
 import { inspect } from 'node:util';
 const logger = getLogger('agent', "debug", 2); // Debug level for moduleA
+
+function stripControlTokens(text) {
+  if (typeof text !== "string") {
+    return "";
+  }
+  return text
+    .replace(/\[\[[^\]]*\]\]/g, " ")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncateForPrompt(text, maxLength = 280) {
+  if (!text) {
+    return "";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return text.slice(0, maxLength).trim();
+}
+
+function sanitizeGeneratedTitle(title) {
+  if (typeof title !== "string") {
+    return "";
+  }
+  const cleaned = title
+    .trim()
+    .replace(/^"+|"+$/g, "")
+    .replace(/^'+|'+$/g, "")
+    .replace(/[\s]+/g, " ")
+    .replace(/[.!?\s]+$/g, "")
+    .trim();
+  if (!cleaned) {
+    return "";
+  }
+  return cleaned.length > 120 ? cleaned.slice(0, 120).trim() : cleaned;
+}
 
 
 const chatSessions = new Map();
@@ -107,6 +146,169 @@ function cleanupSessions() {
 }
 setInterval(cleanupSessions, 60 * 1000);
 
+async function ensureChatPrimitiveRecord(primitive, req, sessionKeyId) {
+  if (!primitive) {
+    return null;
+  }
+
+  const ownerId = req.user?.id ?? null;
+  const workspaceId = primitive.workspaceId;
+  const parentKey = `parentPrimitives.${primitive.id}`;
+
+  const baseQuery = {
+    workspaceId,
+    type: "chat",
+    [parentKey]: { $in: ["primitives.chat"] },
+  };
+
+  let chat = await Primitive.findOne({
+    ...baseQuery,
+    "referenceParameters.session_key": sessionKeyId,
+  });
+
+  if (!chat && ownerId) {
+    chat = await Primitive.findOne({
+      ...baseQuery,
+      "referenceParameters.owner_id": ownerId,
+    });
+  }
+
+  if (chat) {
+    const referenceParameters = chat.referenceParameters ?? {};
+    if (referenceParameters.session_key !== sessionKeyId) {
+      const nextReference = {
+        ...referenceParameters,
+        session_key: sessionKeyId,
+        updated_at: new Date().toISOString(),
+      };
+      chat.referenceParameters = nextReference;
+      await dispatchControlUpdate(chat.id, "referenceParameters", nextReference);
+    }
+    return chat;
+  }
+
+  const titleSuffix = primitive.title ? ` - ${primitive.title}` : "";
+  const chatData = {
+    workspaceId,
+    parent: primitive.id,
+    paths: ["origin", "chat"],
+    data: {
+      type: "chat",
+      title: `Agent chat${titleSuffix}`.trim(),
+      referenceParameters: {
+        session_key: sessionKeyId,
+        owner_id: ownerId,
+        owner_type: ownerId ? "user" : "anon",
+        updated_at: new Date().toISOString(),
+        title_generated: false,
+      },
+    },
+  };
+
+  const created = await createPrimitive(chatData, true, req);
+  return created ?? null;
+}
+
+function exportSessionState(session) {
+  if (!session) {
+    return null;
+  }
+  const stateEntries = session.states instanceof Map
+    ? Array.from(session.states.entries())
+    : Object.entries(session.states ?? {});
+
+  const thinDataSources = (input) => {
+    if (!input || typeof input !== "object") {
+      return null;
+    }
+
+    const thinEntry = (entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      return {
+        id: entry.id,
+        type: entry.type ?? null,
+        title: entry.title ?? null,
+        number_results: entry.number_results ?? entry.count ?? entry.total ?? null,
+      };
+    };
+
+    const thinList = (list) => {
+      if (!Array.isArray(list)) {
+        return [];
+      }
+      return list
+        .map(thinEntry)
+        .filter(Boolean);
+    };
+
+    const recommended = Array.isArray(input.recommendations)
+      ? input.recommendations.slice(0, 5)
+      : undefined;
+
+    return {
+      goal: input.goal ?? null,
+      minimum: input.minimum ?? null,
+      connected: thinList(input.connected),
+      fallback: thinList(input.fallback),
+      preferred: thinEntry(input.preferred),
+      recommendations: recommended,
+      updated_at: input.updated_at ?? null,
+    };
+  };
+
+  const pruneStateForPersistence = (value) => {
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+    const pruned = { ...value };
+    if (value.data && typeof value.data === "object") {
+      const data = { ...value.data };
+      if (data.dataSources) {
+        data.dataSources = thinDataSources(data.dataSources);
+      }
+      pruned.data = data;
+    }
+    return pruned;
+  };
+
+  return {
+    mode: session.mode ?? null,
+    state: session.state ?? null,
+    states: Object.fromEntries(stateEntries.map(([key, value]) => [key, pruneStateForPersistence(value)])),
+  };
+}
+
+function hydrateSessionFromPersisted(session, persisted) {
+  if (!session || !persisted) {
+    return;
+  }
+
+  const { mode, state, states } = persisted;
+  if (mode !== undefined) {
+    session.mode = mode;
+  }
+  if (state !== undefined) {
+    session.state = state;
+  }
+  if (states && typeof states === "object") {
+    session.states = new Map(Object.entries(states));
+  }
+  session._hydratedFromPersistence = true;
+}
+
+function buildPersistedChatState(session) {
+  const exported = exportSessionState(session);
+  if (!exported) {
+    return null;
+  }
+  return {
+    session: exported,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export function matchEnter(flowDef, text) {
   if (!text) return false;
   return flowDef.enterTriggers.some(rx => rx.test(text));
@@ -153,7 +355,8 @@ const baseModules = [
   { module: suggest_categories, defaultEnabled: true },
   { module: object_params, defaultEnabled: false },
   { module: suggest_visualizations, defaultEnabled: true },
-  { module: suggest_analysis, defaultEnabled: false },
+  { module: suggest_slide_skeleton, defaultEnabled: false },
+  { module: design_slide, defaultEnabled: false },
   { module: get_data_sources, defaultEnabled: true },
   { module: get_connected_data, defaultEnabled: true },
   { module: sample_data, defaultEnabled: false },
@@ -283,7 +486,10 @@ export async function handleChat(primitive, options, req, res) {
             systemPrompt = `You are the Sense insights AI, an agent helping users prepare presentations which describe, visualize and evidence insights about the data they have gathered with a primary focus on intelligence and strategy work. You can help the user 1) find additional data, 2) analyze, filter, and categorize existing data, 3) buils queries and sumamries, and 4) produce presentation ready slides. If a user asks for anything unrelated to this you _MUST_ politely decline.
                     Here are your instructions:
                     ${commonBase}
+                    *) Slide work is the default focus for a page: prioritise layout, section structure, visualization choices, and narrative polish over creating whole new pages unless the user asks for one.
                     *) Finding additional data is costs time and resources so you MUST always confirm this is the users intent - use existing data where possible
+                    *) When building a slide, follow the data sourcing hierarchy: (1) use connected data tied to the page, (2) if that is insufficient pull from existing context objects without starting new searches, (3) only recommend (never auto-run) external searches if gaps remain.
+                    *) When a user requests edits within a slide, respond with section-level adjustments and explain how to rebalance existing components (titles, summaries, charts, calls to action, etc.).
                    `.replaceAll(/\s+/g," ")
 
             const pageExclusions = [
@@ -395,9 +601,12 @@ export async function handleChat(primitive, options, req, res) {
         }
 
         const userMessages = req.body.messages;
-        let immediateContext 
+        const requestedChatId = options.chatPrimitiveId ?? null;
+        const requestedSessionKey = options.chatSessionKey ?? null;
+        let immediateContext
         if( options.immediateContext ){
-          userMessages.splice(-1, undefined, {role: "assistant", content: `[[chat_scope:${options.immediateContext.join(",")}]]`})
+          const insertIndex = userMessages.length > 0 ? Math.max(userMessages.length - 1, 0) : 0;
+          userMessages.splice(insertIndex, 0, {role: "assistant", content: `[[chat_scope:${options.immediateContext.join(",")}]]`, hidden: true})
           immediateContext = await resolveId( options.immediateContext, {workspaceId: primitive.workspaceId} )
         }
 
@@ -415,8 +624,63 @@ export async function handleChat(primitive, options, req, res) {
         remapHistoryFraming("suggest_categories", history, "This informations comes from a discussion with the user about categorization")
         const latestCategories = mostRecentResult("suggest_categories", history)
 
-        const sessionKeyId = sessionKey(primitive, req)
+        const skipChatPrimitiveLoad = options?.modePing === true
+
+        let chatPrimitive = null
+        if (!skipChatPrimitiveLoad && requestedChatId) {
+          try {
+            const fetched = await fetchPrimitive(requestedChatId, undefined, {
+              _id: 1,
+              workspaceId: 1,
+              type: 1,
+              parentPrimitives: 1,
+              referenceParameters: 1,
+              title: 1,
+            })
+            if (fetched?.type === "chat") {
+              const relationships = fetched.parentPrimitives?.[primitive.id] ?? []
+              const isChild = relationships.some(path => typeof path === "string" && path.includes("primitives.chat"))
+              if (isChild) {
+                chatPrimitive = fetched
+              }
+            }
+          } catch (error) {
+            logger.warn(`Failed to load requested chat ${requestedChatId}`, { error: error?.message })
+          }
+        }
+
+        let sessionKeyId = requestedSessionKey
+          || chatPrimitive?.referenceParameters?.session_key
+          || sessionKey(primitive, req)
+
         const session = ensureSession(sessionKeyId)
+
+        if (!skipChatPrimitiveLoad) {
+          if (!chatPrimitive) {
+            chatPrimitive = await ensureChatPrimitiveRecord(primitive, req, sessionKeyId)
+          } else if (chatPrimitive.referenceParameters?.session_key !== sessionKeyId) {
+            const mergedReference = {
+              ...(chatPrimitive.referenceParameters ?? {}),
+              session_key: sessionKeyId,
+              updated_at: new Date().toISOString(),
+            }
+            chatPrimitive.referenceParameters = mergedReference
+            try {
+              await dispatchControlUpdate(chatPrimitive.id, "referenceParameters", mergedReference)
+            } catch (err) {
+              logger.warn(`Failed to sync session key for chat ${chatPrimitive.id}`, { error: err?.message })
+            }
+          }
+
+          sessionKeyId = chatPrimitive?.referenceParameters?.session_key ?? sessionKeyId
+
+          const persistedState = chatPrimitive?.referenceParameters?.agent_state?.session
+          if (persistedState && !session._hydratedFromPersistence) {
+            hydrateSessionFromPersisted(session, persistedState)
+          }
+
+          options.chatPrimitiveId = chatPrimitive?.id ?? options.chatPrimitiveId
+        }
 
         let sendModeUpdate = () => {}
 
@@ -424,6 +688,8 @@ export async function handleChat(primitive, options, req, res) {
 
         const scope = {
           chatUUID,
+            chatPrimitive,
+            chatId: session.id,
             parent,
             mode: options.mode,
             workspaceId: primitive.workspaceId,
@@ -436,6 +702,103 @@ export async function handleChat(primitive, options, req, res) {
             functionMap: Object.fromEntries(toolRegistry.entries()),
             functions: allFunctionDefinitions,
             session,
+            chatSessionKey: sessionKeyId,
+        }
+
+        let lastAssistantMessageForTitle = null
+        let generatedChatTitleThisRequest = false
+
+        const maybeGenerateChatTitle = async () => {
+          if (generatedChatTitleThisRequest) {
+            return
+          }
+          if (!chatPrimitive) {
+            return
+          }
+          const referenceParameters = chatPrimitive.referenceParameters ?? {}
+          if (referenceParameters.title_generated ) {
+            return
+          }
+          if (!firstUserMessageForTitle || !lastAssistantMessageForTitle) {
+            return
+          }
+
+          const prompt = [
+            "Create a concise descriptive title (maximum 8 words) that captures the main focus of this conversation between a user and an AI agent.",
+            `User message: ${firstUserMessageForTitle}`,
+            `Assistant reply: ${lastAssistantMessageForTitle}`,
+            "Highlight the user's goal or topic in the title.",
+          ].join("\n")
+
+          try {
+            const titleResult = await processAsSingleChunk(prompt, {
+              engine: "o4-mini",
+              output: "Provide your response as a JSON object with a single field called 'title' containing the conversation title (maximum 8 words).",
+            })
+
+            if (!titleResult?.success) {
+              logger.warn(`Failed to generate chat title for ${chatPrimitive.id}`, { error: titleResult?.error || "unknown_error" })
+              return
+            }
+
+            const rawTitle = titleResult.results?.title ?? titleResult.results?.Title ?? ""
+            const sanitizedTitle = sanitizeGeneratedTitle(rawTitle)
+            if (!sanitizedTitle) {
+              return
+            }
+
+            if (chatPrimitive.title !== sanitizedTitle) {
+              try {
+                await dispatchControlUpdate(chatPrimitive.id, "title", sanitizedTitle)
+                chatPrimitive.title = sanitizedTitle
+              } catch (error) {
+                logger.warn(`Failed to update chat title for ${chatPrimitive.id}`, { error: error?.message })
+                return
+              }
+            }
+
+            const nextReference = {
+              ...referenceParameters,
+              title_generated: true,
+              title_generated_at: new Date().toISOString(),
+            }
+            chatPrimitive.referenceParameters = nextReference
+            generatedChatTitleThisRequest = true
+          } catch (error) {
+            logger.warn(`Error while generating chat title for ${chatPrimitive?.id}`, { error: error?.message })
+          }
+        }
+
+        const persistState = async () => {
+          if (!chatPrimitive) {
+            return
+          }
+          const nextState = buildPersistedChatState(session)
+          if (!nextState) {
+            return
+          }
+          const merged = {
+            ...(chatPrimitive.referenceParameters ?? {}),
+            agent_state: nextState,
+            updated_at: new Date().toISOString(),
+          }
+          chatPrimitive.referenceParameters = merged
+          try {
+            await dispatchControlUpdate(chatPrimitive.id, "referenceParameters", merged)
+          } catch (error) {
+            logger.warn(`Failed to persist chat state for ${chatPrimitive.id}`, { error: error?.message })
+          }
+        }
+
+        const linkToChat = async (targetId) => {
+          if (!chatPrimitive || !targetId) {
+            return
+          }
+          try {
+            await addRelationship(chatPrimitive.id, targetId, "link")
+          } catch (err) {
+            logger.warn(`Failed to link ${targetId} to chat ${chatPrimitive.id}`, { error: err?.message })
+          }
         }
 
         scope.touchSession = () => touchSession(session)
@@ -452,6 +815,7 @@ export async function handleChat(primitive, options, req, res) {
         scope.setStoredModeState = (modeId, state) => setStoredModeState(session, modeId, state)
 
         const flows = getAvailableFlowModes(immediateContext?.[0] ?? primitive)
+        const immediateIsPage = immediateContext?.[0]?.type === "page"
         const modeDescriptors = Object.entries(flows).map(([id, def]) => ({
           id,
           label: def?.label ?? id,
@@ -468,7 +832,7 @@ export async function handleChat(primitive, options, req, res) {
         }
         const modeSeeds = {}
 
-        const slideStateFromPage = immediateContext?.[0]?.type === "page" ? immediateContext[0].slide_state : null
+        const slideStateFromPage = immediateIsPage ? immediateContext[0].slide_state : null
         if (slideStateFromPage) {
           modeSeeds.slides = slideStateFromPage
         }
@@ -498,6 +862,14 @@ export async function handleChat(primitive, options, req, res) {
         }
         scope.mode = session.mode
         scope.modeState = session.state ?? getStoredModeState(session, session.mode)
+        scope.linkToChat = linkToChat
+        scope.chatPrimitiveId = chatPrimitive?.id ?? requestedChatId ?? null
+
+        let initialModeActivated = false
+        if (!scope.mode && immediateIsPage && flows.slides) {
+          scope.activateMode("slides")
+          initialModeActivated = true
+        }
 
         if (scope.mode && modeSeeds[scope.mode]) {
           const updatedState = getModeState(scope.mode, scope.modeState)
@@ -506,7 +878,9 @@ export async function handleChat(primitive, options, req, res) {
           setStoredModeState(session, scope.mode, updatedState)
         }
 
-        sendModeUpdate(scope.mode)
+        if (!initialModeActivated) {
+          sendModeUpdate(scope.mode)
+        }
 
         if (options?.modePing) {
           console.log(`MODE PING FINISHED`)
@@ -516,6 +890,7 @@ export async function handleChat(primitive, options, req, res) {
 
         const allUserMessages = (req.body.messages || []).filter(d => d.role === "user" && typeof d.content === "string");
         const lastUserMsg = allUserMessages.at(-1)?.content || ''
+        const firstUserMessageForTitle = truncateForPrompt(stripControlTokens(allUserMessages[0]?.content ?? ""))
 
         const allMessages = (req.body.messages || []).filter(d => !d.hidden && typeof d.content === "string");
         const recentUserMessages = allMessages.slice(-5).map(msg => msg.content).filter(Boolean)
@@ -530,6 +905,7 @@ export async function handleChat(primitive, options, req, res) {
         let exitOnly = false
         let routerHandledEnter = false
         let routerHandledExit = false
+        let routerHandledStay = false
         if (routerOutcome?.decisions?.length) {
           for (const decision of routerOutcome.decisions) {
             const action = typeof decision?.action === "string" ? decision.action.toLowerCase() : ""
@@ -542,6 +918,8 @@ export async function handleChat(primitive, options, req, res) {
               scope.deactivateMode()
               exitOnly = true
               routerHandledExit = true
+            } else if (action === "stay") {
+              routerHandledStay = true
             } else if (action === "enter") {
               scope.activateMode(flow)
               routerHandledEnter = true
@@ -550,24 +928,28 @@ export async function handleChat(primitive, options, req, res) {
 
           if (exitOnly && !session.mode) {
             sendSse({ done: true })
+            await persistState()
             return
           }
         }
 
-        if (!routerHandledExit) {
-          for (const [id, def] of Object.entries(flows)) {
-            if (session.mode === id && matchExit(def, lastUserMsg)) {
-              scope.deactivateMode()
-              sendSse({ done: true })
-              return
+        if( !routerHandledStay ){
+          if (!routerHandledExit) {
+            for (const [id, def] of Object.entries(flows)) {
+              if (session.mode === id && matchExit(def, lastUserMsg)) {
+                scope.deactivateMode()
+                sendSse({ done: true })
+                await persistState()
+                return
+              }
             }
           }
-        }
-
-        if (!routerHandledEnter) {
-          for (const [id, def] of Object.entries(flows)) {
-            if (session.mode !== id && matchEnter(def, lastUserMsg)) {
-              scope.activateMode(id)
+          
+          if (!routerHandledEnter) {
+            for (const [id, def] of Object.entries(flows)) {
+              if (session.mode !== id && matchEnter(def, lastUserMsg)) {
+                scope.activateMode(id)
+              }
             }
           }
         }
@@ -682,6 +1064,9 @@ export async function handleChat(primitive, options, req, res) {
                         
                         if( fnResult.__WITH_SUMMARY){
                             summary = fnResult.summary
+                            if (typeof summary === "string") {
+                                lastAssistantMessageForTitle = truncateForPrompt(stripControlTokens(summary))
+                            }
                             sendSse({
                                 hidden: true,
                                 content: JSON.stringify({
@@ -691,8 +1076,10 @@ export async function handleChat(primitive, options, req, res) {
                                 })
                             })
                             sendSse({content: summary})
+                            await maybeGenerateChatTitle()
                             flushPendingContexts();
                             sendSse({ done: true });
+                            await persistState()
                             break
                         }else{
                             if( fnResult.forClient){
@@ -703,6 +1090,7 @@ export async function handleChat(primitive, options, req, res) {
                             if( fnResult.__ALREADY_SENT){
                                 flushPendingContexts();
                                 sendSse({ done: true });
+                                await persistState()
                                 break
                             }
                             result = JSON.stringify(fnResult)
@@ -721,14 +1109,22 @@ export async function handleChat(primitive, options, req, res) {
                     role: 'function',
                     name: funcName,
                     content: result
-                });            
+                });
 
+                await persistState()
                 continue;
             }
+
+            if (!funcName) {
+                lastAssistantMessageForTitle = truncateForPrompt(stripControlTokens(assistantContent))
+            }
+
+            await maybeGenerateChatTitle()
 
             // 3️⃣ No function call this round → we’re done
             flushPendingContexts();
             sendSse({ done: true });
+            await persistState()
             res.end();
             break;
         }
@@ -737,6 +1133,11 @@ export async function handleChat(primitive, options, req, res) {
         sendSse({ done: true });
         console.log(`Error in handleChat`)
         console.log(e)
+        try {
+          await persistState()
+        } catch (persistError) {
+          logger.warn("Failed to persist state after error", { error: persistError?.message })
+        }
 
     }
   }
@@ -819,6 +1220,24 @@ registerAction( "run_agent_create_one_shot_query", undefined, async (primitive, 
     if( summaryPrimitive){
         await addRelationshipToMultiple(summaryPrimitive.id, allIds, "source", primitive.workspaceId)
     }
+
+    let chatForLink = null
+    if (options.chatPrimitiveId) {
+        chatForLink = await fetchPrimitive(options.chatPrimitiveId)
+    } else {
+        chatForLink = await ensureChatPrimitiveRecord(primitive, req, sessionKey(primitive, req))
+    }
+
+    if (chatForLink) {
+        try {
+            await addRelationship(chatForLink.id, queryPrimitive.id, "link")
+            if (summaryPrimitive) {
+                await addRelationship(chatForLink.id, summaryPrimitive.id, "link")
+            }
+        } catch (err) {
+            logger.warn("Failed to link query outputs to chat", { error: err?.message, chatId: chatForLink.id })
+        }
+    }
 })
 registerAction( "run_agent_create_update_query", undefined, async (primitive, action, options, req)=>{
     if( primitive.type !== "summary"){
@@ -869,6 +1288,21 @@ registerAction("run_agent_create_categorization", undefined, async (primitive, a
             title: options.title ?? null,
         });
 
+        let chatForLink = null;
+        if (options.chatPrimitiveId) {
+            chatForLink = await fetchPrimitive(options.chatPrimitiveId);
+        } else {
+            chatForLink = await ensureChatPrimitiveRecord(primitive, req, sessionKey(primitive, req));
+        }
+
+        if (chatForLink) {
+            try {
+                await addRelationship(chatForLink.id, result.container.id, "link");
+            } catch (error) {
+                logger.warn("Failed to link categorization to chat", { error: error?.message, chatId: chatForLink.id });
+            }
+        }
+
         return {
             categorizationId: result.categoryId,
         };
@@ -877,3 +1311,192 @@ registerAction("run_agent_create_categorization", undefined, async (primitive, a
         return { error: "Failed to create categorization" };
     }
 })
+registerAction("run_agent_materialize_summary", undefined, async (primitive, action, options = {}) => {
+    try {
+        if (primitive.type !== "page") {
+            logger.warn(`run_agent_materialize_summary can only target page primitives (${primitive.id})`);
+            return { error: "Summaries can only be materialized on slide pages" };
+        }
+
+        const sectionIdRaw = options.sectionId ?? options.section_id;
+        const sectionId = Number.parseInt(sectionIdRaw, 10);
+        if (!Number.isInteger(sectionId)) {
+            return { error: "A valid sectionId is required" };
+        }
+
+        const slideState = primitive.slide_state;
+        const slideSpec = slideState?.data?.slideSpec;
+        if (!slideSpec || !Array.isArray(slideSpec.sections)) {
+            return { error: "No slide draft available to materialize" };
+        }
+
+        const sections = slideSpec.sections;
+        const sectionIndex = sections.findIndex((s) => s?.id === sectionId);
+        if (sectionIndex === -1) {
+            return { error: "Unable to locate the requested slide section" };
+        }
+
+        const section = sections[sectionIndex];
+        if (section.type !== "summary") {
+            return { error: "Selected section is not a summary" };
+        }
+
+        const defs = slideSpec.defs ?? {};
+
+        const resolveReference = (value, visited = new Set()) => {
+            if (value == null) {
+                return null;
+            }
+            if (typeof value === "string") {
+                return value;
+            }
+            if (typeof value !== "object") {
+                return value;
+            }
+
+            if (value.$ref && typeof value.$ref === "string") {
+                if (visited.has(value.$ref)) {
+                    return null;
+                }
+                visited.add(value.$ref);
+                const [group, key] = value.$ref.split(".");
+                if (group && key && defs?.[group]) {
+                    return resolveReference(defs[group]?.[key], visited);
+                }
+                return null;
+            }
+
+            if (value.same_as && typeof value.same_as === "object") {
+                const { section_id: refSectionId, field } = value.same_as;
+                if (Number.isInteger(refSectionId) && typeof field === "string") {
+                    const target = sections.find((s) => s?.id === refSectionId);
+                    if (target && Object.prototype.hasOwnProperty.call(target, field)) {
+                        return resolveReference(target[field], visited);
+                    }
+                }
+            }
+
+            return value;
+        };
+
+        const stringifyValue = (value) => {
+            if (value == null) {
+                return null;
+            }
+            if (typeof value === "string") {
+                return value;
+            }
+            if (Array.isArray(value)) {
+                return value.map(stringifyValue).filter(Boolean).join(", ");
+            }
+            if (typeof value === "object") {
+                if (typeof value.prompt === "string") {
+                    return value.prompt;
+                }
+                if (typeof value.description === "string") {
+                    return value.description;
+                }
+                if (typeof value.title === "string" && Array.isArray(value.items)) {
+                    const items = value.items
+                        .map((item) => {
+                            if (typeof item === "string") {
+                                return item;
+                            }
+                            if (item?.title) {
+                                return item.title;
+                            }
+                            if (item?.label) {
+                                return item.label;
+                            }
+                            return stringifyValue(item);
+                        })
+                        .filter(Boolean)
+                        .join(", ");
+                    return items ? `${value.title}: ${items}` : value.title;
+                }
+                if (typeof value.parameter === "string") {
+                    return `parameter ${value.parameter}`;
+                }
+                if (typeof value.mode === "string") {
+                    try {
+                        return JSON.stringify(value);
+                    } catch {
+                        return value.mode;
+                    }
+                }
+                try {
+                    return JSON.stringify(value);
+                } catch {
+                    return String(value);
+                }
+            }
+            return String(value);
+        };
+
+        const summarizationText = stringifyValue(resolveReference(section.summarization))?.trim();
+        if (!summarizationText) {
+            return { error: "No summarization prompt available for this section" };
+        }
+
+        const overviewText = stringifyValue(section.overview)?.trim();
+
+        const guardrails = overviewText ? [overviewText] : [];
+
+        const prompt = guardrails.length
+            ? `${guardrails.join("\n")}\n\n${summarizationText}`
+            : summarizationText;
+
+        const sourceId = section.sourceId ?? options.sourceId;
+        const resolvedSourceIds = [sourceId].flat().filter(Boolean).map(String);
+        if (!resolvedSourceIds.length) {
+            return { error: "Summary sections must specify a sourceId" };
+        }
+
+        const scope = {
+            workspaceId: primitive.workspaceId,
+            primitive,
+            chatUUID: `materialize-summary:${primitive.id}`
+        };
+
+        const params = {
+            query: prompt,
+            sourceIds: resolvedSourceIds,
+            confirmed: true,
+            limit: options.limit ? Number(options.limit) : undefined
+        };
+
+        const result = await one_shot_summary.implementation(params, scope);
+        if (result?.error) {
+            return { error: result.error };
+        }
+
+        const plainSummary = (typeof result?.plain === "string" ? result.plain.trim() : "")
+        if (!plainSummary) {
+            return { error: "Summarization did not return any content" };
+        }
+
+        const structuredSummary = result?.structured ?? null;
+        const referenceIds = Array.isArray(result?.references) ? result.references : []
+        const uniqueReferenceIds = [...new Set(referenceIds.map(String).filter(Boolean))];
+
+        const materialized = {
+            plain: plainSummary,
+            structured: structuredSummary ?? null,
+            references: uniqueReferenceIds,
+            updated_at: new Date().toISOString()
+        };
+
+        const materializedPath = `slide_state.data.slideSpec.sections.${sectionIndex}.materialized`;
+        await dispatchControlUpdate(primitive.id, materializedPath, materialized);
+
+        return {
+            sectionId,
+            plain: plainSummary,
+            structured: structuredSummary ?? null,
+            references: uniqueReferenceIds
+        };
+    } catch (error) {
+        logger.error("run_agent_materialize_summary failed", { error: error?.message, stack: error?.stack });
+        return { error: error?.message ?? "Failed to materialize summary" };
+    }
+});

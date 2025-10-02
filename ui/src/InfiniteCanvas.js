@@ -498,9 +498,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         if( myState.current.animationRequest ){
             console.log(`defer anim request`)
         }
-        if( false && myState.current.animationQueue?.length > 0){
-            myState.current.animationRequest = requestAnimationFrame(()=>{
-                const tick = performance.now()
+        if( myState.current.animationQueue?.length > 0){
+            myState.current.animationRequest = requestAnimationFrame((tick)=>{
                 for(const d of myState.current.animationQueue){
                     const l = d.node.getLayer()
                     const c = l && l.getCanvas()

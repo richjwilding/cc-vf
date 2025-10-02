@@ -1,6 +1,7 @@
 import { getLogger } from "../../logger.js";
 import { createPrimitive, dispatchControlUpdate } from "../../SharedFunctions.js";
 import Primitive from "../../model/Primitive.js";
+import { implementation as getDataSourcesImplementation, definition as getDataSourcesDefinition } from "./get_data_sources.js";
 import { mapSearchConfigForPlatform } from "../utils.js";
 
 const logger = getLogger("agent_module_search", "debug", 0);
@@ -51,6 +52,7 @@ async function createSearch(params, scope, notify) {
     return { result: "Error creating" };
   }
 
+  await scope.linkToChat?.(newPrim.id);
   scope.session?.state?.createdSearches?.push?.(newPrim.id);
   notify?.(`Created search [[id:${newPrim.id}]]`, false, true);
 
@@ -110,6 +112,7 @@ async function prepareSearchPreprocessing(params, scope) {
 
   const newPrim = await createPrimitive(data);
   if (newPrim) {
+    await scope.linkToChat?.(newPrim.id);
     return { result: `Created new pre-processor with id ${newPrim.plainId}` };
   }
 
@@ -139,6 +142,21 @@ function wrapSearchTool(tool, platform) {
   };
 }
 
+async function fetchExistingSearches(params = {}, scope, notify) {
+  const result = await getDataSourcesImplementation(params, scope, notify);
+
+  const noResults =
+    !result ||
+    (Array.isArray(result) && result.length === 0) ||
+    (typeof result === "object" && result?.result === "No relevant searches");
+
+  if (noResults) {
+    notify?.("No saved searches were found in this workspace.", true);
+  }
+
+  return result;
+}
+
 const commonSearchFields = {
   title: {
     type: "string",
@@ -166,6 +184,15 @@ const termArray = {
 };
 
 const searchTools = [
+  {
+    definition: {
+      ...getDataSourcesDefinition,
+      name: "fetch_existing_searches",
+      description:
+        "List saved searches the workspace already has so you can reuse or reference them before creating new ones.",
+    },
+    implementation: fetchExistingSearches,
+  },
   {
     definition: {
       name: "prepare_search_preprocessing",
@@ -381,10 +408,16 @@ const searchTools = [
 export const searchMode = {
   id: "search",
   label: "Search",
-  description: "Searches the internet and other external sources for new data",
-  toolNames: new Set(searchTools.map((t) => t.definition.name)),
+  description: "Searches the internet and other external sources for new data, also manages existing extrernal searches in the workspace",
+  toolNames: new Set([
+    ...searchTools.map((t) => t.definition.name),
+    "get_data_sources",
+    "get_connected_data",
+  ]),
   systemPrompt:
     "You are in search mode. Help the user identify and configure new data searches. Confirm intent before scheduling expensive searches.",
+  extraInstructions:
+    "Before telling the user that no searches exist, call get_connected_data to check the immediate context. If it returns no useful items (empty array, null, or only unrelated sources), immediately call fetch_existing_searches to retrieve all saved searches so you can reference what already exists.",
   enterTriggers: [
     /\b(new data|find data|web search|run a search|google (news|search)|collect)\b/i,
     /\bcreate (a )?(search|scrape)\b/i,
@@ -398,4 +431,3 @@ export const searchMode = {
 };
 
 export { searchTools, createSearch };
-

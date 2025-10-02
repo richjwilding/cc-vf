@@ -1145,6 +1145,7 @@ router.post('/primitive/:id/agent', async function(req, res, next) {
         res.status(501).json({message: "Error", error: error})
     }
 })
+
 router.post('/primitive/:id/action/:action', async function(req, res, next) {
     let data = req.body
     const primitiveId = req.params.id

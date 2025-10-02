@@ -38,6 +38,8 @@ async function implementation(params = {}, scope = {}, notify) {
       title: params.title ?? fallback.title ?? null,
     });
 
+    await scope.linkToChat?.(result.container.id);
+
     notify?.(
       `Created categorization [[id:${result.container.id}]]`,
       true,

@@ -96,12 +96,13 @@ export const insightMode = {
     "suggest_categories",
     "create_categorization",
     "sample_data",
-    "suggest_analysis",
+    "suggest_slide_skeleton",
+    "design_slide",
     "object_params",
     "prepare_categorization_preprocessing",
   ]),
   systemPrompt:
-    "You are in insight mode. Focus on filtering existing data, aggregating results, and running single-shot analyses to answer the user's questions. Prefer calling get_connected_data to inspect already linked sources before calling get_data_sources to discover new ones.",
+    "You are in insight mode. Focus on filtering existing data, aggregating results, and running single-shot analyses to answer the user's questions. Prefer calling get_connected_data to inspect already linked sources before calling get_data_sources to discover new ones. If the user asks for slide ideas, you may call suggest_slide_skeleton here and let design_slide in slides mode handle the detailed build when ready.",
   enterTriggers: [
     /\b(analyze|analysis|insight|query|filter|aggregate|summarize|what (do|does) the data)\b/i,
   ],
@@ -116,7 +117,7 @@ export const insightMode = {
   contextName: "INSIGHT_CONTEXT",
   buildContext: (state = {}, scope = {}) => ({
     last_action: state.lastAction,
-    selected_sources: scope.immediateContext
+    selected_sources: scope.immediateContext?.filter(Boolean)
       ?.filter((item) => ["search", "view", "filter", "query", "summary"].includes(item.type))
       ?.map((item) => ({ id: item.id, type: item.type, title: item.title })) ?? [],
   }),

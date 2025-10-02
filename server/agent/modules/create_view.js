@@ -8,7 +8,7 @@ import { getConfigId, mostRecentResult, resolveId } from "../utils";
 const logger = getLogger('agent_module_create_view', "debug", 2); // Debug level for moduleA
 
 
-async function prepareCategorization( {axis, source, referenceId, parent} ){
+async function prepareCategorization( {axis, source, referenceId, parent, scope} ){
     if( axis?.toPrepare ){
         logger.info(`Will create steps for visual categorization `, {axis, source})
 
@@ -53,6 +53,8 @@ async function prepareCategorization( {axis, source, referenceId, parent} ){
             await addRelationship( labeller.id, source, "imports")
             await addRelationship( labeller.id, builder.id, "inputs.categories_categories")
             logger.info(`Done - ${builder.id} / ${labeller.id}`)
+            await scope?.linkToChat?.(builder.id)
+            await scope?.linkToChat?.(labeller.id)
             return labeller.id
         }
         
@@ -107,7 +109,7 @@ export async function implementation(params, scope, notify){
                         referenceParameters.explore.axis.row,
                         ...(referenceParameters.explore.filters ?? [])
                         ]){
-                           categorizerIds.push( await prepareCategorization({axis: d, source: thisSourceId, referenceId, parent: scope.primitive}) )
+                           categorizerIds.push( await prepareCategorization({axis: d, source: thisSourceId, referenceId, parent: scope.primitive, scope}) )
                     }
                     console.log(categorizerIds)
                     const categorizerId = categorizerIds.filter(Boolean).at(0)
@@ -129,6 +131,7 @@ export async function implementation(params, scope, notify){
                         newIds.push( newPrimitive.id)
 
                         await addRelationship( newPrimitive.id, categorizerId ?? thisSourceId, "imports")
+                        await scope?.linkToChat?.(newPrimitive.id)
                     }
                 }
             }
