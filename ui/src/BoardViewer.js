@@ -20,6 +20,7 @@ import AgentChat from "./AgentChat";
 import clsx from "clsx";
 import { Tab, Tabs } from "@heroui/react";
 import { ConvertVisualizationSpec } from "./VisualizationToDataTable";
+import PrimitiveDrawer from "./PrimitiveDrawer";
 
 const log = getLogger('BoardViewer', { level: 'debug' })
 
@@ -1538,6 +1539,7 @@ export default function BoardViewer({primitive,...props}){
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
     const [agentStatus, setAgentStatus] = useState({activeChat: false})
     const [panelTab, setPanelTab] = useState("info")
+    const [showAddDrawer, setShowAddDrawer] = useState(false)
     
     if( primitive.type === "flow" && !myState.mainFlowInstances){
         myState.mainFlowInstances = primitive.primitives.origin.allFlowinstance
@@ -2820,6 +2822,31 @@ export default function BoardViewer({primitive,...props}){
             }
         })
     }
+
+    async function handleDropNewPrimitive(e){
+        const categoryId = e.dataTransfer.getData('application/x-category') || e.dataTransfer.getData('text/plain')
+        if(!categoryId){
+            return
+        }
+        e.preventDefault()
+        setShowAddDrawer(false)
+        const rect = e.currentTarget.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+        const cat = mainstore.category(categoryId)
+        if(cat){
+            const newPrim = await mainstore.createPrimitive({
+                title: cat.title,
+                type: cat.primitiveType,
+                categoryId: cat.id,
+                parent: primitive,
+                workspaceId: primitive.workspaceId
+            })
+            if(newPrim){
+                addBoardToCanvas(newPrim, {x, y, s:1})
+            }
+        }
+    }
     async function exportMultiple(ids, byCell){
         const prims = ids.map(d=>mainstore.primitive(d)).filter(d=>d)
         const pptx = createPptx()
@@ -3155,7 +3182,7 @@ export default function BoardViewer({primitive,...props}){
                         </div>
                     }
             </div>}
-            <div className="flex relative w-full h-full @container rounded-lg shadow overflow-clip">
+            <div className="flex relative w-full h-full @container rounded-lg shadow overflow-clip" onDrop={handleDropNewPrimitive} onDragOver={(e)=>e.preventDefault()}>
                 {!dockPaneInfo && <div key='chatbar' className={clsx([
                     'absolute bg-white border border-gray-200 bottom-4 space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
                     agentStatus.activeChat ? 'max-h-[80vh] w-[40vw] 4xl:max-w-3xl min-w-[24rem]' : "w-96 max-h-[80vh]"
@@ -3171,7 +3198,7 @@ export default function BoardViewer({primitive,...props}){
                 <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex flex-col place-items-start divide-y divide-gray-200'>
                     <div className='p-3 flex place-items-start space-x-2 '>
                             <DropdownButton noBorder icon={<HeroIcon icon='FAPickView' className='w-6 h-6 mr-1.5'/>} onClick={addExistingView} flat placement='left-start' />
-                            <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>pickNewItem()} flat placement='left-start' />
+                            <DropdownButton noBorder icon={<PlusIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>setShowAddDrawer(!showAddDrawer)} flat placement='left-start' />
                             <DropdownButton noBorder icon={<HeroIcon icon='FAAddView' className='w-6 h-6 mr-1.5'/>} onClick={newView} flat placement='left-start' />
                             {collectionPaneInfo && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-6 h-6 mr-1.5'/>} onClick={pickBoardDescendant} flat placement='left-start' />}
                             {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportFrame(false,true)} flat placement='left-start' />}
@@ -3179,6 +3206,7 @@ export default function BoardViewer({primitive,...props}){
                             {false && <DropdownButton noBorder icon={<DocumentArrowDownIcon className='w-6 h-6 mr-1.5'/>} onClick={()=>exportReport(false)} flat placement='left-start' />}
                             {collectionPaneInfo && <DropdownButton noBorder icon={<ClipboardDocumentIcon className='w-6 h-6 mr-1.5'/>} onClick={copyToClipboard} flat placement='left-start' />}
                     </div>
+                    {showAddDrawer && <PrimitiveDrawer open={showAddDrawer} onClose={()=>setShowAddDrawer(false)} />}
                     {!dockPaneInfo && collectionPaneInfo && <div className='pt-2 overflow-y-scroll'>
                         <div className='w-[32rem] 3xl:w-[40rem]'>
                             {collectPaneWidget}
