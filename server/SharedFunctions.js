@@ -199,28 +199,66 @@ async function doRemovePrimitiveLink(receiver, target, path){
 }
 const removeParentReference = async (target, parentId)=>{
     if( !(target instanceof Object)){
-        target = await Primitive.findOne({"_id": new ObjectId(target)})
+        target = await Primitive.findOne(
+            {"_id": new ObjectId(target)},
+            { parentPrimitives: 1, id: 1 }
+        )
     }
 
-
     try{
-        const updates = target.parentPrimitives[parentId].reduce((o,pp)=>{
-            o[pp] = {$function: {
-                    body: `function(arr){ return arr ? arr.filter((p)=>p != '${target.id}') : undefined;}`,
-                    args: [`$${pp}`],
-                    lang: "js"
-                }}
-            return o
+        const parentPaths = target?.parentPrimitives?.[parentId]
+        if( !parentPaths || parentPaths.length === 0 ){
+            return
+        }
+
+        const childId = target.id ?? target._id?.toString()
+        if( !childId ){
+            return
+        }
+
+        const normalizedPaths = [...new Set(parentPaths.map((path)=> path.startsWith("primitives.") ? path : `primitives.${path}`))]
+        if( normalizedPaths.length === 0 ){
+            return
+        }
+
+        const filterStage = normalizedPaths.reduce((acc, path)=>{
+            acc[path] = {
+                $filter: {
+                    input: { $ifNull: [`$${path}`, []] },
+                    as: "item",
+                    cond: { $ne: ["$$item", childId] }
+                }
+            }
+            return acc
         }, {})
 
-        await Primitive.findOneAndUpdate(
-            {
-                "_id": new ObjectId(parentId),
-            }, 
-            [{
-                $set: updates
-            }]
-        )
+        const cleanupStage = normalizedPaths.reduce((acc, path)=>{
+            acc[path] = {
+                $cond: [
+                    { $eq: [ { $size: { $ifNull: [`$${path}`, []] } }, 0 ] },
+                    "$$REMOVE",
+                    `$${path}`
+                ]
+            }
+            return acc
+        }, {})
+
+        const updatePipeline = []
+        if( Object.keys(filterStage).length > 0 ){
+            updatePipeline.push({ $set: filterStage })
+        }
+        if( Object.keys(cleanupStage).length > 0 ){
+            updatePipeline.push({ $set: cleanupStage })
+        }
+
+        if( updatePipeline.length > 0 ){
+            await Primitive.updateOne(
+                {
+                    "_id": new ObjectId(parentId),
+                }, 
+                updatePipeline
+            )
+        }
     }catch(err){
         throw err
     }
@@ -356,6 +394,16 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
                     }, 
                     {
                         $set: {deleted: true}
+                    },
+                    {
+                        projection: {
+                            parentPrimitives: 1,
+                            primitives: 1,
+                            referenceParameters: 1,
+                            workspaceId: 1,
+                            id: 1
+                        },
+                        new: false
                     })
         if( !removed ){
             return
@@ -363,10 +411,10 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
 
         removedIds.push( primitiveId )
     
-        console.log(`Removing doc`)
+        /*console.log(`Removing doc`)
         if( removed.referenceParameters?.notes || removed.referenceParameters?.url ){
             await removeDocument( primitiveId )
-        }
+        }*/
         if( removed.parentPrimitives ){
             console.log(`Updating parent primitives ${Object.keys(removed.parentPrimitives).join(", ")}`)
             for( const parentId of Object.keys(removed.parentPrimitives) ){
@@ -422,21 +470,38 @@ export async function removePrimitiveById( primitiveId, removedIds = [], start =
                 }])
             
             const remapIds = childrenToRemap.map(d=>d._id.toString())
+
+            let cascadeChildrenById = new Map()
+            if( cascadeIds.length > 0 ){
+                const validCascadeObjectIds = cascadeIds
+                    .filter(id => ObjectId.isValid(id))
+                    .map(id => new ObjectId(id))
+                if( validCascadeObjectIds.length > 0 ){
+                    const cascadeChildren = await fetchPrimitives(
+                        validCascadeObjectIds,
+                        { workspaceId: removed.workspaceId },
+                        { parentPrimitives: 1, workspaceId: 1 }
+                    )
+                    cascadeChildrenById = new Map(cascadeChildren.map(child => [child._id.toString(), child]))
+                }
+            }
             
             console.log(`${remapIds.length} children to remap = ${remapIds.join(", ")}`)
             
             for( const childId of cascadeIds){
                 if( remapIds.includes(childId) ){
-                    const child = await fetchPrimitive( childId )
-                    
-                    const relToOldParent = child.parentPrimitives[ primitiveId ]
-                    for( const rel of relToOldParent){
-                        console.log(`Remove ${childId} from old parent @ ${rel}`)
-                        await removeRelationship(primitiveId, childId, rel)
+                    const child = cascadeChildrenById.get(childId) ?? await fetchPrimitive( childId )
+                   
+                    const relToOldParent = child.parentPrimitives?.[ primitiveId ] ?? []
+                    if( relToOldParent.length > 0 ){
+                        await Promise.all(relToOldParent.map(async (rel)=>{
+                            console.log(`Remove ${childId} from old parent @ ${rel}`)
+                            await removeRelationship(primitiveId, childId, rel)
+                        }))
                     }
 
                     console.log(`Remap ${childId} to alt_parent`)
-                    const alts = Object.keys(child.parentPrimitives).filter(d=>child.parentPrimitives[d].includes("primitives.alt_origin"))
+                    const alts = Object.keys(child.parentPrimitives ?? {}).filter(d=>child.parentPrimitives[d].includes("primitives.alt_origin"))
                     console.log(`-- got ${alts.length} alt_origins : ${alts.join(", ")}`)
                     const new_origin = alts[0]
                     if( new_origin ){
@@ -5283,54 +5348,161 @@ export async function createPrimitive( data, skipActions, req, options={} ){
            await addRelationship(parentPrimitive.id, newId, paths, true)
         }
 
-        if( !skipActions && category && category.actions){
-            let changed = false
-            for( const action of category.actions){
-                if( action.onCreate ){
-                    const res = await doPrimitiveAction( newPrimitive, action.key, undefined )
-                    if( res ){
-                        changed = true
-                    }
-                }
-            }
-            newPrimitive = await Primitive.findOne({_id:  newPrimitive._id})
-        }
-        if( category ){
-            for( const key of Object.keys(category.parameters ?? {})){
-                const parameter = category.parameters[key]
-                if( parameter.embed && newPrimitive.referenceParameters?.[key]){
-                    buildEmbeddingsForPrimitives([newPrimitive], `param.${key}`, true, true)
-                }
-            }
-        }
-        if( config?.embed){
-            for( const field of config.embed ){
-                buildEmbeddingsForPrimitives([newPrimitive], field, true, true)
-            }
-        }
-        let driveURL = newPrimitive.referenceParameters?.notes
-        if( !driveURL && newPrimitive.referenceParameters?.url ){
-            if( newPrimitive.referenceParameters.url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/) ){
-                driveURL = newPrimitive.referenceParameters.url
-            }
-        }
-        if( driveURL ){
-                QueueDocument().add(`doc_refresh_${newPrimitive.id}`, 
-                    {
-                        command: "refresh", 
-                        id: newPrimitive.id, 
-                        value: driveURL, 
-                        //req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
-                        req: {user: {...req.user}}
-                    })
-            }
-        
+        const [processedPrimitive] = await runPostCreateHooks([newPrimitive], {
+            skipActions,
+            req,
+            categories: category ? [category] : undefined
+        })
 
-        return newPrimitive
+
+        return processedPrimitive ?? newPrimitive
     }catch(err){
         throw err
     }
     return undefined
+}
+
+export async function runPostCreateHooks(primitives, options = {}){
+    const list = [primitives].flat().filter(Boolean)
+    if( list.length === 0 ){
+        return []
+    }
+
+    const {
+        skipActions = false,
+        req,
+        categories,
+        categoryMap
+    } = options
+
+    const categoryLookup = new Map()
+
+    if( categories instanceof Map ){
+        for(const [key, value] of categories.entries()){
+            if( value ){
+                categoryLookup.set(String(key), value)
+            }
+        }
+    }else if( Array.isArray(categories) ){
+        for(const cat of categories){
+            if( cat ){
+                const key = cat.id ?? cat._id
+                if( key !== undefined ){
+                    categoryLookup.set(String(key), cat)
+                }
+            }
+        }
+    }else if( categories && typeof categories === "object" ){
+        for(const [key, value] of Object.entries(categories)){
+            if( value ){
+                categoryLookup.set(String(key), value)
+            }
+        }
+    }
+
+    if( categoryMap instanceof Map ){
+        for(const [key, value] of categoryMap.entries()){
+            if( value ){
+                categoryLookup.set(String(key), value)
+            }
+        }
+    }
+
+    const missingRefIds = new Set()
+    for(const primitive of list){
+        const refId = primitive?.referenceId
+        if( refId !== undefined && refId !== null ){
+            const key = String(refId)
+            if( !categoryLookup.has(key) ){
+                missingRefIds.add(refId)
+            }
+        }
+    }
+
+    if( missingRefIds.size > 0 ){
+        const fetched = await Category.find({ id: { $in: Array.from(missingRefIds) }})
+        for(const cat of fetched){
+            if( cat ){
+                categoryLookup.set(String(cat.id ?? cat._id), cat)
+            }
+        }
+    }
+
+    const results = []
+    for(const primitive of list){
+        if( !primitive ){
+            continue
+        }
+        let current = primitive
+        const category = current.referenceId !== undefined && current.referenceId !== null ? categoryLookup.get(String(current.referenceId)) : undefined
+
+        if( !skipActions && category?.actions?.length ){
+            let changed = false
+            for( const action of category.actions ){
+                if( !action?.onCreate || !action.key ){
+                    continue
+                }
+                try{
+                    const res = await doPrimitiveAction(current, action.key, undefined, req)
+                    if( res ){
+                        changed = true
+                    }
+                }catch(err){
+                    console.error(`Error running onCreate action ${action.key} for primitive ${current?.id}`, err)
+                }
+            }
+            if( changed ){
+                const refreshed = await Primitive.findById(current._id)
+                if( refreshed ){
+                    current = refreshed
+                }
+            }
+        }
+
+        if( category?.parameters ){
+            for( const [paramKey, parameter] of Object.entries(category.parameters) ){
+                if( parameter?.embed && current?.referenceParameters?.[paramKey] ){
+                    buildEmbeddingsForPrimitives([current], `param.${paramKey}`, true, true)
+                }
+            }
+        }
+
+        const typeConfig = PrimitiveConfig.typeConfig[current?.type] ?? {}
+        if( Array.isArray(typeConfig.embed) ){
+            for( const field of typeConfig.embed ){
+                if( field ){
+                    buildEmbeddingsForPrimitives([current], field, true, true)
+                }
+            }
+        }
+
+        let driveURL = current?.referenceParameters?.notes
+        const potentialUrl = current?.referenceParameters?.url
+        if( !driveURL && typeof potentialUrl === "string" ){
+            if( potentialUrl.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/) ){
+                driveURL = potentialUrl
+            }
+        }
+        if( driveURL ){
+            try{
+                const payload = {
+                    command: "refresh",
+                    id: current.id,
+                    value: driveURL
+                }
+                if( req?.user ){
+                    payload.req = { user: { ...req.user } }
+                }
+                QueueDocument().add(`doc_refresh_${current.id}`, payload)
+            }catch(err){
+                console.error(`Failed to queue document refresh for ${current?.id}`, err)
+            }
+        }
+
+        results.push(current)
+    }
+
+    return results
 }
 
 export const flattenPath = (path)=>{

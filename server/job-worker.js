@@ -127,6 +127,12 @@ messageHandler['heartbeat'] = async () => {
 
 async function getProcessFunction(type) {
     queueObject = await getQueueObject(type)
+    // Ensure queue side effects (like scheduler registration) run inside this
+    // worker thread before jobs execute. Most queue modules expose their
+    // singleton via a default export with the required setup.
+    if (queueObject?.default && typeof queueObject.default === 'function') {
+        queueObject.default();
+    }
     return queueObject.processQueue
 }
 // Dynamically load the appropriate processing function based on queue type

@@ -154,6 +154,7 @@ export async function implementation(params, scope, notify){
             companies:config.companies,
             site: config.site,
             platforms: config.sources.map(s=>d.metadata?.parameters.sources.options.find(d2=>d2.id === s)?.title ?? "Unknown"),
+            current_number_of_results: new Set([...(d.primitives?.origin ?? []), ...(d.primitives?.auto ?? [])]).size,
             target_number_of_results: config.count,
             search_time: config.timeFrame,
             textual_filter: config.topic,

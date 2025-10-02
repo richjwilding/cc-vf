@@ -2,11 +2,18 @@ import { HttpsProxyAgent } from "https-proxy-agent";
 import http from "http"
 import axios from 'axios';
 import moment from "moment";
-import { addRelationship, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitives } from "./SharedFunctions";
+import mongoose from "mongoose";
+import Primitive from "./model/Primitive";
+import Category from "./model/Category";
+import PrimitiveConfig from "./PrimitiveConfig";
+import { SIO } from "./socket";
+import { BrightDataQueue, dispatchControlUpdate, fetchPrimitives, flattenPath, getNextSequenceBlock, runPostCreateHooks } from "./SharedFunctions";
 import { extractMarkdown } from "./google_helper";
 
-let schedule = async () => { throw new Error('scheduler not set'); };
-export function setBrightdataScheduler(fn) { schedule = fn; }
+/*let schedule = async () => { throw new Error('scheduler not set'); };
+export function setBrightdataScheduler(fn) { 
+    schedule = fn; 
+}*/
 
 
 async function getCurrentIP() {
@@ -765,8 +772,8 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
         console.log('Data collection triggered successfully:', data);
         dispatchControlUpdate(primitive.id, `processing.bd.${api}.collectionId` , config.customDataset ? data?.collection_id : data?.snapshot_id)
 
-        //await BrightDataQueue().scheduleCollection( primitive, {api})
-        await schedule( primitive, {api})
+        await BrightDataQueue().scheduleCollection( primitive, {api})
+        //await schedule( primitive, {api})
         
     } catch (error) {
         console.error('Error triggering data collection:', error.response ? error.response.data : error.message);
@@ -778,8 +785,8 @@ export async function restartCollection( primitive, {api} = {} ){
         throw "No API defined for collection"
     }
     const config = bdExtractors[api]
-    //await BrightDataQueue().scheduleCollection( primitive, {api, callopts: {enrich: config.enrich}})
-    await schedule( primitive, {api, callopts: {enrich: config.enrich}})
+        await BrightDataQueue().scheduleCollection( primitive, {api})
+    //await schedule( primitive, {api, callopts: {enrich: config.enrich}})
 
 }
 
@@ -812,8 +819,8 @@ export async function handleCollection(primitive, {api} = {}, doCreation = true)
                 console.log(`still running - retry`)
                 return {
                     reschedule: async (parent)=>{
-                        //await BrightDataQueue().scheduleCollection( primitive, {api, parent}, true )
-                        schedule( primitive, {api, parent}, true )
+                        await BrightDataQueue().scheduleCollection( primitive, {api, parent}, true )
+                        //schedule( primitive, {api, parent}, true )
                     }
                 }
             }
@@ -847,33 +854,157 @@ export async function handleCollection(primitive, {api} = {}, doCreation = true)
 
         let linkData = config.linkConfig ? await config.linkConfig( primitive ) : undefined
         console.log(linkData)
-        
+
         if( doCreation ){
-            const addItem = async (data, idx)=>{
-                console.log(idx, data.referenceParameters.id)
-                const newData = {
-                    workspaceId: primitive.workspaceId,
-                    paths: ['origin', 'auto'],
-                    parent: primitive.id,
-                    data:{
-                        type: "result",
-                        referenceId: 63,
-                        ...data
-                    }
+            const normalizeRelationshipPath = (path) => {
+                if( !path ){
+                    return undefined
                 }
+                return path.startsWith("primitives.") ? path : flattenPath(path)
+            }
+
+            const parentPaths = ['origin', 'auto'].map((p)=>flattenPath(p))
+            const linkInfo = linkData?.linkId && linkData?.linkPath ? {
+                linkId: linkData.linkId,
+                linkPath: normalizeRelationshipPath(linkData.linkPath)
+            } : undefined
+            let linkWorkspaceId = primitive.workspaceId
+            if( linkInfo ){
                 try{
-                    const newPrim = await createPrimitive( newData )
-                    if( linkData){
-                        await addRelationship( linkData.linkId, newPrim.id, linkData.linkPath )
+                    const linkParent = await Primitive.findById(linkInfo.linkId, {workspaceId: 1}).lean()
+                    if( linkParent?.workspaceId ){
+                        linkWorkspaceId = linkParent.workspaceId
                     }
-                    out.push( newPrim )
-                }catch(error){
-                    console.log(`Error creating primitive for BD result`)
-                    console.log(newData)
-                    console.log(error)
+                }catch(err){
+                    console.error(`Failed to fetch link parent ${linkInfo.linkId} workspace`, err)
                 }
             }
-            await executeConcurrently( toProcess, addItem, undefined, undefined, 10)
+
+            const batchSizeEnv = Number(process.env.BRIGHTDATA_BULK_BATCH_SIZE)
+            const batchSize = Number.isFinite(batchSizeEnv) && batchSizeEnv > 0 ? Math.floor(batchSizeEnv) : 50
+
+            for( let offset = 0; offset < toProcess.length; offset += batchSize ){
+                const batchItems = toProcess.slice(offset, offset + batchSize)
+                if( batchItems.length === 0 ){
+                    continue
+                }
+
+                const rawDocs = batchItems.map((item)=>({ ...item }))
+                rawDocs.forEach((doc)=>{
+                    doc.type = doc.type ?? "result"
+                    doc.referenceId = doc.referenceId ?? 63
+                })
+
+                const referenceIds = Array.from(new Set(rawDocs.map((doc)=>doc.referenceId).filter((id)=>id !== undefined)))
+                const categories = referenceIds.length ? await Category.find({ id: { $in: referenceIds }}) : []
+                const categoryMap = new Map(categories.map((cat)=>[cat.id, cat]))
+
+                const { start: plainStart } = await getNextSequenceBlock("base", rawDocs.length)
+
+                const docs = rawDocs.map((source, idx)=>{
+                    const doc = {
+                        workspaceId: primitive.workspaceId,
+                        primitives: {},
+                        metrics: {},
+                        parentPrimitives: {},
+                        flowElement: primitive.type === "flow",
+                        ...source,
+                        referenceParameters: source.referenceParameters ?? {}
+                    }
+
+                    doc.parentPrimitives[primitive.id] = parentPaths
+
+                    if( linkInfo ){
+                        doc.parentPrimitives[linkInfo.linkId] = [linkInfo.linkPath]
+                    }
+
+                    const typeConfig = PrimitiveConfig.typeConfig[doc.type] ?? {}
+                    if( !typeConfig || typeConfig.defaultTitle !== false ){
+                        const category = doc.referenceId ? categoryMap.get(doc.referenceId) : undefined
+                        doc.title = doc.title ?? `New ${category?.title ?? doc.type}`
+                    }
+
+                    doc.plainId = plainStart + idx
+                    return doc
+                })
+
+                const session = await mongoose.startSession()
+                let insertedDocs = []
+                try{
+                    await session.withTransaction(async ()=>{
+                        insertedDocs = await Primitive.insertMany(docs, { session })
+                        if( insertedDocs.length === 0 ){
+                            return
+                        }
+                        const childIds = insertedDocs.map((doc)=>doc.id)
+                        const updateOps = parentPaths.map((path)=>({
+                            updateOne: {
+                                filter: { _id: primitive.id },
+                                update: { $addToSet: { [path]: { $each: childIds } } }
+                            }
+                        }))
+
+                        if( linkInfo ){
+                            updateOps.push({
+                                updateOne: {
+                                    filter: { _id: linkInfo.linkId },
+                                    update: { $addToSet: { [linkInfo.linkPath]: { $each: childIds } } }
+                                }
+                            })
+                        }
+
+                        if( updateOps.length ){
+                            await Primitive.bulkWrite(updateOps, { session })
+                        }
+                    })
+                }catch(err){
+                    console.error(`Failed to insert BrightData batch for primitive ${primitive.id}`, err)
+                    await session.abortTransaction().catch(()=>{})
+                    session.endSession()
+                    throw err
+                }
+                session.endSession()
+
+                if( insertedDocs.length === 0 ){
+                    continue
+                }
+
+                const postProcessed = await runPostCreateHooks(insertedDocs, { categoryMap })
+                out.push(...postProcessed)
+
+                SIO.notifyPrimitiveEvent(primitive.workspaceId,
+                    [{
+                        type: "new_primitives",
+                        data: insertedDocs
+                    }])
+
+                const relationshipEvents = []
+                for(const doc of insertedDocs){
+                    for(const path of parentPaths){
+                        relationshipEvents.push({
+                            type: "add_relationship",
+                            id: primitive.id,
+                            target: doc.id,
+                            path
+                        })
+                    }
+                    if( linkInfo ){
+                        relationshipEvents.push({
+                            type: "add_relationship",
+                            id: linkInfo.linkId,
+                            target: doc.id,
+                            path: linkInfo.linkPath
+                        })
+                    }
+                }
+                if( relationshipEvents.length ){
+                    SIO.notifyPrimitiveEvent(primitive.workspaceId, relationshipEvents)
+                    if( linkInfo && linkWorkspaceId !== primitive.workspaceId ){
+                        SIO.notifyPrimitiveEvent(linkWorkspaceId, relationshipEvents.filter((evt)=>evt.id === linkInfo.linkId))
+                    }
+                }
+            }
+
             return out
         }
         return toProcess

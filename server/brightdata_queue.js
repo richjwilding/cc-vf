@@ -115,9 +115,6 @@ export default function BrightDataQueue(){
 class BDQueueClass extends BaseQueue{
     constructor() {
         super('brightdata', undefined, 1)
-        setBrightdataScheduler((primitive, opts, reschedule) =>
-            this.scheduleCollection(primitive, opts, reschedule)
-        );
     }
 
     async scheduleCollection(primitive, options, reschedule ){
