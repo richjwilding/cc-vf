@@ -390,11 +390,11 @@ export const definition = {
       },
       title_override: {
         type: "string",
-        description: "Optional override for the slide title/description."
+        description: "A concise title to use for the slide - should convey the focus of the slide whilst being tight and short, do not describe the layout / sections."
       },
       layout_override: {
         type: "string",
-        enum: ["full_page", "left_summary"],
+        enum: ["full_page", "left_summary", "title_override"],
         description: "Optional override for the slide layout."
       }
     },
