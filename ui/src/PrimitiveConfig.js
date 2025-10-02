@@ -256,6 +256,7 @@ const PrimitiveConfig = {
           //  embed: ["title", "quote"]
         },
         "result":{
+            defaultReferenceId: 78,
             //embed: ["title"]
         },
         "entity":{

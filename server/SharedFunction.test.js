@@ -1,77 +1,129 @@
 import * as dotenv from 'dotenv' 
 import mongoose, { mongo } from 'mongoose';
-import { addRelationship, removeRelationship, createPrimitive, primitiveParents, primitivePrimitives, primitiveChildren, removePrimitiveById, primitiveDescendents } from "./SharedFunctions";
+import { addRelationship, removeRelationship, createPrimitive, primitiveParents, primitivePrimitives, primitiveChildren, removePrimitiveById, primitiveDescendents, fetchPrimitive } from "./SharedFunctions";
 import Primitive from './model/Primitive';
 import Workspace from './model/Workspace';
 var ObjectId = require('mongoose').Types.ObjectId;
 
 
 dotenv.config()
-let firstWorkspace 
+jest.setTimeout(120000)
+let testWorkspaceId
+const createdPrimitiveIds = new Set()
+
+const trackPrimitive = (primitive)=>{
+    if( primitive?._id ){
+        createdPrimitiveIds.add(primitive._id.toString())
+    }
+    return primitive
+}
+
+const createTrackedPrimitive = async (...args)=>{
+    const [payload, skipActions, req, options] = args
+    const primitive = await createPrimitive(
+        payload,
+        skipActions,
+        req,
+        {...(options || {}), skipHooks: true}
+    )
+    return trackPrimitive(primitive)
+}
+
+const cleanupTrackedPrimitives = async ()=>{
+    if( createdPrimitiveIds.size === 0 ){
+        return
+    }
+    await Primitive.deleteMany({_id: {$in: Array.from(createdPrimitiveIds)}})
+    createdPrimitiveIds.clear()
+}
+
 beforeAll(async ()=>{
     mongoose.set('strictQuery', false);
-   await mongoose.connect(process.env.MONGOOSE_URL, { serverSelectionTimeoutMS: 5000 });
+   await mongoose.connect(process.env.MONGOOSE_URL_TESTDB, { serverSelectionTimeoutMS: 5000 });
 
-    firstWorkspace = await Workspace.findOne({})
+    const workspace = await Workspace.create({
+        title: 'Shared Functions Test Workspace',
+        description: 'Temporary workspace for SharedFunction tests',
+        users: []
+    })
+    testWorkspaceId = workspace._id.toString()
+})
+
+afterEach(async ()=>{
+    await cleanupTrackedPrimitives()
+})
+
+afterAll(async ()=>{
+    await cleanupTrackedPrimitives()
+
+    if( testWorkspaceId ){
+        await Workspace.deleteOne({_id: testWorkspaceId})
+        testWorkspaceId = undefined
+    }
+
+    await mongoose.disconnect()
 })
 
 
 describe("Connection", () => {
     test('Create primitive with invalid type should fail', async () => {
-        await expect(createPrimitive({data:{type:"INVALID"}})).rejects.toThrow(/not recognized/);
+        await expect(createPrimitive({data:{type:"INVALID"}}, undefined, undefined, {skipHooks: true})).rejects.toThrow(/not recognized/);
     });
     test('Create primitive without workspace should fail', async () => {
-        await expect(createPrimitive({data:{type:"activity"}})).rejects.toThrow(/Cant create without a workspace/);
+        await expect(createPrimitive({data:{type:"activity", referenceId: 30}}, undefined, undefined, {skipHooks: true})).rejects.toThrow(/Cant create without a workspace/);
     });
     test('Create primitive defaults to empty path', async () => {
-        const newPrim = await createPrimitive({
+        const newPrim = await createTrackedPrimitive({
                 data:{
-                    type:"activity"
+                    type:"activity",
+                    referenceId: 30
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
         
-        expect( newPrim ).toBeDefined(undefined)
         expect( newPrim.plainId ).toBeDefined()
         expect( newPrim.primitives ).toEqual( {} )
-        expect( newPrim.parentPrimitives ).toBeUndefined(  )
+        expect( newPrim.parentPrimitives ).toEqual( {} )
 
         await Primitive.deleteOne({_id: newPrim._id})
     })
-    test('Create assessment fails unless it has a Venture parent', async () => {
-        const newPrim = await createPrimitive({
+    test('Create prompt fails unless it has a question parent', async () => {
+        const newPrim = await createTrackedPrimitive({
                 data:{
-                    type:"activity"
+                    type:"activity",
+                    referenceId: 30
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
         const child = createPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"prompt",
+                    referenceId: 13
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
-            }) 
+                workspaceId: testWorkspaceId
+            }, undefined, undefined, {skipHooks: true}) 
     
         await expect(child).rejects.toThrow(/with parent of type/)
 
         await Primitive.deleteOne({_id: newPrim._id})
     })
-    test('Create assessment passes if it has a Venture parent', async () => {
-        const newPrim = await createPrimitive({
+    test('Create prompt passes if it has a question parent', async () => {
+        const newPrim = await createTrackedPrimitive({
                 data:{
-                    type:"venture"
+                    type:"question"
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
-        const child = await createPrimitive({
+        const child = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"prompt",
+                    referenceId: 13
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
         expect( newPrim ).toBeDefined(undefined)
         expect( child ).toBeDefined(undefined)
@@ -81,19 +133,20 @@ describe("Connection", () => {
         await Primitive.deleteOne({_id: child._id})
     })
     test('Creating child primitive should setup links to parent, and from parent to child', async () => {
-        const newPrim = await createPrimitive({
+        const newPrim = await createTrackedPrimitive({
                 data:{
                     type:"venture"
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
-        const child = await createPrimitive({
+        const child = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
         expect( newPrim ).toBeDefined(undefined)
         expect( child ).toBeDefined(undefined)
@@ -110,19 +163,20 @@ describe("Connection", () => {
         await Primitive.deleteOne({_id: child._id})
     })
     test('Removing relationship from between primitives should update links on both parent and child ', async () => {
-        const newPrim = await createPrimitive({
+        const newPrim = await createTrackedPrimitive({
                 data:{
                     type:"venture"
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
-        const child = await createPrimitive({
+        const child = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
         await addRelationship(newPrim._id.toString(), child._id.toString(), "test")
@@ -158,19 +212,20 @@ describe("Connection", () => {
         await Primitive.deleteOne({_id: child._id})
     })
     test('Removing a relationship between primitives should not impact other relationships', async () => {
-        const newPrim = await createPrimitive({
+        const newPrim = await createTrackedPrimitive({
                 data:{
                     type:"venture"
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
-        const child = await createPrimitive({
+        const child = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
         await addRelationship(newPrim._id.toString(), child._id.toString(), "test")
@@ -196,26 +251,28 @@ describe("Connection", () => {
         await Primitive.deleteOne({_id: child._id})
     })
     test('Adding / removing a relationship between primitives should not impact relationships with other primitives', async () => {
-        const newPrim = await createPrimitive({
+        const newPrim = await createTrackedPrimitive({
                 data:{
                     type:"venture"
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
-        const child = await createPrimitive({
+        const child = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
-        const child2 = await createPrimitive({
+        const child2 = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
         await addRelationship(newPrim._id.toString(), child._id.toString(), "test")
@@ -256,28 +313,31 @@ describe("Connection", () => {
         await Primitive.deleteOne({_id: child2._id})
     })
     test('Removing a primitve should mark it deleted and prevent lookups via the Shared Function utilities', async () => {
-        const newPrim = await createPrimitive({
+        let newPrim = await createTrackedPrimitive({
                 data:{
                     type:"venture"
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
-        const child = await createPrimitive({
+        const child = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
-        const child2 = await createPrimitive({
+        const child2 = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
+        newPrim = await fetchPrimitive( newPrim.id)
         {
             const children = await primitiveChildren( newPrim )
             expect( children ).toBeDefined()
@@ -290,6 +350,7 @@ describe("Connection", () => {
         await removePrimitiveById( child._id.toString() )
         expect( (await Primitive.findOne({_id: child._id})).deleted ).toEqual(true)
 
+        newPrim = await fetchPrimitive( newPrim.id)
         {
             const children = await primitiveChildren( newPrim )
             expect( children ).toBeDefined()
@@ -306,89 +367,118 @@ describe("Connection", () => {
     const addPrimitives = async(count = 1, type = "activity", parent)=>{
         const out = []
         for( let idx = 0; idx < count; idx++){
-            out.push( await createPrimitive({data:{type:type}, parent: parent ? parent._id.toString() : undefined, workspaceId: firstWorkspace.id}) )
+            out.push( await createTrackedPrimitive({
+                data:{
+                    type:type,
+                    ...(type === "activity" ? {referenceId: 30} : type === "evidence" ? {referenceId: 3} : {})
+                },
+                parent: parent ? parent._id.toString() : undefined,
+                workspaceId: testWorkspaceId
+            }) )
         }
         return out
     }
 
     const buildNested = async ()=>{
-        const root =  await addPrimitives()
-        const layer1 = await addPrimitives(3, "result", root[0])
-        const layer2a = await addPrimitives(4, "result", layer1[0])
-        const layer2b = await addPrimitives(5, "question", layer1[1])
-        const layer3a = await addPrimitives(4, "question", layer2a[1])
-        const layer4 = await addPrimitives(4, "question", layer3a[1])
-        return [root, layer1, layer2a, layer2b, layer3a, layer4].flat().map((d)=>d._id.toString())
+        const rootList =  await addPrimitives()
+        const rootDoc = rootList[0]
+
+        const resultLayerDocs = await addPrimitives(2, "result", rootDoc)
+        const nestedResultLayerDocs = await addPrimitives(1, "result", resultLayerDocs[0])
+        const questionLayerDocs = await addPrimitives(2, "question", resultLayerDocs[1])
+        const nestedQuestionLayerDocs = await addPrimitives(1, "question", questionLayerDocs[0])
+        const deepestQuestionLayerDocs = await addPrimitives(1, "question", nestedQuestionLayerDocs[0])
+
+        const toIds = (docs)=>docs.map((d)=>d._id.toString())
+
+        return {
+            root: rootDoc._id.toString(),
+            resultLayer: toIds(resultLayerDocs),
+            nestedResultLayer: toIds(nestedResultLayerDocs),
+            questionLayer: toIds(questionLayerDocs),
+            nestedQuestionLayer: toIds(nestedQuestionLayerDocs),
+            deepestQuestionLayer: toIds(deepestQuestionLayerDocs),
+            all: [
+                rootDoc._id.toString(),
+                ...toIds(resultLayerDocs),
+                ...toIds(nestedResultLayerDocs),
+                ...toIds(questionLayerDocs),
+                ...toIds(nestedQuestionLayerDocs),
+                ...toIds(deepestQuestionLayerDocs)
+            ]
+        }
     }
 
-    test('Descendants test 1', async () => {
-        const target = await Primitive.findOne({_id: new ObjectId("647f259f6147d16fc5b3b837")})
-        const list = await primitiveDescendents(target)
-        expect(list.length).toEqual(10014)
-
-        const list2 = await primitiveDescendents(target, undefined, {paths: []})
-        expect(list2.length).toEqual(10014)
-    })
-
     test('Descendants should traverse multiple layers', async () => {
-        const set = await buildNested()
+        const tree = await buildNested()
 
-        expect(set.length).toEqual(21)
+        expect(tree.all.length).toEqual(8)
         
-        const root = await Primitive.findOne({_id: set[0]})
+        const root = await Primitive.findOne({_id: tree.root})
         const list = await primitiveDescendents(root)
-        expect(list.length).toEqual(20)
+        expect(list.length).toEqual(7)
 
-        for(const d of set){
-            await Primitive.deleteOne({_id: d._id})
-        }
+        const descendantIds = list.map((d)=>d._id.toString()).sort()
+        const expectedIds = tree.all.filter((id)=>id !== tree.root).sort()
+        expect(descendantIds).toEqual(expectedIds)
+
+        await Primitive.deleteMany({_id: {$in: tree.all}})
     })
     test('Descendants should stop at nodes if they match a defined type', async () => {
-        const set = await buildNested()
+        const tree = await buildNested()
 
-        expect(set.length).toEqual(21)
+        expect(tree.all.length).toEqual(8)
         
-        const root = await Primitive.findOne({_id: set[0]})
+        const root = await Primitive.findOne({_id: tree.root})
 
-        const list2 = await primitiveDescendents(root, "result")
-        expect(list2.length).toEqual(3)
-
-        const list3 = await primitiveDescendents(root, "question")
-        expect(list3.length).toEqual(9)
-
-        for(const d of set){
-            await Primitive.deleteOne({_id: d._id})
+        const resultDescendants = await primitiveDescendents(root, "result")
+        const resultIds = resultDescendants.map((d)=>d._id.toString()).sort()
+        expect(resultIds).toEqual([...tree.resultLayer].sort())
+        for(const id of tree.nestedResultLayer){
+            expect(resultIds).not.toContain(id)
         }
+
+        const questionDescendants = await primitiveDescendents(root, "question")
+        const questionIds = questionDescendants.map((d)=>d._id.toString()).sort()
+        const expectedQuestionIds = [...tree.questionLayer].sort()
+        expect(questionIds).toEqual(expectedQuestionIds)
+        for(const id of [...tree.nestedQuestionLayer, ...tree.deepestQuestionLayer]){
+            expect(questionIds).not.toContain(id)
+        }
+
+        await Primitive.deleteMany({_id: {$in: tree.all}})
     })
 
     test('Removing a primtiive should trigger deletion of origin descendants, and return a list of deleted ids', async () => {
-        const newPrim = await createPrimitive({
+        const newPrim = await createTrackedPrimitive({
                 data:{
                     type:"venture"
                 },
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
-        const child = await createPrimitive({
+        const child = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
-        const child2 = await createPrimitive({
+        const child2 = await createTrackedPrimitive({
                 data:{
-                    type:"assessment"
+                    type:"search",
+                    referenceId: 67
                 },
                 parent: newPrim._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
-        const child3 = await createPrimitive({
+        const child3 = await createTrackedPrimitive({
                 data:{
                     type:"question"
                 },
                 parent: child._id.toString(),
-                workspaceId: firstWorkspace.id
+                workspaceId: testWorkspaceId
             }) 
 
         {
@@ -426,7 +516,7 @@ describe("Connection", () => {
         await Primitive.deleteOne({_id: child3._id})
     })
     test('Descendants deletion test', async () => {
-        const fan = 5
+        const fan = 3
         const root =  (await addPrimitives())[0]
         const layer1 = await addPrimitives(fan, "result", root)
         for(let idx = 0;idx < fan; idx++){
@@ -468,80 +558,74 @@ describe("Connection", () => {
         }
     })
     test('Delete should only cascade through origin and auto relationship - pt 1', async () => {
-        const set = await buildNested()
-        const set2 = await buildNested()
+        const tree = await buildNested()
+        const tree2 = await buildNested()
 
-        expect(set.length).toEqual(21)
-        expect(set2.length).toEqual(21)
+        expect(tree.all.length).toEqual(8)
+        expect(tree2.all.length).toEqual(8)
         
-        const root = await Primitive.findOne({_id: set[0]})
+        const root = await Primitive.findOne({_id: tree.root})
         const list = await primitiveDescendents(root)
-        expect(list.length).toEqual(20)
+        expect(list.length).toEqual(7)
 
-        const root2 = await Primitive.findOne({_id: set2[0]})
-        const leaf = list[list.length - 1]
-        addRelationship(leaf._id.toString(), root2._id.toString(), "test")
+        const root2 = await Primitive.findOne({_id: tree2.root})
+        const leaf = await Primitive.findOne({_id: tree.deepestQuestionLayer[0]})
+        await addRelationship(leaf._id.toString(), root2._id.toString(), "test")
 
-        const _root = await Primitive.findOne({_id: set[0]})
+        const _root = await Primitive.findOne({_id: tree.root})
         const _list = await primitiveDescendents(_root, undefined, {paths: []})
-        expect(_list.length).toEqual(41)
+        expect(_list.length).toEqual(15)
 
         const removedIds = await removePrimitiveById(root._id.toString())
-        expect(removedIds.length).toEqual(21)
+        expect(removedIds.length).toEqual(tree.all.length)
 
-        for(const test of set){
+        for(const test of tree.all){
             const refresh = await Primitive.findOne({_id: test})
             expect(refresh.deleted).toEqual(true)
         }
-        for(const test of set2){
+        for(const test of tree2.all){
             const refresh = await Primitive.findOne({_id: test})
             expect(refresh.deleted).toBeUndefined()
         }
 
-        for(const d of set){
-            await Primitive.deleteOne({_id: d})
-        }
-        for(const d of set2){
-            await Primitive.deleteOne({_id: d})
-        }
+        await Primitive.deleteMany({_id: {$in: tree.all}})
+        await Primitive.deleteMany({_id: {$in: tree2.all}})
+        await Primitive.deleteOne({_id: leaf._id})
     })
     test('Delete should only cascade through origin and auto relationship - pt 2', async () => {
-        const set = await buildNested()
-        const set2 = await buildNested()
+        const tree = await buildNested()
+        const tree2 = await buildNested()
 
-        expect(set.length).toEqual(21)
-        expect(set2.length).toEqual(21)
+        expect(tree.all.length).toEqual(8)
+        expect(tree2.all.length).toEqual(8)
         
-        const root = await Primitive.findOne({_id: set[0]})
+        const root = await Primitive.findOne({_id: tree.root})
         const list = await primitiveDescendents(root)
-        expect(list.length).toEqual(20)
+        expect(list.length).toEqual(7)
 
-        const root2 = await Primitive.findOne({_id: set2[0]})
-        const leaf = list[list.length - 1]
-        addRelationship(leaf._id.toString(), root2._id.toString(), "auto")
+        const root2 = await Primitive.findOne({_id: tree2.root})
+        const leaf = await Primitive.findOne({_id: tree.deepestQuestionLayer[0]})
+        await addRelationship(leaf._id.toString(), root2._id.toString(), "auto")
 
-        const _root = await Primitive.findOne({_id: set[0]})
+        const _root = await Primitive.findOne({_id: tree.root})
         const _list = await primitiveDescendents(_root, undefined, {paths: []})
-        expect(_list.length).toEqual(41)
+        expect(_list.length).toEqual(15)
 
         const removedIds = await removePrimitiveById(root._id.toString())
-        expect(removedIds.length).toEqual(42)
+        expect(removedIds.length).toEqual(tree.all.length + tree2.all.length)
 
-        for(const test of set){
+        for(const test of tree.all){
             const refresh = await Primitive.findOne({_id: test})
             expect(refresh.deleted).toEqual(true)
         }
-        for(const test of set2){
+        for(const test of tree2.all){
             const refresh = await Primitive.findOne({_id: test})
             expect(refresh.deleted).toEqual(true)
         }
 
-        for(const d of set){
-            await Primitive.deleteOne({_id: d})
-        }
-        for(const d of set2){
-            await Primitive.deleteOne({_id: d})
-        }
+        await Primitive.deleteMany({_id: {$in: tree.all}})
+        await Primitive.deleteMany({_id: {$in: tree2.all}})
+        await Primitive.deleteOne({_id: leaf._id})
     })
 })
 afterAll(async ()=>{

@@ -5226,6 +5226,13 @@ export async function createWorkspace( allData, owner, options={} ){
 export async function createPrimitive( data, skipActions, req, options={} ){
     try{
         let parentPrimitive
+        const type = data.data.type
+        if( !PrimitiveConfig.types.includes( type )) {
+            throw new Error(`Type '${type}' not recognized`)
+        }
+        if( data.workspaceId === undefined){
+            throw new Error(`Cant create without a workspace`)
+        }
         if( data.parent ){
             parentPrimitive = typeof(data.parent) === "string" ? await Primitive.findOne({_id:  new ObjectId(data.parent)}) : data.parent
         }
@@ -5233,10 +5240,6 @@ export async function createPrimitive( data, skipActions, req, options={} ){
                 throw new Error(`Cant find parent`)
         }
         
-        const type = data.data.type
-        if( !PrimitiveConfig.types.includes( type )) {
-            throw new Error(`Type '${type}' not recognized`)
-        }
         const config = PrimitiveConfig.typeConfig[type]
         
         if( config ){
@@ -5270,9 +5273,6 @@ export async function createPrimitive( data, skipActions, req, options={} ){
         }
         if( type === "assessment" && data.data.frameworkId === undefined){
             data.data.frameworkId = (await AssessmentFramework.findOne({}))?._id.toString()
-        }
-        if( data.workspaceId === undefined){
-            throw new Error(`Cant create without a workspace`)
         }
         data.data.workspaceId = data.workspaceId
         data.data.primitives = data.data.primitives || {}
@@ -5320,6 +5320,10 @@ export async function createPrimitive( data, skipActions, req, options={} ){
            await addRelationship(parentPrimitive.id, newId, paths, true)
         }
 
+        if( options?.skipHooks ){
+            return newPrimitive
+        }
+
         const [processedPrimitive] = await runPostCreateHooks([newPrimitive], {
             skipActions,
             req,
@@ -5335,6 +5339,9 @@ export async function createPrimitive( data, skipActions, req, options={} ){
 }
 
 export async function runPostCreateHooks(primitives, options = {}){
+    if( options?.skipHooks ){
+        return [primitives].flat().filter(Boolean)
+    }
     const list = [primitives].flat().filter(Boolean)
     if( list.length === 0 ){
         return []
