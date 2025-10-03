@@ -16,11 +16,10 @@ import { Button } from "@heroui/react"
 import { Icon } from "@iconify/react/dist/iconify.js"
 import FlowInstanceEditor from "./FlowInstanceEditor"
 
-export default function WorkflowDashboard(props){
+export default function WorkflowDashboard(){
     const navigate = useNavigate()        
     const [showNew, setShowNew] = useState(false)
     const [editFlowInstance, setEditFlowInstance] = useState(false)
-    props.setWidePage(false)
 
     const {id} = useParams()
 
@@ -34,11 +33,13 @@ export default function WorkflowDashboard(props){
     
 
 
+    const activeWorkspaceId = MainStore().activeWorkspaceId
+
     const filterForWorksapce = (array)=>{
-        if( props.workspace === undefined ){
+        if( activeWorkspaceId === undefined ){
             return array
         }
-        return array.filter((d)=>d.workspaceId === props.workspace.id)
+        return array.filter((d)=>d.workspaceId === activeWorkspaceId)
     }
 
     useEffect(()=>{
