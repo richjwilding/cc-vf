@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useOutletContext, useParams } from "react-router-dom";
 import { Spinner } from "@heroui/react";
 import MainStore from "./MainStore";
 import { PrimitivePage } from "./PrimitivePage";
@@ -35,6 +35,8 @@ function renderPrimitiveByType(primitive, props) {
 
 export default function PrimitivePageContainer(props) {
   const { id } = useParams();
+  const outletContext = useOutletContext() || {};
+  const widePage = outletContext.widePage ?? false;
 
   const primitive = useMemo(() => {
     if (props.primitive) {
@@ -57,5 +59,10 @@ export default function PrimitivePageContainer(props) {
     );
   }
 
-  return renderPrimitiveByType(primitive, props);
+  const pageProps = {
+    ...props,
+    widePage,
+  };
+
+  return renderPrimitiveByType(primitive, pageProps);
 }

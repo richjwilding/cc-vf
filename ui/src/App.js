@@ -51,7 +51,6 @@ function App() {
   const [overlay, setOverlay] = React.useState(false)
   const [primitive, setPrimitive] = React.useState(undefined)
   const [sidebarOptions, setSidebarOptions] = React.useState(undefined)
-  const [widePage, setWidePage] = React.useState(false)
   const [showDeletePrompt, setShowDeletePrompt] = React.useState()
   const [showPicker, setShowPicker] = React.useState()
   const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
@@ -176,7 +175,6 @@ function App() {
                 element={
                   <ApplicationLayout
                     key={`layout-${mainstore.activeWorkspaceId}-${pagePrimitive?.id ?? "none"}`}
-                    widePage={widePage}
                     workspace={mainstore.activeWorkspaceId}
                     setWorkspace={setWorkspace}
                   />
@@ -195,17 +193,12 @@ function App() {
                 <Route path="/usage" element={<UsageScreen />}/>
                 <Route path="/account" element={<AccountScreen/>}/>
                 <Route path="/queue/:id?" element={<QueuePage />}/>
-                <Route
-                  path="/workflows/:id?"
-                  element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage}/>}
-                />
+                <Route path="/workflows/:id?" element={<WorkflowDashboard/>} />
                 <Route
                   path="/item/:id"
                   element={
                     <PrimitivePageContainer
                       key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`}
-                      widePage={widePage}
-                      setWidePage={setWidePage}
                       selectPrimitive={selectPrimitive}
                     />
                   }
