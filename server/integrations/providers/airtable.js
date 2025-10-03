@@ -1,7 +1,7 @@
 import { URL, URLSearchParams } from 'node:url';
 import { Buffer } from 'node:buffer';
 import { getLogger } from '../../logger.js';
-import { IntegrationProvider, registerIntegration } from '../index.js';
+import { IntegrationProvider, registerIntegration } from '../registry.js';
 
 const logger = getLogger('integration-airtable', 'debug');
 
@@ -87,6 +87,7 @@ class AirtableIntegration extends IntegrationProvider {
       title: 'Airtable',
       scopes: ['data.records:read'],
       description: 'Sync records from Airtable bases and tables.',
+      requiresPkce: true,
     });
   }
 
@@ -102,7 +103,7 @@ class AirtableIntegration extends IntegrationProvider {
     return getEnv('AIRTABLE_OAUTH_REDIRECT');
   }
 
-  getAuthorizationUrl({ state, redirectUri, scopes } = {}) {
+  getAuthorizationUrl({ state, redirectUri, scopes, codeChallenge, codeChallengeMethod } = {}) {
     const url = new URL(`${AUTH_BASE}/authorize`);
     const params = new URLSearchParams({
       client_id: this.clientId,
@@ -111,16 +112,25 @@ class AirtableIntegration extends IntegrationProvider {
       scope: (scopes && scopes.length > 0 ? scopes : this.scopes).join(' '),
       state,
     });
+    if (codeChallenge) {
+      params.set('code_challenge', codeChallenge);
+    }
+    if (codeChallengeMethod) {
+      params.set('code_challenge_method', codeChallengeMethod);
+    }
     url.search = params.toString();
     return url.toString();
   }
 
-  async exchangeCodeForToken({ code, redirectUri }) {
+  async exchangeCodeForToken({ code, redirectUri, codeVerifier }) {
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri || this.defaultRedirectUri,
     });
+    if (codeVerifier) {
+      params.set('code_verifier', codeVerifier);
+    }
     return this.requestToken(params);
   }
 

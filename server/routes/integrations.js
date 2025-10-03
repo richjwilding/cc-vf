@@ -1,4 +1,5 @@
 import express from 'express';
+import { createHash, randomBytes } from 'node:crypto';
 import IntegrationQueue from '../integration_queue.js';
 import IntegrationAccount from '../model/IntegrationAccount.js';
 import { fetchPrimitive } from '../SharedFunctions.js';
@@ -13,6 +14,21 @@ function ensureWorkspaceAccess(req, workspaceId) {
   }
   const ids = (req.user?.workspaceIds ?? []).map((id) => id.toString());
   return ids.includes(workspaceId.toString());
+}
+
+function base64UrlEncode(buffer) {
+  return buffer.toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function createPkceVerifier() {
+  return base64UrlEncode(randomBytes(32));
+}
+
+function createPkceChallenge(verifier) {
+  return base64UrlEncode(createHash('sha256').update(verifier).digest());
 }
 
 router.get('/providers', (req, res) => {
@@ -91,17 +107,29 @@ router.get('/:provider/oauth/start', async (req, res) => {
     const scopes = req.query.scopes
       ? String(req.query.scopes).split(',').map((s) => s.trim()).filter(Boolean)
       : undefined;
-    const state = await createIntegrationState({
+    let codeVerifier;
+    let codeChallenge;
+    if (integration.requiresPkce) {
+      codeVerifier = createPkceVerifier();
+      codeChallenge = createPkceChallenge(codeVerifier);
+    }
+    const statePayload = {
       provider,
       userId: req.user._id,
       workspaceId,
       redirectUri,
       returnTo: req.query.returnTo,
-    });
+    };
+    if (codeVerifier) {
+      statePayload.codeVerifier = codeVerifier;
+    }
+    const state = await createIntegrationState(statePayload);
     const authorizationUrl = integration.getAuthorizationUrl({
       state,
       redirectUri,
       scopes,
+      codeChallenge,
+      codeChallengeMethod: codeChallenge ? 'S256' : undefined,
     });
     res.json({ authorizationUrl, state });
   } catch (error) {
@@ -130,9 +158,13 @@ router.get('/:provider/oauth/callback', async (req, res) => {
     if (!ensureWorkspaceAccess({ user: req.user }, context.workspaceId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
+    if (integration.requiresPkce && !context.codeVerifier) {
+      return res.status(400).json({ error: 'Missing code verifier for PKCE flow' });
+    }
     const tokens = await integration.exchangeCodeForToken({
       code,
       redirectUri: context.redirectUri,
+      codeVerifier: context.codeVerifier,
     });
     const update = {
       provider,
