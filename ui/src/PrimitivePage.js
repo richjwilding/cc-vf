@@ -2,7 +2,7 @@ import { PrimitiveCard } from './PrimitiveCard'
 import { MetricCard } from './MetricCard'
 import { HeroIcon } from './HeroIcon'
 import {Fragment, useEffect, useReducer, useRef, useState, useMemo, useCallback, useLayoutEffect} from 'react';
-import { useLinkClickHandler, useNavigate, useParams } from "react-router-dom";
+import { useLinkClickHandler, useNavigate } from "react-router-dom";
 import Panel from './Panel';
 import { Tab, Transition } from '@headlessui/react'
 import {
@@ -25,12 +25,8 @@ import PrimitiveConfig from './PrimitiveConfig';
 import VFTable from './VFTable';
 import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
-import AnalysisPage from './AnalysisPage';
-import FlowPage from './FlowPage';
 import ReportViewExporter from './ReportViewExporter';
 import RouterTest from './RouterTest';
-import FlowInstancePage from './FlowInstancePage';
-import PageView from './PageView';
 
 
 let mainstore = MainStore()
@@ -63,9 +59,8 @@ function classNames(...classes) {
 
 
 export function PrimitivePage({primitive, ...props}) {
-    const { id } = useParams();
-    if( primitive === undefined && id){
-      primitive = mainstore.primitive(isNaN(id) ? id : parseInt(id))
+    if (!primitive) {
+      return null;
     }
     //let metadata = primitive.metadata
     let task = primitive.originTask
@@ -383,23 +378,6 @@ export function PrimitivePage({primitive, ...props}) {
       )
     }
   
-  if( primitive?.type === "page" ){
-    return <PageView primitive={primitive}/>
-  }
-
-  if( primitive?.type === "working" ){
-    return <AnalysisPage primitive={primitive}/>
-  }
-  if(primitive?.type === "flow"  ){
-    //return <FlowPage primitive={primitive}/>
-    return <div className={`h-[calc(100vh_-_4em)] p-4`}>
-              <BoardViewer primitive={primitive}/>
-            </div>
-  }
-  if( primitive?.type === "flowinstance"  ){
-    return <FlowInstancePage primitive={primitive}/>
-  }
-
   return (
     <>
       <div 

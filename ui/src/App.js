@@ -1,23 +1,20 @@
 import './App.css';
 import MainStore from './MainStore';
 import React, { useEffect, useReducer } from 'react';
-import { BrowserRouter, Routes, Route, useParams, Outlet } from "react-router-dom";
-import { ComponentView } from './ComponentView';
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from './Sidebar';
 import { library } from '@fortawesome/fontawesome-svg-core'
 //import { fas } from '@fortawesome/free-solid-svg-icons'
 import { faLinkedin } from '@fortawesome/free-brands-svg-icons'
 import { faTags, faFilter } from '@fortawesome/pro-light-svg-icons';
 import { faRobot, faTrash, faChevronDown, faCircleInfo, faSpider, faSpinner, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
-import { PrimitivePage } from './PrimitivePage';
-import SideNav from './SideNav';
+import ApplicationLayout from './ApplicationLayout.jsx';
+import PrimitivePageContainer from './PrimitivePageContainer.jsx';
 import SignIn from './SignIn';
 import HomeScreen from './HomeScreen';
-import toast, { Toaster } from 'react-hot-toast';
 import ConfirmationPopup from './ConfirmationPopup';
 import PrimitivePicker from './PrimitivePicker';
 import { InputPopup } from './InputPopup';
-import CollectionUtils from './CollectionHelper';
 import test from './tests/filter.js';
 import NewPrimitive from './NewPrimitive.js';
 import Popup from './Popup.js';
@@ -174,34 +171,47 @@ function App() {
               <Route path="/login" element={<SignIn/>}/>
               <Route path="/signup" element={<SignupPage/>}/>
               <Route path="/reset/:id" element={<ResetPasswordPage/>}/>
-              <Route path="/" element={<SideNav workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}>
-                <HomeScreen workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}/>
-              </SideNav>}/>
               <Route path="/published/new_instance/:id" element={<FlowInstancePage />}/>
-              <Route element={
-                <SideNav key='sidebar' widePage={widePage} workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}>
-                    <Toaster 
-                      position="bottom-right"
-                      reverseOrder={true}
-                      gutter={8}
-                      containerClassName=""
-                      toastOptions={{
-                        className: '',
-                        style: {
-                          background: '#f3fcf6',
-                          border:'1px solid #00d967'
-                        }}}
+              <Route
+                element={
+                  <ApplicationLayout
+                    key={`layout-${mainstore.activeWorkspaceId}-${pagePrimitive?.id ?? "none"}`}
+                    widePage={widePage}
+                    workspace={mainstore.activeWorkspaceId}
+                    setWorkspace={setWorkspace}
+                  />
+                }
+              >
+                <Route
+                  index
+                  element={
+                    <HomeScreen
+                      workspace={mainstore.activeWorkspaceId}
+                      setWorkspace={setWorkspace}
                     />
-                    <Outlet/>
-                </SideNav>}>
-                  <Route path="/workflow/:id/new_instance" element={<FlowInstancePage />}/>
-                  <Route path="/usage/" element={<UsageScreen />}/>
-                  <Route path="/account/" element={<AccountScreen/>}/>
-                  <Route path="/queue/:id?" element={<QueuePage />}/>
-                  <Route path="/workflows/:id?" element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage}/>}/>
-                  <Route path="/item/:id" element={<PrimitivePage key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
-                  <Route path="/project/:id" element={<ProjectScreen/>}/>
-                </Route>
+                  }
+                />
+                <Route path="/workflow/:id/new_instance" element={<FlowInstancePage />}/>
+                <Route path="/usage" element={<UsageScreen />}/>
+                <Route path="/account" element={<AccountScreen/>}/>
+                <Route path="/queue/:id?" element={<QueuePage />}/>
+                <Route
+                  path="/workflows/:id?"
+                  element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage}/>}
+                />
+                <Route
+                  path="/item/:id"
+                  element={
+                    <PrimitivePageContainer
+                      key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`}
+                      widePage={widePage}
+                      setWidePage={setWidePage}
+                      selectPrimitive={selectPrimitive}
+                    />
+                  }
+                />
+                <Route path="/project/:id" element={<ProjectScreen/>}/>
+              </Route>
             </Routes>
           <Sidebar open={open} fixed={allowFixedSidebar} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           {showDeletePrompt && <ConfirmationPopup title={showDeletePrompt.title ?? "Confirm deletion"} message={showDeletePrompt.prompt} confirm={showDeletePrompt.handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
