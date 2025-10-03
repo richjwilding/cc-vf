@@ -384,7 +384,7 @@ export default function ApplicationLayout({
   return (
     <div className="flex h-screen w-full bg-gray-50">
       {showStaticSidebar && (
-        <aside className="hidden h-full w-72 flex-shrink-0 flex-col border-r border-divider bg-white lg:flex">
+        <aside className="hidden h-full w-72 flex-shrink-0 flex-col border-r border-divider bg-background lg:flex">
           {renderNavigation(null)}
         </aside>
       )}
@@ -397,7 +397,7 @@ export default function ApplicationLayout({
         backdrop="blur"
         size="sm"
         classNames={{
-          base: "h-full max-h-none w-72 max-w-none rounded-none border-r border-divider bg-white",
+          base: "h-full max-h-none w-72 max-w-none rounded-none border-r border-divider bg-background",
           wrapper: "z-[60]",
         }}
       >

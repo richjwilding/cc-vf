@@ -22,7 +22,6 @@ import GenericEditor from './CategoryEditor.js';
 import PrimitiveConfig from './PrimitiveConfig.js';
 import FlowInstancePage from './FlowInstancePage.js';
 import WorkflowDashboard from './WorkflowDashboard.js';
-import { HeroUIProvider } from '@heroui/system';
 import SignupPage from './SignUp.js';
 import { PrimitivePopup } from './PrimitivePopup.js';
 import ResetPasswordPage from './ResetPassword.js';
@@ -152,7 +151,7 @@ function App() {
   }
   const allowFixedSidebar = !(pagePrimitive?.type == "flow" || pagePrimitive?.type == "flowinstance")
 
-  return (<HeroUIProvider>
+  return (<>
     {!loaded
     ? <div role="status" className='w-full h-screen flex flex-col justify-center place-items-center'>
         <svg aria-hidden="true" className="w-20 h-20 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600" viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -216,7 +215,7 @@ function App() {
           {showPrimitivePopup && <PrimitivePopup primitive={showPrimitivePopup} editing={true} setPrimitive={setShowPrimitivePopup}/>}
           </BrowserRouter>
       </div>}
-  </HeroUIProvider>)
+  </>)
 }
 
 export default App;
