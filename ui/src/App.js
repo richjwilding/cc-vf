@@ -1,23 +1,20 @@
 import './App.css';
 import MainStore from './MainStore';
 import React, { useEffect, useReducer } from 'react';
-import { BrowserRouter, Routes, Route, useParams, Outlet } from "react-router-dom";
-import { ComponentView } from './ComponentView';
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from './Sidebar';
 import { library } from '@fortawesome/fontawesome-svg-core'
 //import { fas } from '@fortawesome/free-solid-svg-icons'
 import { faLinkedin } from '@fortawesome/free-brands-svg-icons'
 import { faTags, faFilter } from '@fortawesome/pro-light-svg-icons';
 import { faRobot, faTrash, faChevronDown, faCircleInfo, faSpider, faSpinner, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
-import { PrimitivePage } from './PrimitivePage';
-import SideNav from './SideNav';
+import ApplicationLayout from './ApplicationLayout.jsx';
+import PrimitivePageContainer from './PrimitivePageContainer.jsx';
 import SignIn from './SignIn';
 import HomeScreen from './HomeScreen';
-import toast, { Toaster } from 'react-hot-toast';
 import ConfirmationPopup from './ConfirmationPopup';
 import PrimitivePicker from './PrimitivePicker';
 import { InputPopup } from './InputPopup';
-import CollectionUtils from './CollectionHelper';
 import test from './tests/filter.js';
 import NewPrimitive from './NewPrimitive.js';
 import Popup from './Popup.js';
@@ -25,7 +22,6 @@ import GenericEditor from './CategoryEditor.js';
 import PrimitiveConfig from './PrimitiveConfig.js';
 import FlowInstancePage from './FlowInstancePage.js';
 import WorkflowDashboard from './WorkflowDashboard.js';
-import { HeroUIProvider } from '@heroui/system';
 import SignupPage from './SignUp.js';
 import { PrimitivePopup } from './PrimitivePopup.js';
 import ResetPasswordPage from './ResetPassword.js';
@@ -55,7 +51,6 @@ function App() {
   const [overlay, setOverlay] = React.useState(false)
   const [primitive, setPrimitive] = React.useState(undefined)
   const [sidebarOptions, setSidebarOptions] = React.useState(undefined)
-  const [widePage, setWidePage] = React.useState(false)
   const [showDeletePrompt, setShowDeletePrompt] = React.useState()
   const [showPicker, setShowPicker] = React.useState()
   const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
@@ -157,7 +152,7 @@ function App() {
   }
   const allowFixedSidebar = !(pagePrimitive?.type == "flow" || pagePrimitive?.type == "flowinstance")
 
-  return (<HeroUIProvider>
+  return (<>
     {!loaded
     ? <div role="status" className='w-full h-screen flex flex-col justify-center place-items-center'>
         <svg aria-hidden="true" className="w-20 h-20 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600" viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -175,35 +170,42 @@ function App() {
               <Route path="/login" element={<SignIn/>}/>
               <Route path="/signup" element={<SignupPage/>}/>
               <Route path="/reset/:id" element={<ResetPasswordPage/>}/>
-              <Route path="/" element={<SideNav workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}>
-                <HomeScreen workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}/>
-              </SideNav>}/>
               <Route path="/published/new_instance/:id" element={<FlowInstancePage />}/>
-              <Route element={
-                <SideNav key='sidebar' widePage={widePage} workspace={mainstore.activeWorkspaceId} setWorkspace={setWorkspace}>
-                    <Toaster 
-                      position="bottom-right"
-                      reverseOrder={true}
-                      gutter={8}
-                      containerClassName=""
-                      toastOptions={{
-                        className: '',
-                        style: {
-                          background: '#f3fcf6',
-                          border:'1px solid #00d967'
-                        }}}
+              <Route
+                element={
+                  <ApplicationLayout
+                    key={`layout-${mainstore.activeWorkspaceId}-${pagePrimitive?.id ?? "none"}`}
+                    workspace={mainstore.activeWorkspaceId}
+                    setWorkspace={setWorkspace}
+                  />
+                }
+              >
+                <Route
+                  index
+                  element={
+                    <HomeScreen
+                      workspace={mainstore.activeWorkspaceId}
+                      setWorkspace={setWorkspace}
                     />
-                    <Outlet/>
-                </SideNav>}>
-                  <Route path="/workflow/:id/new_instance" element={<FlowInstancePage />}/>
-                  <Route path="/usage/" element={<UsageScreen />}/>
-                  <Route path="/integrations" element={<IntegrationsScreen />}/>
-                  <Route path="/account/" element={<AccountScreen/>}/>
-                  <Route path="/queue/:id?" element={<QueuePage />}/>
-                  <Route path="/workflows/:id?" element={<WorkflowDashboard widePage={widePage} setWidePage={setWidePage}/>}/>
-                  <Route path="/item/:id" element={<PrimitivePage key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`} widePage={widePage} setWidePage={setWidePage} selectPrimitive={selectPrimitive}/>}/>
-                  <Route path="/project/:id" element={<ProjectScreen/>}/>
-                </Route>
+                  }
+                />
+                <Route path="/workflow/:id/new_instance" element={<FlowInstancePage />}/>
+                <Route path="/usage" element={<UsageScreen />}/>
+                <Route path="/account" element={<AccountScreen/>}/>
+                <Route path="/integrations" element={<IntegrationsScreen />}/>
+                <Route path="/queue/:id?" element={<QueuePage />}/>
+                <Route path="/workflows/:id?" element={<WorkflowDashboard/>} />
+                <Route
+                  path="/item/:id"
+                  element={
+                    <PrimitivePageContainer
+                      key={`${mainstore.activeWorkspaceId}-${pagePrimitive?.id}`}
+                      selectPrimitive={selectPrimitive}
+                    />
+                  }
+                />
+                <Route path="/project/:id" element={<ProjectScreen/>}/>
+              </Route>
             </Routes>
           <Sidebar open={open} fixed={allowFixedSidebar} overlay={true} setOpen={(v)=>{selectPrimitive(null)}} primitive={primitive} {...(sidebarOptions ||{})}/>
           {showDeletePrompt && <ConfirmationPopup title={showDeletePrompt.title ?? "Confirm deletion"} message={showDeletePrompt.prompt} confirm={showDeletePrompt.handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
@@ -215,7 +217,7 @@ function App() {
           {showPrimitivePopup && <PrimitivePopup primitive={showPrimitivePopup} editing={true} setPrimitive={setShowPrimitivePopup}/>}
           </BrowserRouter>
       </div>}
-  </HeroUIProvider>)
+  </>)
 }
 
 export default App;

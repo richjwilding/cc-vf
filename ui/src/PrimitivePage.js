@@ -2,7 +2,7 @@ import { PrimitiveCard } from './PrimitiveCard'
 import { MetricCard } from './MetricCard'
 import { HeroIcon } from './HeroIcon'
 import {Fragment, useEffect, useReducer, useRef, useState, useMemo, useCallback, useLayoutEffect} from 'react';
-import { useLinkClickHandler, useNavigate, useParams } from "react-router-dom";
+import { useLinkClickHandler, useNavigate } from "react-router-dom";
 import Panel from './Panel';
 import { Tab, Transition } from '@headlessui/react'
 import {
@@ -25,36 +25,11 @@ import PrimitiveConfig from './PrimitiveConfig';
 import VFTable from './VFTable';
 import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
-import AnalysisPage from './AnalysisPage';
-import FlowPage from './FlowPage';
 import ReportViewExporter from './ReportViewExporter';
 import RouterTest from './RouterTest';
-import FlowInstancePage from './FlowInstancePage';
-import PageView from './PageView';
 
 
 let mainstore = MainStore()
-
-const comments = [
-  {
-    id: 1,
-    date: '4d ago',
-    userId: 4,
-    body: 'Ducimus quas delectus ad maxime totam doloribus reiciendis ex. Tempore dolorem maiores. Similique voluptatibus tempore non ut.',
-  },
-  {
-    id: 2,
-    date: '4d ago',
-    userId: 2,
-    body: 'Et ut autem. Voluptatem eum dolores sint necessitatibus quos. Quis eum qui dolorem accusantium voluptas voluptatem ipsum. Quo facere iusto quia accusamus veniam id explicabo et aut.',
-  },
-  {
-    id: 3,
-    date: '4d ago',
-    userId: 3,
-    body: 'Expedita consequatur sit ea voluptas quo ipsam recusandae. Ab sint et voluptatem repudiandae voluptatem et eveniet. Nihil quas consequatur autem. Perferendis rerum et.',
-  },
-]
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
@@ -63,10 +38,6 @@ function classNames(...classes) {
 
 
 export function PrimitivePage({primitive, ...props}) {
-    const { id } = useParams();
-    if( primitive === undefined && id){
-      primitive = mainstore.primitive(isNaN(id) ? id : parseInt(id))
-    }
     //let metadata = primitive.metadata
     let task = primitive.originTask
     //let origin = task && (primitive.originId !== task.id) ? primitive.origin : undefined
@@ -108,11 +79,7 @@ export function PrimitivePage({primitive, ...props}) {
     const setShowWorkingPane = useCallback((value) => {
       if( value === false && hasDocumentViewer){value = true}
       setShowWorkingPaneReal(value)
-      if( props.setWidePage ){
-        const fullScreenExplore = PrimitiveConfig.pageview[primitive.type]?.defaultWide ?? doFullScreenExplore(value) 
-        props.setWidePage( fullScreenExplore ? "always" : value )
-      }
-    })
+    }, [hasDocumentViewer])
 
     useDataEvent("relationship_update set_field set_parameter", primitive.id, updateRelationships)
 
@@ -174,6 +141,12 @@ export function PrimitivePage({primitive, ...props}) {
       }
     },[componentView])
 
+    let page = useRef()
+    let header = useRef()
+
+    if (!primitive) {
+      return null;
+    }
 
 
     const setLocalMetric = (id)=>{
@@ -182,8 +155,6 @@ export function PrimitivePage({primitive, ...props}) {
     }
 
 
-    let page = useRef()
-    let header = useRef()
 
     let outcomesList = primitive.isTask ? primitive.primitives.outcomes.allUniqueEvidence : primitive.primitives.origin.allUniqueEvidence
     
@@ -383,23 +354,6 @@ export function PrimitivePage({primitive, ...props}) {
       )
     }
   
-  if( primitive?.type === "page" ){
-    return <PageView primitive={primitive}/>
-  }
-
-  if( primitive?.type === "working" ){
-    return <AnalysisPage primitive={primitive}/>
-  }
-  if(primitive?.type === "flow"  ){
-    //return <FlowPage primitive={primitive}/>
-    return <div className={`h-[calc(100vh_-_4em)] p-4`}>
-              <BoardViewer primitive={primitive}/>
-            </div>
-  }
-  if( primitive?.type === "flowinstance"  ){
-    return <FlowInstancePage primitive={primitive}/>
-  }
-
   return (
     <>
       <div 

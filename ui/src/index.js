@@ -3,10 +3,23 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import { HeroUIProvider } from '@heroui/react';
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+const rootElement = document.getElementById('root');
+
+if (!rootElement) {
+    throw new Error('Failed to find the root element for React mounting.');
+}
+
+//document.documentElement.classList.add('dark');
+
+const root = ReactDOM.createRoot(rootElement);
 root.render(
-    <App />
+    <HeroUIProvider>
+        <main className="text-foreground bg-background">
+            <App />
+        </main>
+    </HeroUIProvider>
 );
 
 // If you want to start measuring performance in your app, pass a function
