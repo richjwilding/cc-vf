@@ -344,7 +344,6 @@ export default function ApplicationLayout({
       <div className="border-t border-default-200 px-6 py-5">
         <Dropdown
           placement="top"
-          onAction={(key) => handleUserAction(key, closeDrawer)}
         >
           <DropdownTrigger>
             <Button variant="light" className="w-full justify-start gap-3">
@@ -364,7 +363,10 @@ export default function ApplicationLayout({
               </div>
             </Button>
           </DropdownTrigger>
-          <DropdownMenu aria-label="Profile actions" variant="flat">
+          <DropdownMenu 
+              onAction={(key) => handleUserAction(key, closeDrawer)}
+              aria-label="Profile actions" 
+              variant="flat">
             <DropdownItem key="account">Account settings</DropdownItem>
             <DropdownItem key="logout" color="danger">
               Log out
@@ -429,7 +431,7 @@ export default function ApplicationLayout({
               <div className="rounded-lg border border-default-200 bg-default-100 px-3 py-1 text-xs text-default-500">
                 Credits: <span className="font-semibold text-default-700">{creditsAvailable}</span>
               </div>
-              <Dropdown onAction={(key) => handleUserAction(key)} placement="bottom-end">
+              <Dropdown>
                 <DropdownTrigger>
                   <Button isIconOnly variant="light" className="border border-default-200">
                     <Avatar
@@ -440,7 +442,7 @@ export default function ApplicationLayout({
                     />
                   </Button>
                 </DropdownTrigger>
-                <DropdownMenu aria-label="Profile actions" variant="flat">
+                <DropdownMenu onAction={(key) => handleUserAction(key)} placement="bottom-end" aria-label="Profile actions" variant="flat">
                   <DropdownItem key="account">Account settings</DropdownItem>
                   <DropdownItem key="logout" color="danger">
                     Log out
