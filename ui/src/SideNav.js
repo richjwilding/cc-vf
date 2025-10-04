@@ -353,7 +353,7 @@ const mainMenu = navigation.map((item) => (
               <ChevronDownIcon className={`h-6 w-6 ${pageDetailPane ? "rotate-180" : ""}`} aria-hidden="true" />
             </button>}
               <div className="flex flex-1">
-                {primitive && <PrimitiveCard.Banner primitive={primitive} small showMenu={true} showStateAction={false}  className='pl-4 pr-6 w-full '/>}
+                {primitive && <PrimitiveCard.CompactBanner primitive={primitive} showMenu={true} showStateAction={false}  className='pl-4 pr-6 w-full '/>}
               <PrimitiveCard.ProcessingBase primitive={primitive}/>
               </div>
               <div className="flex items-center">

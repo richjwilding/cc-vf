@@ -1,19 +1,15 @@
-import HierarchyView from "./HierarchyView"
 import MainStore from "./MainStore"
-import PrimitiveExplorer from "./PrimitiveExplorer"
 import ProximityView from "./ProximityView"
-import { PrimitiveCard } from './PrimitiveCard';
+import CardGrid from "./CardGrid"
 import { useEffect, useMemo, useState } from "react";
 import DropdownButton from "./DropdownButton";
 import { HeroIcon } from "./HeroIcon";
-import { ArrowDownLeftIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon, RectangleGroupIcon } from "@heroicons/react/24/outline";
+import { ArrowDownLeftIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon } from "@heroicons/react/24/outline";
 import { InputPopup } from "./InputPopup";
 
 
 const views = [
     {id: "cards", icon: <HeroIcon icon='LargeGrid' className="w-5 h-5"/>, title: "Explorer view", embed_close:true},
-    {id: "explore", icon: <RectangleGroupIcon className="w-5 h-5"/>, title: "Segment view", sNoun: "segment", embed_close:true},
-    {id: "cluster", icon: <HeroIcon icon='Nest' className="w-5 h-5"/>, title: "Hierarchy view", sNoun: "hierarchy"},
     {id: "proximity", icon: <HeroIcon icon='FABullseye' className="w-5 h-5"/>, title: "Proximity view", sNoun: "proximity"},
 ]
 
@@ -40,56 +36,40 @@ export default function ViewBase({primitive, ...props}){
                             <DropdownButton noBorder icon={<ArrowsPointingInIcon className="w-5 h-5"/>} onClick={props.closeButton} flat className={`hover:text-ccgreen-800 hover:shadow-md`}/>
                         </div>
 
-    const [showViewPane, setShowViewPane] = useState(false)
     const [view, setView] = useState( primitive?.referenceParameters?.viewMode ?? "cards")
     const [segmentView, setSegmentView] = useState(loadSegmentView(primitive?.referenceParameters?.viewMode ?? "cards") )
     const [manualInputPrompt, setManualInputPrompt] = useState(false)
 
     useEffect(()=>{
         setSegmentView( loadSegmentView( view ) )
-    },[primitive?.id])
+    },[primitive?.id, view])
+
+    useEffect(()=>{
+        const storedView = primitive?.referenceParameters?.viewMode ?? "cards"
+        const allowed = views.map((d)=>d.id)
+        const next = allowed.includes(storedView) ? storedView : "cards"
+        if( next !== view){
+            setView(next)
+        }
+    }, [primitive?.id, primitive?.referenceParameters?.viewMode, view])
 
     const content = useMemo(()=>{
-        console.log(`REDO CONTENT ${view} ${primitive?.plainId}`)
-        console.log(segmentView)
-        setView( primitive?.referenceParameters?.viewMode ?? "cards" )
-
-
-        return <>
-                {view === "cards" &&
-                    <PrimitiveExplorer
-                        key='explore_cards'
-                        closeButton={closeButton}
-                        primitive={primitive}
+        if( view === "proximity" && segmentView?.picked ){
+            return <ProximityView
+                        key='proximity'
+                        list={segmentView.list}
+                        primitive={segmentView.picked}
                     />
-                }
-                {view === "explore" && segmentView?.picked &&
-                    <PrimitiveExplorer
-                        key='explore'
-                        closeButton={closeButton}
-                        list={segmentView.list}
-                        primitive={segmentView.picked}
-                        asSegment={segmentView.list !== undefined}
-                    />
-                }
-                {view === "cluster" && segmentView?.picked && 
-                    <HierarchyView
-                        key='cluster'
-                        list={segmentView.list}
-                        primitive={segmentView.picked}
-                />}
-                {view === "proximity" && segmentView?.picked && 
-                    <ProximityView
-                        key='priximity'
-                        list={segmentView.list}
-                        primitive={segmentView.picked}
-                />}
-        </>
+        }
 
-    }, [view, primitive?.id, segmentView?.picked, segmentView?.list])
+        return <div key='cards' className="relative w-full h-full bg-white rounded-md">
+            {props.closeButton && closeButton}
+            <div className="w-full h-full overflow-y-auto">
+                <CardGrid primitive={primitive} className="p-4"/>
+            </div>
+        </div>
 
-
-
+    }, [closeButton, primitive, props.closeButton, segmentView?.list, segmentView?.picked, view])
 
     const segmentOptions = useMemo(()=>{
         const segemnts = primitive.primitives.origin.allSegment
@@ -132,10 +112,11 @@ export default function ViewBase({primitive, ...props}){
         primitive.setField(`referenceParameters.segmentView`, d.id)
     }
 
-    const selectView = (view)=>{
-        setView(views[view].id)
-        primitive.setField(`referenceParameters.viewMode`, views[view].id)
-        loadSegmentView( views[view].id )
+    const selectView = (idx)=>{
+        const nextView = views[idx].id
+        setView(nextView)
+        primitive.setField(`referenceParameters.viewMode`, nextView)
+        setSegmentView(loadSegmentView( nextView ))
     }
 
     const buildSegment2 = ()=>{

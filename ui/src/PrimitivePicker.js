@@ -349,7 +349,7 @@ function ParentLinksManager({mode, ...props}) {
               <div className="hidden h-96 w-2/5 flex-none flex-col overflow-y-auto sm:flex">
                 <div className="flex flex-col py-2 px-6 border-t-[1px] border-gray-100 grow overflow-y-scroll">
                   <PrimitiveCard.Banner primitive={activeOption}/>
-                  <PrimitiveCard primitive={activeOption} disableHover={true} showId={false}/>
+                  <PrimitiveCard.ModalPreview primitive={activeOption} showId={false}/>
                 </div>
                 <div className="flex-auto p-6 space-y-4 border-t-[1px] border-gray-100 grow-0 shrink-0">
                   {(activeOption.id !== props.root.id) && !activeOption.metadata.isAggregation && 
@@ -426,7 +426,7 @@ export default function PrimitivePicker({mode, ...props}) {
               <div className="hidden h-96 w-2/5 flex-none flex-col overflow-y-auto sm:flex">
                 <div className="flex flex-col py-2 px-6 border-t-[1px] border-gray-100 grow overflow-y-scroll">
                   <PrimitiveCard.Banner primitive={activeOption}/>
-                  <PrimitiveCard primitive={activeOption} showId={false}/>
+                  <PrimitiveCard.ModalPreview primitive={activeOption} disableHover={false} showId={false}/>
                 </div>
                 <div className="flex flex-auto p-6 border-t-[1px] border-gray-100 grow-0 shrink-0">
                   <button

@@ -106,8 +106,8 @@ export function PrimitivePopup({contextOf, primitive, setPrimitive, ...props}){
                                 transition ={{duration: 0.3} }
                                 className='bg-white'
                                 >
-                                <PrimitiveCard.Banner primitive={primitive} small={true} showLink={true}/>
-                                <PrimitiveCard variant={false} primitive={primitive} disableHover={true} showEdit={true} hideTitle={true} hideMenu hideCover/>
+                                <PrimitiveCard.CompactBanner primitive={primitive} showLink={true}/>
+                                <PrimitiveCard.ModalPreview primitive={primitive} showEdit hideTitle hideCover/>
                             </motion.div>
                             <div className={clsx(["flex w-full @container"])}>
                               {primitive.summary && 

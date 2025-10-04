@@ -1,12 +1,10 @@
-import HierarchyView from "./HierarchyView"
 import MainStore from "./MainStore"
-import PrimitiveExplorer from "./PrimitiveExplorer"
 import ProximityView from "./ProximityView"
 import { PrimitiveCard } from './PrimitiveCard';
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import DropdownButton from "./DropdownButton";
 import { HeroIcon } from "./HeroIcon";
-import { ArrowDownCircleIcon, ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, DocumentArrowDownIcon, MinusCircleIcon, PlusCircleIcon, PlusIcon, RectangleGroupIcon } from "@heroicons/react/24/outline";
+import { ArrowDownCircleIcon, ArrowDownLeftIcon, ArrowUpTrayIcon, ArrowsPointingInIcon, ChevronLeftIcon, ChevronRightIcon, DocumentArrowDownIcon, MinusCircleIcon, PlusCircleIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { InputPopup } from "./InputPopup";
 import Panel from "./Panel";
 import PrimitiveReport from "./PrimitiveReport";
@@ -482,7 +480,15 @@ export default function ReportViewExporter({primitive, ...props}){
                     "border-r shrink-0 max-h-[inherit] flex flex-col place-content-between"
                 ].join(" ")}>
                 <div className="overflow-y-scroll space-y-2 p-1">
-                    {targetList.map((d)=><PrimitiveCard variant={false} primitive={d} compact onClick={()=>setViewerPick(d)} showExpand onEnter={()=>mainstore.sidebarSelect(d)} className={d.id === targetList?.id ? "!bg-ccgreen-100 !border-ccgreen-200 !border" : "!border !border-gray-50"}/>)}
+                    {targetList.map((d)=>(
+                        <PrimitiveCard.SelectableListItem
+                            key={d.id ?? d.plainId}
+                            primitive={d}
+                            isActive={d === activeTarget}
+                            onSelect={setViewerPick}
+                            onEnter={()=>mainstore.sidebarSelect(d)}
+                        />
+                    ))}
                 </div>
                 <div className='shrink-0 grow-0'>
                     <Panel.MenuButton title="Export" className='w-full' action={exportAll}/>

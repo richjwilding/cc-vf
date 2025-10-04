@@ -48,15 +48,14 @@ export default function VFTable({primitive,...props}){
                                         }
                             >
                             {hypothesis_list.map((d)=>{
-                                return <PrimitiveCard 
-                                            fields={['important,title']} 
-                                            primitive={d} 
-                                            border={!asTable} 
-                                            textSize='xs' 
-                                            compact 
+                                return <PrimitiveCard.MatrixItem
+                                            fields={['important,title']}
+                                            primitive={d}
+                                            border={!asTable}
+                                            textSize='xs'
                                             onClick={()=>MainStore().sidebarSelect(d)}
                                             className={
-                                                asTable 
+                                                asTable
                                                     ? `my-1 mr-1 !px-1 !pt-0 !pb-1`
                                                     : `my-2 mx-4 max-w-[20rem]`
                                             }/>
@@ -69,15 +68,14 @@ export default function VFTable({primitive,...props}){
                                     }
                             >
                             {activityList.map((d)=>{
-                                return <PrimitiveCard 
-                                            fields={['title','important']} 
-                                            primitive={d} 
-                                            border={!asTable} 
-                                            textSize='xs' 
+                                return <PrimitiveCard.MatrixItem
+                                            fields={['title','important']}
+                                            primitive={d}
+                                            border={!asTable}
+                                            textSize='xs'
                                             onClick={()=>MainStore().sidebarSelect(d)}
-                                            compact 
                                             className={
-                                                asTable 
+                                                asTable
                                                     ? `my-0.5 mr-1`
                                                     : `my-2 mx-4 max-w-[20rem]`
                                             }/>

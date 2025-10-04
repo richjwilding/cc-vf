@@ -134,7 +134,7 @@ export default function EvidenceExplorer({primitive, ...props}){
                                                 color = 'ccpurple'
                                             }
                                            // return <div style={{width: `${sz}em`, height: `${sz}em`, borderRadius:`${sz}em`}} className={`bg-${color}-400 border-4 border-white shade-lg m-1`}></div>
-                                            return <PrimitiveCard key={item.id} noEvents={true} showAsSecondary={"small"} fieldsInline={false} primitive={item} compact={true} border={true} showOriginInfo={originFields} fields={fields} className='min-w-[16em] max-w-[16em] m-2'/>
+                                            return <PrimitiveCard.SecondaryGridItem key={item.id} noEvents primitive={item} border={true} showOriginInfo={originFields} fields={fields} className='min-w-[16em] max-w-[16em] m-2'/>
                                         })}
                                     </div>
                         })}
