@@ -531,12 +531,12 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
         const providerInfo = integrationProviders?.find((entry) => entry.name === providerName);
 
         content = (
-            <div className="flex flex-col space-y-4 px-3 pb-3">
+            <div className="flex flex-col space-y-4 py-3">
                 {activeInfo}
                 <div className="rounded-lg border border-default-200 bg-default-100/50 p-4">
                     <h3 className="text-base font-semibold text-foreground">Integration Configuration</h3>
                     <p className="mt-1 text-sm text-default-500">
-                        Configure how this external primitive connects to its integration provider.
+                        Configure how settings for this integration provider.
                     </p>
                     <ExternalPrimitiveConfigurator
                         primitive={frame}

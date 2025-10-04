@@ -391,7 +391,7 @@ export function PrimitivePage({primitive, ...props}) {
           <div key='content' 
             className={
               [
-                'mt-8 grid sm:px-6 ',
+                showWorkingPane === "board" ? "" : 'mt-8 grid sm:px-6 ',
                 fullScreenExplore ? "" :"gap-6",
                 showWorkingPane 
                   ? "relative grid-cols-1 lg:grid-cols-[1fr_1fr_min-content] 2xl:grid-cols-[repeat(2,min-content)_auto_min-content] 2xl:grid-rows-[min-content_1fr] " 
@@ -523,7 +523,7 @@ export function PrimitivePage({primitive, ...props}) {
                   style={{minWidth:0, minHeight:0}} 
                   className={
                     fullScreenExplore
-                      ? `h-[calc(100vh_-_8em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky ${props.widePage ? "2xl:top-[2em]" : "2xl:top-[6em]"} row-span-1 2xl:row-span-2`
+                      ? `h-[calc(100vh_-_3.5rem)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky ${props.widePage ? "2xl:top-[2em]" : "2xl:top-[6em]"} row-span-1 2xl:row-span-2`
                       : `h-[60vh] 2xl:h-[calc(100vh_-_10em)] col-start-1 lg:col-span-2 2xl:col-start-3 2xl:col-span-1 row-start-2 2xl:row-start-1 2xl:sticky ${props.widePage ? "2xl:top-[2em]" : "2xl:top-[6em]"} row-span-1 2xl:row-span-2`
                     }
                 >

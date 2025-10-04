@@ -3225,9 +3225,9 @@ export default function BoardViewer({primitive,...props}){
         activeFlowInstanceId: primitive.type === "flow" ? myState.mainFlowInstance?.id : undefined
     }
 
-    return <div className="flex w-full h-full bg-gray-100 space-x-4 overflow-hidden p-1">
+    return <div className="flex w-full h-full bg-gray-100 overflow-hidden">
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
-            {dockPaneInfo &&  <div className='overflow-y-scroll shrink-0 bg-white rounded-lg shadow w-[24rem] xl:w-[32rem] 6xl:w-[40rem] py-2 px-3 flex-col flex'>
+            {dockPaneInfo &&  <div className='overflow-y-scroll shrink-0 bg-white w-[24rem] xl:w-[32rem] 6xl:w-[40rem] py-3 px-3 flex-col flex'>
                 <Tabs fullWidth variant="solid" selectedKey={panelTab} onSelectionChange={((id)=>setPanelTab(id))}>
                     <Tab key="info" title="Inspector"/>
                     <Tab key="ai" title="SENSE AI"/>
@@ -3254,7 +3254,7 @@ export default function BoardViewer({primitive,...props}){
                         </div>
                     }
             </div>}
-            <div className="flex relative w-full border h-full @container rounded-lg shadow overflow-clip" onDrop={handleDropNewPrimitive} onDragOver={(e)=>e.preventDefault()}>
+            <div className="flex relative w-full h-full @container overflow-clip" onDrop={handleDropNewPrimitive} onDragOver={(e)=>e.preventDefault()}>
                 {!dockPaneInfo && <div key='chatbar' className={clsx([
                     'absolute bg-white border border-gray-200 bottom-4 space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
                     agentStatus.activeChat ? 'max-h-[80vh] w-[40vw] 4xl:max-w-3xl min-w-[24rem]' : "w-96 max-h-[80vh]"
@@ -3302,11 +3302,11 @@ export default function BoardViewer({primitive,...props}){
                     {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
                     {myState.createFromActivePin && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={createElementFromActivePin} flat placement='left-start' />}
                 </div>}
-                <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#f2f2f4"}}>
+                <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#f1f1f3"}}>
                     <InfiniteCanvas 
                                     primitive={primitive}
                                     board
-                                    background="#f2f2f4"
+                                    background="#f1f1f3"
                                     ref={setCanvasRef}
                                     ignoreAfterDrag={true}
                                     highlights={{

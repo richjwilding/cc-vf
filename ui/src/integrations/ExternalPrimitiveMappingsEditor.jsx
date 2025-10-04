@@ -18,6 +18,7 @@ import {
 import toast from 'react-hot-toast';
 import CategoryIdSelector from '../@components/CategoryIdSelector.jsx';
 import MainStore from '../MainStore';
+import { Icon } from '@iconify/react/dist/iconify.js';
 
 const mainstore = MainStore();
 
@@ -409,11 +410,11 @@ export default function ExternalPrimitiveMappingsEditor({ primitive, availableFi
           <div>
             <h4 className="text-base font-semibold text-foreground">Record mappings</h4>
             <p className="text-sm text-default-500">
-              Create child primitives for each incoming record. You can add multiple mappings and reuse record fields across them.
+              Create objects for each incoming record. You can add multiple mappings and reuse record fields across them.
             </p>
           </div>
-          <Button size="sm" variant="bordered" onPress={addMapping}>
-            Add mapping
+          <Button size="sm" variant="light" onPress={addMapping} isIconOnly={true} radius='full'>
+            <Icon icon="material-symbols:add-2" className='w-5 h-5'/>
           </Button>
         </div>
       </div>

@@ -379,7 +379,6 @@ export default function ApplicationLayout({
 
   const outletElement = children ?? <Outlet context={{ widePage }} />;
 
-  const pageTitle = layoutPrimitive?.title ?? "";
 
   return (
     <div className="flex h-screen w-full bg-gray-50">
@@ -412,20 +411,27 @@ export default function ApplicationLayout({
 
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {isFullWidth ? (
-          <header className="sticky top-0 z-40 flex h-14 w-full items-center justify-between border-b border-default-200 bg-white/90 px-4 backdrop-blur">
-            <div className="flex items-center gap-3">
+          <header className="sticky top-0 z-40 flex h-14 w-full items-center justify-between border-b border-default-200 bg-white/90 px-2">
+            <div className="flex items-center space-x-2 h-full">
               <Button
                 isIconOnly
                 variant="light"
-                size="sm"
-                className="border border-default-200"
+                size="lg"
+                radius="full"
+                className="p-1"
                 onPress={() => setIsDrawerOpen(true)}
               >
-                <Bars3Icon className="h-5 w-5" />
+                <Logo/>
               </Button>
-              <span className="text-sm font-medium text-default-600">
-                {pageTitle || "Navigation"}
-              </span>
+              <Divider orientation="vertical"/>
+              <div className="flex flex-col space-y-0.5">
+                <span className="text-lg font-bold text-default-700">
+                  {layoutPrimitive?.title ?? ""}
+                </span>
+                <span className="text-sm font-medium text-default-500">
+                  {layoutPrimitive?.displayType} #{layoutPrimitive?.plainId ?? ""}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="rounded-lg border border-default-200 bg-default-100 px-3 py-1 text-xs text-default-500">
