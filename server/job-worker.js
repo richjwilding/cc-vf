@@ -150,6 +150,8 @@ async function getQueueObject(type) {
             return (await import('./brightdata_queue.js'))
         case 'flow':
             return (await import('./flow_queue.js'))
+        case 'integration':
+            return (await import('./integration_queue.js'))
         default:
             throw new Error(`Unknown queue type: ${type}`);
     }

@@ -1,0 +1,477 @@
+import { getLogger } from '../logger.js';
+import Category from '../model/Category.js';
+import IntegrationAccount from '../model/IntegrationAccount.js';
+import Primitive from '../model/Primitive.js';
+import {
+  createPrimitive,
+} from '../SharedFunctions.js';
+
+const logger = getLogger('integrations', 'debug');
+
+const registry = new Map();
+
+const EXTERNAL_RECORD_CATEGORY_ID = Number(process.env.EXTERNAL_RECORD_CATEGORY_ID || 16000);
+
+export class IntegrationProvider {
+  constructor({ name, title, scopes = [], description } = {}) {
+    if (!name) {
+      throw new Error('IntegrationProvider requires a name');
+    }
+    this.name = name;
+    this.title = title ?? name;
+    this.scopes = scopes;
+    this.description = description;
+  }
+
+  describe() {
+    return {
+      name: this.name,
+      title: this.title,
+      scopes: this.scopes,
+      description: this.description,
+    };
+  }
+
+  getAuthorizationUrl() {
+    throw new Error('getAuthorizationUrl not implemented');
+  }
+
+  async exchangeCodeForToken() {
+    throw new Error('exchangeCodeForToken not implemented');
+  }
+
+  async refreshToken() {
+    throw new Error('refreshToken not implemented');
+  }
+
+  async ensureAccessToken(account) {
+    if (!account) {
+      throw new Error('Integration account missing');
+    }
+    if (!account.expiresAt) {
+      return account;
+    }
+    const expiresAt = new Date(account.expiresAt).getTime();
+    const now = Date.now();
+    if (Number.isFinite(expiresAt) && expiresAt - now > 60 * 1000) {
+      return account;
+    }
+    if (!account.refreshToken) {
+      return account;
+    }
+    const tokens = await this.refreshToken(account.refreshToken, account);
+    if (!tokens?.accessToken) {
+      throw new Error('Unable to refresh integration token');
+    }
+    account.accessToken = tokens.accessToken;
+    if (tokens.refreshToken) {
+      account.refreshToken = tokens.refreshToken;
+    }
+    if (tokens.expiresAt) {
+      account.expiresAt = tokens.expiresAt instanceof Date
+        ? tokens.expiresAt
+        : new Date(tokens.expiresAt);
+    } else if (tokens.expiresIn) {
+      account.expiresAt = new Date(Date.now() + Number(tokens.expiresIn) * 1000);
+    }
+    if (tokens.scope) {
+      account.scope = Array.isArray(tokens.scope) ? tokens.scope : String(tokens.scope).split(' ');
+    }
+    if (tokens.metadata) {
+      account.metadata = { ...(account.metadata ?? {}), ...tokens.metadata };
+    }
+    await account.save();
+    return account;
+  }
+
+  async fetchRecords() {
+    throw new Error('fetchRecords not implemented');
+  }
+}
+
+export function registerIntegration(provider) {
+  if (!(provider instanceof IntegrationProvider)) {
+    throw new Error('registerIntegration expects an IntegrationProvider instance');
+  }
+  registry.set(provider.name, provider);
+  logger.info(`Registered integration provider ${provider.name}`);
+  return provider;
+}
+
+export function getIntegration(name) {
+  return registry.get(name);
+}
+
+export function listIntegrations() {
+  return Array.from(registry.values()).map((provider) => provider.describe());
+}
+
+export async function ensureExternalRecordCategory() {
+  let category = await Category.findOne({ id: EXTERNAL_RECORD_CATEGORY_ID });
+  if (!category) {
+    category = await Category.create({
+      id: EXTERNAL_RECORD_CATEGORY_ID,
+      title: 'External Data Record',
+      description: 'Raw data captured from connected integrations.',
+      icon: 'CloudArrowDownIcon',
+      parameters: {
+        integrationRecord: true,
+      },
+    });
+  }
+  return category;
+}
+
+function mergeDeep(target, source) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return target;
+  }
+  const output = target || {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      output[key] = mergeDeep(output[key] ?? {}, value);
+    } else if (value !== undefined) {
+      output[key] = value;
+    }
+  }
+  return output;
+}
+
+function setDeep(target, path, value) {
+  if (value === undefined) {
+    return;
+  }
+  const segments = Array.isArray(path) ? path : String(path).split('.');
+  let node = target;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const seg = segments[i];
+    if (!node[seg] || typeof node[seg] !== 'object') {
+      node[seg] = {};
+    }
+    node = node[seg];
+  }
+  node[segments.at(-1)] = value;
+}
+
+function extractRecordValue(record, source) {
+  if (source === undefined || source === null) {
+    return undefined;
+  }
+  if (typeof source === 'string') {
+    if (source.startsWith('$')) {
+      switch (source) {
+        case '$recordId':
+          return record.recordId;
+        case '$uniqueValue':
+          return record.uniqueValue ?? record.externalId ?? record.recordId;
+        case '$updatedAt':
+          return record.updatedAt?.toISOString?.() ?? null;
+        case '$createdAt':
+          return record.createdAt?.toISOString?.() ?? null;
+        case '$fields':
+          return record.fields;
+        default:
+          break;
+      }
+    }
+    if (source.includes('.')) {
+      return source.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), record);
+    }
+    return record.fields?.[source];
+  }
+  if (Array.isArray(source)) {
+    return source.reduce((acc, key) => (acc == null ? acc : acc[key]), record);
+  }
+  if (typeof source === 'object') {
+    const value = extractRecordValue(record, source.path ?? source.field);
+    if ((value === undefined || value === null) && source.default !== undefined) {
+      return source.default;
+    }
+    if (source.transform === 'date' && value) {
+      return new Date(value).toISOString();
+    }
+    if (source.transform === 'number' && value !== undefined && value !== null) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : undefined;
+    }
+    if (source.transform === 'boolean' && value !== undefined && value !== null) {
+      return Boolean(value);
+    }
+    return value;
+  }
+  return source;
+}
+
+function buildRecordTitle(record, config) {
+  const candidate = extractRecordValue(record, config?.titleField);
+  if (typeof candidate === 'string' && candidate.trim()) {
+    return candidate.trim();
+  }
+  if (record.title && record.title.trim()) {
+    return record.title.trim();
+  }
+  const fallback = record.uniqueValue ?? record.externalId ?? record.recordId;
+  return `Record ${fallback}`;
+}
+
+async function findMappedChildPrimitive(recordPrim, mappingKey) {
+  if (!mappingKey) {
+    return null;
+  }
+  const parentId = recordPrim._id?.toString?.() ?? recordPrim.id;
+  if (!parentId) {
+    return null;
+  }
+  const primitive = await Primitive.findOne({
+    [`parentPrimitives.${parentId}`]: { $in: ['primitives.origin'] },
+    'referenceParameters.integrationMappingKey': mappingKey,
+  });
+  if (primitive) {
+    return primitive;
+  }
+  const legacyId = recordPrim.resources?.integration?.children?.[mappingKey];
+  if (legacyId) {
+    return Primitive.findById(legacyId);
+  }
+  return null;
+}
+
+async function buildOrUpdateChildPrimitive(recordPrim, record, mapping) {
+  const mappingKey = mapping.key ?? `${mapping.type}:${mapping.referenceId}`;
+  if (!mapping.type || !mapping.referenceId) {
+    logger.warn('Skipping mapping without type/referenceId', { mapping });
+    return null;
+  }
+  const desiredData = {
+    workspaceId: recordPrim.workspaceId,
+    parent: recordPrim._id?.toString?.() ?? recordPrim.id,
+    paths: mapping.paths ?? ['origin'],
+    data: {
+      type: mapping.type,
+      referenceId: mapping.referenceId,
+      title: buildRecordTitle(record, mapping),
+      referenceParameters: {
+        integrationMappingKey: mappingKey,
+        externalRecordId: record.recordId ?? record.uniqueValue ?? record.externalId ?? null,
+      },
+    },
+  };
+  if (mapping.stateField) {
+    const stateValue = extractRecordValue(record, mapping.stateField);
+    if (stateValue) {
+      desiredData.data.state = stateValue;
+    }
+  }
+  if (mapping.fieldMap) {
+    for (const [targetPath, source] of Object.entries(mapping.fieldMap)) {
+      const value = extractRecordValue(record, source);
+      if (value !== undefined) {
+        setDeep(desiredData.data, targetPath, value);
+      }
+    }
+  }
+  if (mapping.staticFields) {
+    for (const [targetPath, value] of Object.entries(mapping.staticFields)) {
+      setDeep(desiredData.data, targetPath, value);
+    }
+  }
+
+  let childPrimitive = await findMappedChildPrimitive(recordPrim, mappingKey);
+
+  if (!childPrimitive) {
+    childPrimitive = await createPrimitive(desiredData);
+  } else {
+    if (desiredData.data.title) {
+      childPrimitive.title = desiredData.data.title;
+    }
+    if (desiredData.data.state) {
+      childPrimitive.state = desiredData.data.state;
+    }
+    const updatedRefParams = mergeDeep(childPrimitive.referenceParameters ?? {}, desiredData.data.referenceParameters ?? {});
+    childPrimitive.set('referenceParameters', updatedRefParams);
+    childPrimitive.markModified('referenceParameters');
+    await childPrimitive.save();
+  }
+
+  return {
+    mappingKey,
+    primitiveId: childPrimitive._id?.toString?.() ?? childPrimitive.id,
+  };
+}
+
+export async function syncExternalPrimitive(primitive, options = {}) {
+  const providerName = options.provider ?? primitive.referenceParameters?.provider;
+  if (!providerName) {
+    throw new Error('External primitive is missing a provider');
+  }
+  const provider = getIntegration(providerName);
+  if (!provider) {
+    throw new Error(`Integration provider '${providerName}' is not registered`);
+  }
+
+  const accountId = options.accountId
+    ?? primitive.referenceParameters?.integrationAccountId;
+  if (!accountId) {
+    throw new Error('No integration account configured for this primitive');
+  }
+
+  const account = await IntegrationAccount.findById(accountId);
+  if (!account) {
+    throw new Error('Integration account not found');
+  }
+  if (primitive.workspaceId && account.workspaceId
+    && primitive.workspaceId.toString() !== account.workspaceId.toString()) {
+    throw new Error('Integration account does not belong to the same workspace');
+  }
+
+  await provider.ensureAccessToken(account);
+
+  const sourceConfig = {
+    ...(primitive.referenceParameters?.source ?? {}),
+    ...(options.sourceOverride ?? {}),
+  };
+  if (!sourceConfig) {
+    throw new Error('External primitive is missing source configuration');
+  }
+
+  const since = options.since
+    ?? primitive.referenceParameters?.lastSyncedAt;
+
+  const fetchOptions = {
+    since,
+    filters: sourceConfig.filters ?? {},
+    maxRecords: options.maxRecords ?? sourceConfig.maxRecords,
+  };
+
+  const response = await provider.fetchRecords(account, sourceConfig, fetchOptions);
+  const records = response?.items ?? [];
+
+  if (!Array.isArray(records)) {
+    throw new Error('Integration provider returned an invalid record set');
+  }
+
+  const categoryId = primitive.referenceParameters?.recordCategoryId
+    ?? (await ensureExternalRecordCategory()).id;
+  const recordPrimitiveType = primitive.referenceParameters?.recordPrimitiveType ?? 'result';
+  const recordPaths = primitive.referenceParameters?.recordPaths ?? ['origin'];
+  const mappings = Array.isArray(primitive.referenceParameters?.mappings)
+    ? primitive.referenceParameters.mappings
+    : [];
+
+  let created = 0;
+  let updated = 0;
+  let latestTimestamp = since ? new Date(since).getTime() : 0;
+
+  for (const record of records) {
+    const rawUniqueValue = record.uniqueValue ?? record.externalId ?? record.recordId;
+    if (rawUniqueValue === undefined || rawUniqueValue === null || rawUniqueValue === '') {
+      logger.warn('Skipping record without an identifier');
+      continue;
+    }
+    const key = String(rawUniqueValue);
+
+    const parentId = primitive._id?.toString?.() ?? primitive.id;
+    let recordPrimitive;
+    if (parentId) {
+      recordPrimitive = await Primitive.findOne({
+        [`parentPrimitives.${parentId}`]: { $in: ['primitives.origin'] },
+        'referenceParameters.external.uniqueValue': key,
+      });
+      if (!recordPrimitive) {
+        recordPrimitive = await Primitive.findOne({
+          [`parentPrimitives.${parentId}`]: { $in: ['primitives.origin'] },
+          'referenceParameters.external.recordId': record.recordId,
+        });
+      }
+    }
+
+    const desiredTitle = buildRecordTitle(record, primitive.referenceParameters);
+
+    if (!recordPrimitive) {
+      recordPrimitive = await createPrimitive({
+        workspaceId: primitive.workspaceId,
+        parent: primitive._id?.toString?.() ?? primitive.id,
+        paths: recordPaths,
+        data: {
+          type: recordPrimitiveType,
+          referenceId: categoryId,
+          title: desiredTitle,
+          referenceParameters: {},
+        },
+      });
+      created += 1;
+    } else {
+      if (desiredTitle && recordPrimitive.title !== desiredTitle) {
+        recordPrimitive.title = desiredTitle;
+      }
+      updated += 1;
+    }
+
+    const referenceParameters = mergeDeep(recordPrimitive.referenceParameters ?? {}, {
+      external: {
+        provider: providerName,
+        recordId: record.recordId,
+        uniqueValue: key,
+        rawUniqueValue: rawUniqueValue ?? undefined,
+        updatedAt: record.updatedAt?.toISOString?.() ?? null,
+        createdAt: record.createdAt?.toISOString?.() ?? null,
+        fields: record.fields ?? {},
+        raw: record.raw ?? undefined,
+      },
+    });
+    recordPrimitive.set('referenceParameters', referenceParameters);
+    if (recordPrimitive.resources?.integration) {
+      recordPrimitive.set('resources.integration', undefined);
+      recordPrimitive.markModified('resources');
+    }
+    recordPrimitive.markModified('referenceParameters');
+    await recordPrimitive.save();
+
+    for (const mapping of mappings) {
+      try {
+        await buildOrUpdateChildPrimitive(recordPrimitive, record, mapping);
+      } catch (error) {
+        logger.error(`Failed to process mapping for record ${key}`, error);
+      }
+    }
+
+    if (record.updatedAt) {
+      const ts = new Date(record.updatedAt).getTime();
+      if (Number.isFinite(ts)) {
+        latestTimestamp = Math.max(latestTimestamp, ts);
+      }
+    }
+  }
+
+  const lastSyncedAt = Number.isFinite(latestTimestamp)
+    ? new Date(latestTimestamp).toISOString()
+    : new Date().toISOString();
+
+  primitive.set('referenceParameters.lastSyncedAt', lastSyncedAt);
+  primitive.markModified('referenceParameters');
+  if (response?.cursor !== undefined) {
+    if (response.cursor) {
+      primitive.set('referenceParameters.cursor', response.cursor);
+    } else {
+      primitive.set('referenceParameters.cursor', null);
+    }
+    primitive.markModified('referenceParameters');
+  }
+  primitive.set('referenceParameters.fetchedAt', new Date().toISOString());
+  primitive.markModified('referenceParameters');
+  if (primitive.resources?.integration) {
+    primitive.set('resources.integration', undefined);
+    primitive.markModified('resources');
+  }
+  await primitive.save();
+
+  return {
+    created,
+    updated,
+    processed: records.length,
+    lastSyncedAt,
+  };
+}
+
+// auto-register bundled providers
+import './providers/airtable.js';
