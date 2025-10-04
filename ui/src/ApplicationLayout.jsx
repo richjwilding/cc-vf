@@ -424,7 +424,7 @@ export default function ApplicationLayout({
                 <Logo/>
               </Button>
               <Divider orientation="vertical"/>
-              <div className="flex flex-col space-y-0.5">
+              <div className="flex flex-col space-y-0.5 pl-1">
                 <span className="text-lg font-bold text-default-700">
                   {layoutPrimitive?.title ?? ""}
                 </span>

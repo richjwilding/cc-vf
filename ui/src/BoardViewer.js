@@ -3227,7 +3227,7 @@ export default function BoardViewer({primitive,...props}){
 
     return <div className="flex w-full h-full bg-gray-100 overflow-hidden">
         {manualInputPrompt && <InputPopup key='input' cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
-            {dockPaneInfo &&  <div className='overflow-y-scroll shrink-0 bg-white w-[24rem] xl:w-[32rem] 6xl:w-[40rem] py-3 px-3 flex-col flex'>
+            {dockPaneInfo &&  <div className='overflow-y-scroll shrink-0 bg-white w-[24rem] xl:w-[32rem] 6xl:w-[40rem] py-3 px-3 flex-col flex border-r'>
                 <Tabs fullWidth variant="solid" selectedKey={panelTab} onSelectionChange={((id)=>setPanelTab(id))}>
                     <Tab key="info" title="Inspector"/>
                     <Tab key="ai" title="SENSE AI"/>
