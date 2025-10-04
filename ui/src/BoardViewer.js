@@ -358,8 +358,9 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
             view.underlying ? ` (${primitiveToRender.plainId})` : ""
           }`;
 
-    //const canvasMargin = view.inPage ? [0, 0, 0, 0] : (view.noTitle || view.inFlow) ? [0, 0, 0, 0] : [10, 10, 10, 10];
-    const canvasMargin = view.inPage ? [0, 0, 0, 0] :  [10, 10, 10, 10];
+    //const canvasMargin = view.inPage ? [0, 0, 0, 0] :  ["external","search"].includes(d.type) ? [0,0,0,0] : [10, 10, 10, 10];
+    const canvasMargin = view.inPage ? [0, 0, 0, 0] :  ["external","search"].includes(d.type) ? [0,0,0,0] : [10, 10, 10, 10];
+    const frameColor = PrimitiveConfig.typeConfig[d.type]?.render?.background
   
     // Optional indicator builder
     const indicators = undefined//view.primitive.flowElement ? () => buildIndicators(primitiveToRender, undefined, undefined, myState) : undefined;
@@ -400,6 +401,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
       isContainer: d.type === "page",
       pins,
       frameless,
+      frameColor,
       title,
       titleAlwaysPresent,
       indicators,
@@ -1040,16 +1042,15 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                 myState[stateId].widgetConfig = widgetConfig
                 didChange = true
             }else if( primitiveToPrepare.type=== "external"){
-
-                widgetConfig.showItems = showItems
+                widgetConfig.showItems = false
+                widgetConfig.allowShowItems = false
                 widgetConfig.title = basePrimitive.title
-                widgetConfig.icon = <HeroIcon icon='FARobot'/>
+                widgetConfig.imageUrl = "/api/companyLogo?domain=airtable.com"
                 widgetConfig.items = "results"
                 widgetConfig.content = `**Result:** ` + (primitiveToPrepare.getConfig.result ?? "")
                 myState[stateId].widgetConfig = widgetConfig
                 didChange = true
             }else if( primitiveToPrepare.type=== "action"){
-
                 widgetConfig.showItems = showItems
                 widgetConfig.title = basePrimitive.title
                 widgetConfig.icon = <HeroIcon icon='FARobot'/>

@@ -699,10 +699,10 @@ function getTextColor(hexColor) {
     return luminance > 0.5 ? 'black' : 'white';
 }
 
-function mixHexWithWhite(hex, opacity = 0.25) {
+export function mixHexWithWhite(hex, opacity = 0.25) {
     return mixHex(hex, "#ffffff", opacity)
 }
-function mixHex(hex, hex2, opacity = 0.25) {
+export function mixHex(hex, hex2, opacity = 0.25) {
     if( !hex || !hex2){
         return hex
     }
@@ -5649,16 +5649,16 @@ registerRenderer( {type: "type", id: "page", configs: "default"}, (primitive, op
 
 
 registerRenderer( {type: "type", id: "actionrunner", configs: "default"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, typeText: "Action", typeIcon: <HeroIcon icon='FARun'/>}))
-registerRenderer( {type: "type", id: "summary", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))
+registerRenderer( {type: "type", id: "summary", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, width:500, contentAsMarkdown: true,typeText: "Summary", typeIcon: <HeroIcon icon='FARun'/>}))
 registerRenderer( {type: "type", id: "categorizer", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Action", typeIcon: <HeroIcon icon='FARun'/>}))
-registerRenderer( {type: "type", id: "query", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Query", typeIcon: <HeroIcon icon='FARobot'/>}))
+registerRenderer( {type: "type", id: "query", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, width:500, contentAsMarkdown: true, typeText: "Query", typeIcon: <HeroIcon icon='FARobot'/>}))
 registerRenderer( {type: "type", id: "action", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Action", typeIcon: <HeroIcon icon='FARobot'/>}))
-registerRenderer( {type: "type", id: "external", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "External", typeIcon: <HeroIcon icon='FAPlug'/>}))
-registerRenderer( {type: "type", id: "search", configs: "default"}, renderDefaultActionPrimitive)
+registerRenderer( {type: "type", id: "external", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "External", gradient: true, color: "#a21caf", typeIcon: <HeroIcon icon='FAPlug'/>}))
+registerRenderer( {type: "type", id: "search", configs: "default"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, gradient: true}))
 
 function renderDefaultActionPrimitive(primitive, options){
         options.data ||= {}
-        const config = {width: 500, height: 100, ...options}
+        const config = {width: 400, height: 200, ...options}
         const g = new Konva.Group({
             id: primitive.id,
             x: config.x,
@@ -5669,16 +5669,23 @@ function renderDefaultActionPrimitive(primitive, options){
             minRenderSize : 0,
             name:"inf_track action_primitive inf_keep"
         })
+        const color = options.color ?? PrimitiveConfig.typeConfig[primitive.type]?.render?.background ?? "white"
         const r = new Konva.Rect({
             x: 0,
             y: 0,
             cornerRadius: 10,
             width: config.width,
             height: config.height,
-            fill: PrimitiveConfig.typeConfig[primitive.type]?.render?.background ?? "#fff"
+            fill: color
         })
+        if( options.gradient ){
+            r.fillPriority("linear-gradient")
+            r.fillLinearGradientStartPoint({ x: config.width / 2, y:config.height});
+            r.fillLinearGradientEndPoint({ x: config.width / 2.1, y:  0});
+            r.fillLinearGradientColorStops([0, mixHexWithWhite(color, 0.9), 0.06, mixHexWithWhite(color, 0.92), 0.15, "white"]);
+        }
     
-        let lx = 5, ly = 5
+        let lx = 9, ly = 9
         function addWidgetText(text, options = {}){
             if( options.x ){
                 lx = options.x
@@ -5723,8 +5730,19 @@ function renderDefaultActionPrimitive(primitive, options){
                     height: 48,
                     imageCallback: options.imageCallback
                 })
-            lx = 56
-            ly = 12
+            lx = 64
+            ly = 16
+        }else if( options.data.imageUrl){
+            g.add( imageHelper( options.data.imageUrl, {
+                x: lx,
+                y: ly,
+                size: 48,
+                center: true,
+                imageCallback: options.imageCallback,
+                placeholder: options.placeholder !== false
+            }) )
+            lx = 64
+            ly = 16
         }
 
         g.add(addWidgetText(options.data.title, {fontSize: 18, bold:true, lineFill: '#666'}))
@@ -5852,7 +5870,7 @@ function renderDefaultActionPrimitive(primitive, options){
                             })
         g.add(addWidgetText(`${options.typeText ?? "Search"} #${primitive.plainId}`, {color:"#555", fontSize: 11, x: 25, y: finalHeight- 18}))
 
-        if( true ){
+        if( options.data.allowShowItems !== false ){
             const label = new CustomText({text: "Show", color: "#eee", fontSize: 11, lineFill: "#3f6212", x: 4, y: 3})
             const button = new Konva.Group({
                 x: config.width - 46,

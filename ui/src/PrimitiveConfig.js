@@ -304,7 +304,7 @@ const PrimitiveConfig = {
                 useTerms: true
             },
             render:{
-                background: "#f7fee7",
+                background: "#059669",
                 accentBackground: "#3f6212"
             }
         },
@@ -332,6 +332,10 @@ const PrimitiveConfig = {
         "external": {
             needCategory:false,
             defaultTitle:false,
+            render:{
+                background: "#a21caf",
+                accentBackground: "#3f6212"
+            }
         },
     },
     types: ["hypothesis", 

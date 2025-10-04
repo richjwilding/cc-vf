@@ -2,7 +2,7 @@ import { Stage, Layer, Text, Rect, Group, FastLayer} from 'react-konva';
 import Konva from 'konva';
 import { Children, cloneElement, forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGesture } from '@use-gesture/react';
-import { RenderPrimitiveAsKonva, finalizeImages, renderIndicators } from './RenderHelpers';
+import { RenderPrimitiveAsKonva, finalizeImages, mixHex, renderIndicators } from './RenderHelpers';
 import { exportKonvaToPptx } from './PptHelper';
 import MainStore from './MainStore';
 import { AvoidLib } from 'libavoid-js';
@@ -71,7 +71,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const enablePages =  true
     const enableFlipping = true
     const enableNodePruning = true
-    const glowWidth = 6
 
     const scaleTriggers = {min: 0.1, max: 6}
 
@@ -497,6 +496,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 y: options.halfRingWidth,
                 width: 100,
                 height: 100,
+                ringColor: mixHex( options.frameColor, props.background, 0.7),
                 stroke: props.background,
                 strokeScaleEnabled: true,
                 cornerRadius: options.halfRingWidth * 2,
@@ -534,7 +534,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             strokeScaleEnabled: !options.flow,
             visible: props.board,
             strokeWidth: options.flow ? 1.5 : 3,
-            stroke: options.flow ? "#a0a0a0" : options.frameless ? "transparent" : "#d2d3cf",
+            stroke: options.frameColor ?? (options.flow ? "#a0a0a0" : options.frameless ? "transparent" : "#d2d3cf"),
             name:"frame_outline",
             id: `frame`,
         }) 
@@ -805,12 +805,12 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         let framePadding = options.canvasMargin ?? [5,5,5,5]
         let ringOffset = 0, halfRingWidth = 0
-        if( ( framePadding[0] + framePadding[1] + framePadding[2] + framePadding[3] ) > 0){
+        if( !options.frameLess){
             ringOffset = 8
             halfRingWidth = 5
         }
         
-        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill, frameless: options.frameless, flow: options.flow, ringOffset, halfRingWidth})
+        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill, frameColor: options.frameColor, frameless: options.frameless, flow: options.flow, ringOffset, halfRingWidth})
         if( frame ){
             const frameBorder = frame.border//node.find('#frame')?.[0]
             
@@ -3205,7 +3205,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             if( node.attrs?.name.includes("frame") ){
                 const existing = node.find('.ring')?.[0]
                 if( existing ){
-                    existing.stroke("#e1e1e1")
+                    existing.stroke(existing.attrs.ringColor ?? "#e1e1e1")
                     existing.strokeWidth( existing.strokeWidth() - 1)
                 }
             }
