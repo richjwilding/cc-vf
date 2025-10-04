@@ -71,6 +71,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     const enablePages =  true
     const enableFlipping = true
     const enableNodePruning = true
+    const glowWidth = 6
 
     const scaleTriggers = {min: 0.1, max: 6}
 
@@ -487,9 +488,28 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }) 
         target.add(frame)
 
+        let frameOffset = 0
+        let ring
+
+        if( options.ringOffset && options.halfRingWidth ){
+            ring = new Konva.Rect({
+                x: options.halfRingWidth,
+                y: options.halfRingWidth,
+                width: 100,
+                height: 100,
+                stroke: props.background,
+                strokeScaleEnabled: true,
+                cornerRadius: options.halfRingWidth * 2,
+                strokeWidth: (options.halfRingWidth * 2) - 1,
+                fill: props.background,
+                "name":"ring"
+            })
+            frameOffset = options.ringOffset
+            frame.add(ring)
+        }
         const frameBg = new Konva.Rect({
-            x: 0,
-            y:0,
+            x: frameOffset,
+            y: frameOffset,
             width: 1000,
             height: 10,
             fill: options.frameless ? "transparent" : options.bgFill ?? "#fafafa",
@@ -502,8 +522,8 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }) 
         frame.add(frameBg)
         const frameBorder = new Konva.Rect({
-            x: 0,
-            y:0,
+            x: frameOffset,
+            y: frameOffset,
             width: 1000,
             height: 10,
             strokeWidth: options.flow ? 1.0 : 0.5,
@@ -511,9 +531,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             dash: options.flow ? [8, 4] : undefined,
             //cornerRadius: 10,
             cornerRadius: options.flow ? 50 : options.frameless ? undefined : 10,
-            strokeScaleEnabled: false,
+            strokeScaleEnabled: !options.flow,
             visible: props.board,
-            stroke: options.flow ? "#a0a0a0" : options.frameless ? "transparent" : "#b8b8b8",
+            strokeWidth: options.flow ? 1.5 : 3,
+            stroke: options.flow ? "#a0a0a0" : options.frameless ? "transparent" : "#d2d3cf",
             name:"frame_outline",
             id: `frame`,
         }) 
@@ -529,6 +550,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             id: options.id ?? frameId,
             node: frame,
             border: frameBorder,
+            ring,
+            ringOffset: options.ringOffset,
+            halfRingWidth: options.halfRingWidth,
             bg: frameBg,
             x: options.x ?? 0,
             y: options.y ?? 0,
@@ -692,14 +716,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         
 
     }
-    function setupPins( frame, maxX, maxY ){
+    function setupPins( frame){
         if( props.showPins === false){
             return
         }
-        if( maxX === undefined ){
-            maxX = frame.node.attrs.width
-            maxY = frame.node.attrs.height
-        }
+        const ringOffset = frame.ringOffset ?? 0
+        let maxX = frame.node.attrs.width - ringOffset
+        let maxY = frame.node.attrs.height - ringOffset
         const spacingY = 16
         const size = 8
         const midY = maxY / 2
@@ -710,7 +733,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             output: false,
             data: {name: d.name, output: false},
             dir: 4,
-            x: d.internal ? (maxX - 1)  : 1,
+            x: d.internal ? (maxX - 1)  : ringOffset + 1,
             y: inputPinStart + (d.rIdx * spacingY) 
         }))
         frame.pins.output = frame.pins.output.map(d=>({
@@ -718,7 +741,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 output: true,
                 data: {name: d.name, output: true},
                 dir: 8,
-                x: d.internal ? 0 : maxX,
+                x: d.internal ? ringOffset : maxX,
                 //x: d.internal ? (1/maxX) : ((maxX - 1) / maxX) ,
                 y: outputPinStart + (d.rIdx * spacingY)
         }))
@@ -758,7 +781,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     }
                     frame.node.add(t)
                     t.position({
-                        x: (d.output && !d.internal) ? maxX + (size * 0.7) : n.x() -t.width() - (size * 0.7),
+                        x: (d.output && !d.internal) ? maxX + (ringOffset / 2) + (size * 0.7) : n.x() -t.width() - (size * 0.7),
                         y: d.y - 4
                     })
                     if(!d.output && !d.internal){
@@ -780,13 +803,18 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             removeRoutingForFrame( existing )
             myState.current.frames = myState.current.frames.filter(d=>d.id !== id) 
         }
-        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill, frameless: options.frameless, flow: options.flow})
+        let framePadding = options.canvasMargin ?? [5,5,5,5]
+        let ringOffset = 0, halfRingWidth = 0
+        if( ( framePadding[0] + framePadding[1] + framePadding[2] + framePadding[3] ) > 0){
+            ringOffset = 8
+            halfRingWidth = 5
+        }
+        
+        const frame = createFrame({id: id, x, y, s, bgFill: options.bgFill, frameless: options.frameless, flow: options.flow, ringOffset, halfRingWidth})
         if( frame ){
             const frameBorder = frame.border//node.find('#frame')?.[0]
-            let framePadding = [0,0,0,0]
             
             if( props.board ){
-                framePadding = options.canvasMargin ?? [5,5,5,5]
                 if( !options.frameless && title ){
 
                     const label = new Konva.Group({
@@ -802,7 +830,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         y:0,
                         width:18,
                         height:18,
-                        fill:"#fdfdfd"
+                        fill: props.background ?? "#ffffff"
                     }))
                     const titleText = new Konva.Text({
                         text: typeof(title) == "function" ? title() : title,
@@ -826,7 +854,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
             }
 
-            const rendered = items({imageCallback: processImageCallback, amimCallback: animationCallback, x: framePadding[3], y: framePadding[0], utils: options.utils})
+            const rendered = items({imageCallback: processImageCallback, amimCallback: animationCallback, x: framePadding[3] + ringOffset, y: framePadding[0] + ringOffset, utils: options.utils})
             framePadding = rendered?.attrs?.canvasMargin ?? framePadding
 
             const root = convertItems( rendered, frame.node)
@@ -843,21 +871,27 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             frame.isContainer = options.isContainer
             
             
+            if( frame.ring){
+                frame.ring.width(maxX + (ringOffset * 2) - (halfRingWidth * 2))
+                frame.ring.height(maxY+ (ringOffset * 2) - (halfRingWidth * 2))
+            }
             if( frame.bg){
+                frame.bg.position({x: ringOffset, y: ringOffset})
                 frame.bg.width(maxX)
                 frame.bg.height(maxY)
             }
             if( frameBorder){
+                frameBorder.position({x: ringOffset, y: ringOffset})
                 frameBorder.remove()
                 frameBorder.width(maxX)
                 frameBorder.height(maxY)
                 frame.node.add(frameBorder)
             }
-            frame.node.width(maxX)
-            frame.node.height(maxY)
+            frame.node.width(maxX + (ringOffset * 2))
+            frame.node.height(maxY + (ringOffset * 2))
             if( options.pins ){
                 frame.pins = options.pins 
-                setupPins(frame, maxX, maxY)
+                setupPins(frame)
             }
 
             if( options.indicators ){
@@ -1223,9 +1257,10 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 })
             }
         }
+        const o = frame.ringOffset
         frame.routing = {
             [fId]: {
-                shape: addShapeToRouter( fId, position.l, position.t, position.r, position.b, pins, !frame.routeInternal)
+                shape: addShapeToRouter( fId, position.l + o, position.t + o, position.r - o, position.b - o, pins, !frame.routeInternal)
             }
         }
 
@@ -1491,7 +1526,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         
        // const ovrFrame = d.id === "pin" ? {routing: {pin: {shape: myState.current.dragging.shapeForPin}}} : myState.current.frames.find(d2=>d2.id === d.id)
        
-       myState.current.routing.router.moveShape(d.id, {left: position.l, top: position.t, width: position.r - position.l, height: position.b - position.t})
+       const frame = myState.current.frames.find(d2=>d2.id === d.id)
+       const o = frame?.ringOffset ??  0
+       myState.current.routing.router.moveShape(d.id, {left: position.l + o, top: position.t + o, width: position.r - position.l - o, height: position.b - position.t - o})
 
        
     }
@@ -3165,6 +3202,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                 }
                 return
             }
+            if( node.attrs?.name.includes("frame") ){
+                const existing = node.find('.ring')?.[0]
+                if( existing ){
+                    existing.stroke("#e1e1e1")
+                    existing.strokeWidth( existing.strokeWidth() - 1)
+                }
+            }
+
             if( operation === "background"){
                 if( node.getClassName() === "Group"){
                     const bg = node.find('Rect')?.[0]
@@ -3194,6 +3239,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
         }
         function removeOverlay( node, label, operation){
+            if( node.attrs?.name.includes("frame") ){
+                const existing = node.find('.ring')?.[0]
+                if( existing ){
+                    existing.stroke( props.background )
+                    existing.strokeWidth( existing.strokeWidth() + 1)
+                }
+            }
             if( node.attrs?.name.includes("widget") || node.attrs?.name.includes("pin")){
                 const nodes = node.find ? node.find('.hover_target') : [node]
                 for(const d of nodes){
@@ -3316,9 +3368,17 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                     
                     for(const d of [cleared, found]){
                         if(!d){continue}
-                        const frame = d.findAncestor('.frame')
-                        const x1 = d.attrs.x + frame.attrs.x, y1 = d.attrs.y + frame.attrs.y
-                        const x2 = x1 + d.attrs.width, y2 = y1 + d.attrs.height
+                        let x1, y1,frame
+                        if( d.name() === "frame"){
+                          frame = d   
+                            x1 = frame.attrs.x
+                            y1 = frame.attrs.y
+                        }else{
+                            frame =  d.findAncestor('.frame')
+                            x1 = d.attrs.x + frame.attrs.x
+                            y1 = d.attrs.y + frame.attrs.y
+                        }
+                        const x2 = x1 + frame.attrs.width, y2 = y1 + frame.attrs.height
                         if( x1 < minX){minX = x1}
                         if( y1 < minY){minY = y1}
                         if( x2 > maxX){maxX = x2}

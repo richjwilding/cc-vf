@@ -206,7 +206,7 @@ class AirtableIntegration extends IntegrationProvider {
           account.accessToken = tokens.accessToken;
           if (tokens.refreshToken) {
             account.refreshToken = tokens.refreshToken;
-          }
+          }s
           if (tokens.expiresAt) {
             account.expiresAt = tokens.expiresAt;
           }

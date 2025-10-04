@@ -16,7 +16,7 @@ export {
 
 const logger = getLogger('integrations', 'debug');
 
-const EXTERNAL_RECORD_CATEGORY_ID = Number(process.env.EXTERNAL_RECORD_CATEGORY_ID || 16000);
+const EXTERNAL_RECORD_CATEGORY_ID = Number(process.env.EXTERNAL_RECORD_CATEGORY_ID || 157);
 
 export async function ensureExternalRecordCategory() {
   let category = await Category.findOne({ id: EXTERNAL_RECORD_CATEGORY_ID });
@@ -65,6 +65,48 @@ function setDeep(target, path, value) {
   node[segments.at(-1)] = value;
 }
 
+function getCaseInsensitiveProperty(container, key) {
+  if (!container || typeof container !== 'object') {
+    return undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(container, key)) {
+    return container[key];
+  }
+  if (typeof key !== 'string') {
+    return container[key];
+  }
+  const lowerKey = key.toLowerCase();
+  for (const existingKey of Object.keys(container)) {
+    if (existingKey.toLowerCase() === lowerKey) {
+      return container[existingKey];
+    }
+  }
+  return undefined;
+}
+
+function getCaseInsensitivePath(container, path) {
+  const segments = Array.isArray(path) ? path : String(path).split('.');
+  let current = container;
+  for (const segment of segments) {
+    if (current == null) {
+      return undefined;
+    }
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index)) {
+        return undefined;
+      }
+      current = current[index];
+      continue;
+    }
+    if (typeof current !== 'object') {
+      return undefined;
+    }
+    current = getCaseInsensitiveProperty(current, segment);
+  }
+  return current;
+}
+
 function extractRecordValue(record, source) {
   if (source === undefined || source === null) {
     return undefined;
@@ -87,12 +129,16 @@ function extractRecordValue(record, source) {
       }
     }
     if (source.includes('.')) {
-      return source.split('.').reduce((acc, key) => (acc == null ? acc : acc[key]), record);
+      return getCaseInsensitivePath(record, source.split('.'));
     }
-    return record.fields?.[source];
+    const fieldValue = getCaseInsensitiveProperty(record.fields, source);
+    if (fieldValue !== undefined) {
+      return fieldValue;
+    }
+    return getCaseInsensitiveProperty(record, source);
   }
   if (Array.isArray(source)) {
-    return source.reduce((acc, key) => (acc == null ? acc : acc[key]), record);
+    return getCaseInsensitivePath(record, source);
   }
   if (typeof source === 'object') {
     const value = extractRecordValue(record, source.path ?? source.field);
@@ -135,7 +181,7 @@ async function buildOrUpdateChildPrimitive(recordPrim, record, mapping) {
   const desiredData = {
     workspaceId: recordPrim.workspaceId,
     parent: recordPrim._id?.toString?.() ?? recordPrim.id,
-    paths: mapping.paths ?? ['origin'],
+    paths: ['origin', ...(mapping.paths ?? [])].filter((d,i,a)=>a.indexOf(d)===i),
     data: {
       type: mapping.type,
       referenceId: mapping.referenceId,
@@ -224,6 +270,10 @@ export async function syncExternalPrimitive(primitive, options = {}) {
 
   const sourceConfig = {
     ...(primitive.referenceParameters?.source ?? {}),
+    /// FIX THIS
+    baseId: primitive.referenceParameters?.baseId,
+    tableId: primitive.referenceParameters?.tableId,
+    //
     ...(options.sourceOverride ?? {}),
   };
   if (!sourceConfig) {
@@ -251,9 +301,16 @@ export async function syncExternalPrimitive(primitive, options = {}) {
     ?? (await ensureExternalRecordCategory()).id;
   const recordPrimitiveType = primitive.referenceParameters?.recordPrimitiveType ?? 'result';
   const recordPaths = primitive.referenceParameters?.recordPaths ?? ['origin'];
-  const mappings = Array.isArray(primitive.referenceParameters?.mappings)
+  let mappings = Array.isArray(primitive.referenceParameters?.mappings)
     ? primitive.referenceParameters.mappings
     : [];
+  if( typeof( mappings ) === "string"){
+    try{
+      mappings = JSON.parse(mappings)
+    }catch(er){
+
+    }
+  }
 
   const existingState = primitive.resources?.integration ?? {};
   const recordMap = { ...(existingState.records ?? {}) };

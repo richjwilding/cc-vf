@@ -76,6 +76,7 @@ export const QueueDocument = makeQueueFacade('document');
 export const QueryQueue    = makeQueueFacade('query');
 export const BrightDataQueue    = makeQueueFacade('brightdata');
 export const FlowQueue     = makeQueueFacade('flow');
+export const IntegrationQueue     = makeQueueFacade('integration');
 
 const logger = getLogger('sharedfn', "debug"); // Debug level for moduleA
 
@@ -5472,7 +5473,7 @@ export async function runPostCreateHooks(primitives, options = {}){
                 if( req?.user ){
                     payload.req = { user: { ...req.user } }
                 }
-                QueueDocument().add(`doc_refresh_${current.id}`, payload)
+               // QueueDocument().add(`doc_refresh_${current.id}`, payload)
             }catch(err){
                 console.error(`Failed to queue document refresh for ${current?.id}`, err)
             }

@@ -358,7 +358,8 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
             view.underlying ? ` (${primitiveToRender.plainId})` : ""
           }`;
 
-    const canvasMargin = view.inPage ? [0, 0, 0, 0] : (view.noTitle || view.inFlow) ? [0, 0, 0, 0] : [10, 10, 10, 10];
+    //const canvasMargin = view.inPage ? [0, 0, 0, 0] : (view.noTitle || view.inFlow) ? [0, 0, 0, 0] : [10, 10, 10, 10];
+    const canvasMargin = view.inPage ? [0, 0, 0, 0] :  [10, 10, 10, 10];
   
     // Optional indicator builder
     const indicators = undefined//view.primitive.flowElement ? () => buildIndicators(primitiveToRender, undefined, undefined, myState) : undefined;
@@ -1038,6 +1039,15 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                 widgetConfig.content = `**${useQuery ? "Query" : "Prompt"}:** ` + (useQuery ? primitiveToPrepare.getConfig.query?.slice(0,900) : primitiveToPrepare.getConfig.prompt?.slice(0,900))
                 myState[stateId].widgetConfig = widgetConfig
                 didChange = true
+            }else if( primitiveToPrepare.type=== "external"){
+
+                widgetConfig.showItems = showItems
+                widgetConfig.title = basePrimitive.title
+                widgetConfig.icon = <HeroIcon icon='FARobot'/>
+                widgetConfig.items = "results"
+                widgetConfig.content = `**Result:** ` + (primitiveToPrepare.getConfig.result ?? "")
+                myState[stateId].widgetConfig = widgetConfig
+                didChange = true
             }else if( primitiveToPrepare.type=== "action"){
 
                 widgetConfig.showItems = showItems
@@ -1341,7 +1351,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                     }
                 }
             }
-        }else if( renderType === "result" || renderType === "summary" || renderType === "element" || renderType === "action"){
+        }else if( renderType === "result" || renderType === "summary" || renderType === "element" || renderType === "action" || renderType === "external"){
             let viewConfig
             const viewConfigs = CollectionUtils.viewConfigs(basePrimitive.metadata)
             if( forceViewConfig ){
@@ -1570,6 +1580,7 @@ export default function BoardViewer({primitive,...props}){
         }
 
         appendUnique(allCategories.filter(category=>category.primitiveType === "search"))
+        appendUnique(allCategories.filter(category=>category.primitiveType === "external"))
 
         if( addToFlow ){
             appendUnique([categoryById[81], categoryById[113]].filter(Boolean))
@@ -1908,6 +1919,7 @@ export default function BoardViewer({primitive,...props}){
                         ...primitive.primitives.allUniqueQuery,
                         ...primitive.primitives.allUniqueSearch,
                         ...primitive.primitives.allUniqueFlow,
+                        ...primitive.primitives.allUniqueExternal,
                         ...primitive.primitives.allUniqueAction].filter(Boolean)
         
         for(const d of boards){
@@ -3242,7 +3254,7 @@ export default function BoardViewer({primitive,...props}){
                         </div>
                     }
             </div>}
-            <div className="flex relative w-full h-full @container rounded-lg shadow overflow-clip" onDrop={handleDropNewPrimitive} onDragOver={(e)=>e.preventDefault()}>
+            <div className="flex relative w-full border h-full @container rounded-lg shadow overflow-clip" onDrop={handleDropNewPrimitive} onDragOver={(e)=>e.preventDefault()}>
                 {!dockPaneInfo && <div key='chatbar' className={clsx([
                     'absolute bg-white border border-gray-200 bottom-4 space-y-2 flex flex-col left-4 overflow-hidden p-3 place-items-start rounded-md shadow-lg text-sm z-50 ',
                     agentStatus.activeChat ? 'max-h-[80vh] w-[40vw] 4xl:max-w-3xl min-w-[24rem]' : "w-96 max-h-[80vh]"
@@ -3290,14 +3302,15 @@ export default function BoardViewer({primitive,...props}){
                     {myState.activePin && <DropdownButton noBorder icon={<HeroIcon icon='FALinkBreak' className='w-5 h-5'/>} onClick={disconnectActivePin} flat placement='left-start' />}
                     {myState.createFromActivePin && <DropdownButton noBorder icon={<HeroIcon icon='FAAddChildNode' className='w-5 h-5'/>} onClick={createElementFromActivePin} flat placement='left-start' />}
                 </div>}
-                <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#fdfdfd"}}>
+                <div className={`w-full flex min-h-[40vh] h-full rounded-md`} style={{background:"#f2f2f4"}}>
                     <InfiniteCanvas 
                                     primitive={primitive}
                                     board
-                                    background="#fdfdfd"
+                                    background="#f2f2f4"
                                     ref={setCanvasRef}
                                     ignoreAfterDrag={true}
                                     highlights={{
+                                        "frame": "glow",
                                         "primitive":"border",
                                         "cell":"background",
                                         "pin":"background",
