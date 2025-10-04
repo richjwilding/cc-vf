@@ -4,6 +4,7 @@ import IntegrationAccount from '../model/IntegrationAccount.js';
 import {
   createPrimitive,
   fetchPrimitive,
+  dispatchControlUpdate,
 } from '../SharedFunctions.js';
 import { getIntegration as getRegisteredIntegration } from './registry.js';
 
@@ -172,6 +173,73 @@ function buildRecordTitle(record, config) {
   return `Record ${fallback}`;
 }
 
+async function findChildPrimitiveByMapping(recordPrim, mappingKey) {
+  if (!mappingKey) {
+    return undefined;
+  }
+  const parentId = recordPrim._id?.toString?.() ?? recordPrim.id;
+  if (!parentId) {
+    return undefined;
+  }
+
+  const parentPathKey = `parentPrimitives.${parentId}`;
+  const query = {
+    workspaceId: recordPrim.workspaceId,
+    [parentPathKey]: { $in: ['primitives.origin'] },
+    'referenceParameters.integrationMappingKey': mappingKey,
+  };
+
+  const existing = await fetchPrimitive(undefined, query);
+  return existing;
+}
+
+function buildRecordLookupClauses(record) {
+  const candidates = [];
+  const addCandidate = (field, value) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    const raw = typeof value === 'string' ? value.trim() : value;
+    if (typeof raw === 'string' && raw.length === 0) {
+      return;
+    }
+    candidates.push({ [field]: raw });
+    if (typeof raw !== 'string') {
+      const asString = String(raw).trim();
+      if (asString) {
+        candidates.push({ [field]: asString });
+      }
+    }
+  };
+
+  const uniqueValue = record.uniqueValue ?? record.externalId ?? record.recordId;
+  addCandidate('referenceParameters.external.uniqueValue', uniqueValue);
+  addCandidate('referenceParameters.external.recordId', record.recordId);
+  addCandidate('referenceParameters.external.externalId', record.externalId);
+
+  return candidates;
+}
+
+async function findExistingRecordPrimitive(parentPrimitive, providerName, record) {
+  const parentId = parentPrimitive._id?.toString?.() ?? parentPrimitive.id;
+  if (!parentId) {
+    return undefined;
+  }
+  const clauses = buildRecordLookupClauses(record);
+  if (clauses.length === 0) {
+    return undefined;
+  }
+
+  const query = {
+    workspaceId: parentPrimitive.workspaceId,
+    [`parentPrimitives.${parentId}`]: { $in: ['primitives.origin'] },
+    'referenceParameters.external.provider': providerName,
+    $or: clauses,
+  };
+
+  return fetchPrimitive(undefined, query);
+}
+
 async function buildOrUpdateChildPrimitive(recordPrim, record, mapping) {
   const mappingKey = mapping.key ?? mapping.type;
   if (!mapping.type || !mapping.referenceId) {
@@ -186,7 +254,9 @@ async function buildOrUpdateChildPrimitive(recordPrim, record, mapping) {
       type: mapping.type,
       referenceId: mapping.referenceId,
       title: buildRecordTitle(record, mapping),
-      referenceParameters: {},
+      referenceParameters: {
+        integrationMappingKey: mappingKey,
+      },
     },
   };
   if (mapping.stateField) {
@@ -209,34 +279,31 @@ async function buildOrUpdateChildPrimitive(recordPrim, record, mapping) {
     }
   }
 
-  const integrationResources = recordPrim.resources?.integration ?? {};
-  integrationResources.children ??= {};
-  const existingChildId = integrationResources.children[mappingKey];
-  let childPrimitive = existingChildId ? await fetchPrimitive(existingChildId) : undefined;
+  let childPrimitive = await findChildPrimitiveByMapping(recordPrim, mappingKey);
 
   if (!childPrimitive) {
     childPrimitive = await createPrimitive(desiredData);
   } else {
     if (desiredData.data.title) {
-      childPrimitive.title = desiredData.data.title;
+      if (childPrimitive.title !== desiredData.data.title) {
+        await dispatchControlUpdate(childPrimitive._id?.toString?.() ?? childPrimitive.id, 'title', desiredData.data.title);
+        childPrimitive.title = desiredData.data.title;
+      }
     }
     if (desiredData.data.state) {
-      childPrimitive.state = desiredData.data.state;
+      if (childPrimitive.state !== desiredData.data.state) {
+        await dispatchControlUpdate(childPrimitive._id?.toString?.() ?? childPrimitive.id, 'state', desiredData.data.state);
+        childPrimitive.state = desiredData.data.state;
+      }
     }
     const updatedRefParams = mergeDeep(childPrimitive.referenceParameters ?? {}, desiredData.data.referenceParameters ?? {});
-    childPrimitive.set('referenceParameters', updatedRefParams);
-    childPrimitive.markModified('referenceParameters');
-    await childPrimitive.save();
+    await dispatchControlUpdate(childPrimitive._id?.toString?.() ?? childPrimitive.id, 'referenceParameters', updatedRefParams);
+    childPrimitive.referenceParameters = updatedRefParams;
   }
-
-  integrationResources.children[mappingKey] = childPrimitive._id?.toString?.() ?? childPrimitive.id;
-  recordPrim.set('resources.integration', integrationResources);
-  recordPrim.markModified('resources');
-  await recordPrim.save();
 
   return {
     mappingKey,
-    primitiveId: integrationResources.children[mappingKey],
+    primitiveId: childPrimitive._id?.toString?.() ?? childPrimitive.id,
   };
 }
 
@@ -313,7 +380,6 @@ export async function syncExternalPrimitive(primitive, options = {}) {
   }
 
   const existingState = primitive.resources?.integration ?? {};
-  const recordMap = { ...(existingState.records ?? {}) };
 
   let created = 0;
   let updated = 0;
@@ -326,12 +392,7 @@ export async function syncExternalPrimitive(primitive, options = {}) {
       continue;
     }
 
-    const existing = recordMap[key];
-    let recordPrimitive;
-
-    if (existing?.primitiveId) {
-      recordPrimitive = await fetchPrimitive(existing.primitiveId);
-    }
+    let recordPrimitive = await findExistingRecordPrimitive(primitive, providerName, record);
 
     const desiredTitle = buildRecordTitle(record, primitive.referenceParameters);
 
@@ -350,45 +411,39 @@ export async function syncExternalPrimitive(primitive, options = {}) {
       created += 1;
     } else {
       if (desiredTitle && recordPrimitive.title !== desiredTitle) {
+        await dispatchControlUpdate(recordPrimitive._id?.toString?.() ?? recordPrimitive.id, 'title', desiredTitle);
         recordPrimitive.title = desiredTitle;
       }
       updated += 1;
     }
 
+    const canonicalUniqueValue = record.uniqueValue ?? record.externalId ?? record.recordId;
+    const normalizedUniqueValue = canonicalUniqueValue === undefined || canonicalUniqueValue === null
+      ? null
+      : String(canonicalUniqueValue);
+
     const referenceParameters = mergeDeep(recordPrimitive.referenceParameters ?? {}, {
       external: {
         provider: providerName,
         recordId: record.recordId,
-        uniqueValue: record.uniqueValue ?? record.externalId ?? record.recordId,
+        externalId: record.externalId ?? null,
+        uniqueValue: normalizedUniqueValue,
         updatedAt: record.updatedAt?.toISOString?.() ?? null,
         createdAt: record.createdAt?.toISOString?.() ?? null,
         fields: record.fields ?? {},
         raw: record.raw ?? undefined,
       },
     });
-    recordPrimitive.set('referenceParameters', referenceParameters);
-    recordPrimitive.markModified('referenceParameters');
-    await recordPrimitive.save();
+    await dispatchControlUpdate(recordPrimitive._id?.toString?.() ?? recordPrimitive.id, 'referenceParameters', referenceParameters);
+    recordPrimitive.referenceParameters = referenceParameters;
 
-    const childSummaries = [];
     for (const mapping of mappings) {
       try {
-        const summary = await buildOrUpdateChildPrimitive(recordPrimitive, record, mapping);
-        if (summary) {
-          childSummaries.push(summary);
-        }
+        await buildOrUpdateChildPrimitive(recordPrimitive, record, mapping);
       } catch (error) {
         logger.error(`Failed to process mapping for record ${key}`, error);
       }
     }
-
-    recordMap[key] = {
-      primitiveId: recordPrimitive._id?.toString?.() ?? recordPrimitive.id,
-      updatedAt: referenceParameters.external.updatedAt,
-      recordId: record.recordId,
-      uniqueValue: record.uniqueValue ?? record.externalId ?? record.recordId,
-      children: childSummaries,
-    };
 
     if (record.updatedAt) {
       const ts = new Date(record.updatedAt).getTime();
@@ -406,21 +461,18 @@ export async function syncExternalPrimitive(primitive, options = {}) {
     ...existingState,
     provider: providerName,
     accountId: account._id?.toString?.() ?? account.id,
-    records: recordMap,
     lastSyncedAt,
     cursor: response?.cursor ?? existingState.cursor ?? null,
     fetchedAt: new Date().toISOString(),
   };
 
-  primitive.set('resources.integration', integrationState);
-  primitive.markModified('resources');
-  primitive.set('referenceParameters.lastSyncedAt', lastSyncedAt);
-  primitive.markModified('referenceParameters');
+  delete integrationState.records;
+
+  await dispatchControlUpdate(primitive._id?.toString?.() ?? primitive.id, 'resources.integration', integrationState);
+  await dispatchControlUpdate(primitive._id?.toString?.() ?? primitive.id, 'referenceParameters.lastSyncedAt', lastSyncedAt);
   if (response?.cursor) {
-    primitive.set('referenceParameters.cursor', response.cursor);
-    primitive.markModified('referenceParameters');
+    await dispatchControlUpdate(primitive._id?.toString?.() ?? primitive.id, 'referenceParameters.cursor', response.cursor);
   }
-  await primitive.save();
 
   return {
     created,

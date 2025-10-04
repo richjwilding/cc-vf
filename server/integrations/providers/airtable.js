@@ -35,16 +35,17 @@ function escapeFormulaLiteral(value) {
 function buildFilterFormula(config, since, filters = {}) {
   const clauses = [];
   const timestampField = config.timestampField || config.lastModifiedField;
+  const fieldExpr = timestampField ? `{${timestampField}}` : 'LAST_MODIFIED_TIME()';
   const sinceIso = toIso(since);
-  if (timestampField && sinceIso) {
-    clauses.push(`IS_AFTER({${timestampField}}, ${escapeFormulaLiteral(sinceIso)})`);
+  if (sinceIso) {
+    clauses.push(`IS_AFTER(${fieldExpr}, ${escapeFormulaLiteral(sinceIso)})`);
   }
   const range = filters.dateRange ?? {};
   if (timestampField && range.from) {
-    clauses.push(`IS_AFTER({${timestampField}}, ${escapeFormulaLiteral(toIso(range.from))})`);
+    clauses.push(`IS_AFTER(${fieldExpr}, ${escapeFormulaLiteral(toIso(range.from))})`);
   }
   if (timestampField && range.to) {
-    clauses.push(`IS_BEFORE({${timestampField}}, ${escapeFormulaLiteral(toIso(range.to))})`);
+    clauses.push(`IS_BEFORE(${fieldExpr}, ${escapeFormulaLiteral(toIso(range.to))})`);
   }
   if (filters.formula) {
     clauses.push(`(${filters.formula})`);
@@ -63,8 +64,9 @@ function normalizeRecord(record, config) {
   const timestampField = config.timestampField || config.lastModifiedField;
   const uniqueValue = primaryField ? record.fields?.[primaryField] : undefined;
   const updatedRaw = timestampField ? record.fields?.[timestampField] : undefined;
-  const updatedAt = updatedRaw ? new Date(updatedRaw) : new Date(record.createdTime);
-  const createdAt = record.createdTime ? new Date(record.createdTime) : updatedAt;
+  const fallbackDate = new Date();
+  const updatedAt = updatedRaw ? new Date(updatedRaw) : fallbackDate;
+  const createdAt = record.createdTime ? new Date(record.createdTime) : fallbackDate;
   const titleField = config.titleField || primaryField;
   const title = titleField ? record.fields?.[titleField] : undefined;
 
@@ -206,7 +208,7 @@ class AirtableIntegration extends IntegrationProvider {
           account.accessToken = tokens.accessToken;
           if (tokens.refreshToken) {
             account.refreshToken = tokens.refreshToken;
-          }s
+          }
           if (tokens.expiresAt) {
             account.expiresAt = tokens.expiresAt;
           }
