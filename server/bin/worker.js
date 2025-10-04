@@ -53,12 +53,6 @@ process.on('SIGTERM', async () => {
 
     const { SIO } = await import('../socket.js');
     const { getQueue }                 = await import('../queue_registry.js');
-    /*const { default: QueueDocument }   = await import('../document_queue.js');
-    const { default: QueueAI }         = await import('../ai_queue.js');
-    const { default: EnrichPrimitive } = await import('../enrich_queue.js');
-    const { default: QueryQueue }      = await import('../query_queue.js');
-    const { default: BrightDataQueue } = await import('../brightdata_queue.js');
-    const { default: FlowQueue }       = await import('../flow_queue.js');*/
 
     const QueueDocument = await getQueue( "document")
     const QueueAI = await getQueue( "ai")
@@ -66,6 +60,7 @@ process.on('SIGTERM', async () => {
     const QueryQueue = await getQueue( "query")
     const BrightDataQueue = await getQueue( "brightdata")
     const FlowQueue = await getQueue( "flow")
+    const IntegrationQueue = await getQueue( "integration")
 
     // Any side-effect module goes last
     await import('../action_register.js');
@@ -83,6 +78,7 @@ process.on('SIGTERM', async () => {
     BrightDataQueue.myInit();
     FlowQueue.myInit();
     QueueDocument.myInit();
+    IntegrationQueue.myInit();
 
     // Subscribe for cross-service queue control (watch/stop)
     const CONTROL_CHANNEL = 'queue:control';
@@ -176,7 +172,7 @@ process.on('SIGTERM', async () => {
     console.log('[worker] initialized, ready');
 
     // Heartbeat: log main-thread queues and request thread reports
-    const queues = [QueueDocument, QueueAI, EnrichPrimitive, QueryQueue, BrightDataQueue, FlowQueue].filter(Boolean);
+    const queues = [QueueDocument, QueueAI, EnrichPrimitive, QueryQueue, BrightDataQueue, FlowQueue, IntegrationQueue].filter(Boolean);
     const queueTypesForSweep = queues.map(inst => inst?.queueName).filter(Boolean);
 
     async function publishWaitingChildrenSweep(reason, delayMs = WAITING_CHILD_SWEEP_DELAY_MS) {

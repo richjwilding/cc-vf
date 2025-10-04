@@ -7,6 +7,7 @@ import indexRouter from './routes/index';
 import apiRouter from './routes/api';
 import publishedRouter from './routes/published';
 import authRouter from './routes/auth';
+import integrationsRouter from './routes/integrations';
 import passport from 'passport';
 import cookieSession from 'cookie-session';
 import bodyParser from 'body-parser'
@@ -388,6 +389,7 @@ app.use(
     })
   );
 
+app.use('/api/integrations', integrationsRouter);
 app.use('/api', apiRouter);
 
 app.get("/google/failed", (req, res) => {

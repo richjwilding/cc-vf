@@ -44,6 +44,7 @@ const navigation = [
   { name: 'Home', onClick: ()=>{navigate('/')}, icon: HomeIcon, current: urlPath === "" || urlPath === "/" },
   mainstore.activeWorkspaceId && !mainstore.activeUser.info.external && { name: 'Project Home', onClick: ()=>{navigate(`/project/${mainstore.activeWorkspaceId}`)}, icon: SparklesIcon, current: urlPath.includes("/project")},
   { name: 'Workflows', onClick: ()=>{navigate(mainstore.activeWorkspaceId ?  `/workflows/${mainstore.activeWorkspaceId}` : undefined)}, icon: SparklesIcon, current: urlPath.includes("/workflows")},
+  { name: 'Integrations', onClick: ()=>{navigate('/integrations')}, icon: Bars4Icon, current: urlPath.includes("/integrations")},
   { name: 'Usage', onClick: ()=>{navigate('/usage')}, icon: ArrowDownTrayIcon, current: urlPath.includes("/usage") },
 ].filter(Boolean)
 

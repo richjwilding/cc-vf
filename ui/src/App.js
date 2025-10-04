@@ -27,6 +27,7 @@ import { PrimitivePopup } from './PrimitivePopup.js';
 import ResetPasswordPage from './ResetPassword.js';
 import ProjectScreen from './ProjectScreen.js';
 import UsageScreen from './UsageScreen.js';
+import IntegrationsScreen from './IntegrationsScreen.jsx';
 import { QueuePage } from './QueuePage.jsx';
 import AccountScreen from './AccountScreen.js';
 
@@ -191,6 +192,7 @@ function App() {
                 <Route path="/workflow/:id/new_instance" element={<FlowInstancePage />}/>
                 <Route path="/usage" element={<UsageScreen />}/>
                 <Route path="/account" element={<AccountScreen/>}/>
+                <Route path="/integrations" element={<IntegrationsScreen />}/>
                 <Route path="/queue/:id?" element={<QueuePage />}/>
                 <Route path="/workflows/:id?" element={<WorkflowDashboard/>} />
                 <Route

@@ -19,6 +19,7 @@ import FlowQueue from '../flow_queue';
 import "../action_register"
 import { getPubSubClients } from '../redis';
 import { getQueue } from '../queue_registry';
+import IntegrationQueue from '../integration_queue';
 
 const debug = debugLib('your-project-name:server');
 
@@ -52,12 +53,13 @@ const q3 = EnrichPrimitive(); q3.myInit();
 const q4 = QueryQueue();    q4.myInit();
 const q5 = BrightDataQueue(); q5.myInit();
 const q6 = FlowQueue();     q6.myInit();
+const q7 = IntegrationQueue();     q7.myInit();
 
 const WAITING_CHILD_SWEEP_LIMIT = Number(process.env.WCHILD_SWEEP_LIMIT || 5);
 const WAITING_CHILD_SWEEP_DELAY_MS = Number(process.env.WCHILD_SWEEP_DELAY_MS || 10000);
 
 // Heartbeat: log webserver queues periodically
-const webQueues = [q1, q2, q3, q4, q5, q6].filter(Boolean);
+const webQueues = [q1, q2, q3, q4, q5, q6, q7].filter(Boolean);
 async function logWebHeartbeat() {
   try {
     console.log(`[hb-web] instance=${process.env.INSTANCE_UUID}`);

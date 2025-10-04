@@ -5304,7 +5304,7 @@ function renderProcessingState({ group, x, y, width, height, spacerY, theme, id,
                 });
                 g.add(outline);
 
-                if (true || isPending) {
+                if (isPending) {
                     renderProcessingState({
                         group: g,
                         x,
@@ -5653,6 +5653,7 @@ registerRenderer( {type: "type", id: "summary", configs: "widget"}, (primitive,o
 registerRenderer( {type: "type", id: "categorizer", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true,typeText: "Action", typeIcon: <HeroIcon icon='FARun'/>}))
 registerRenderer( {type: "type", id: "query", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Query", typeIcon: <HeroIcon icon='FARobot'/>}))
 registerRenderer( {type: "type", id: "action", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "Action", typeIcon: <HeroIcon icon='FARobot'/>}))
+registerRenderer( {type: "type", id: "external", configs: "widget"}, (primitive,options)=>renderDefaultActionPrimitive(primitive, {...options, contentAsMarkdown: true, typeText: "External", typeIcon: <HeroIcon icon='FAPlug'/>}))
 registerRenderer( {type: "type", id: "search", configs: "default"}, renderDefaultActionPrimitive)
 
 function renderDefaultActionPrimitive(primitive, options){

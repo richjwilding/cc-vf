@@ -170,6 +170,8 @@ export default function AccountScreen(props){
                     <CheckoutButton priceId={mainstore.activeOrganization?.validPlans.find(d=>d._id === localActivePlanId)?.stripe?.priceId} isDisabled={localActivePlanId === mainstore.activeOrganization.activePlanId} size="sm"/>
                     {mainstore.activeOrganization.billing?.stripe?.subscriptionId &&  <BillingPortalButton/>}
                     <Divider className="col-span-3 my-3"/>
+                    <Button onPress={()=>navigate("/integrations")}>Integrations</Button>
+                    <Divider className="col-span-3 my-3"/>
                     <p className="text-small text-default-500">Users</p>
                     <div className="">
                         <Input

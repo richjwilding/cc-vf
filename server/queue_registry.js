@@ -9,6 +9,7 @@ const loaders = {
   query:     () => import('./query_queue.js'),
   brightdata:() => import('./brightdata_queue.js'),
   flow:      () => import('./flow_queue.js'),
+  integration: () => import('./integration_queue.js'),
 };
 
 export function registerQueue(name, instance) {

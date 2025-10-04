@@ -329,6 +329,10 @@ const PrimitiveConfig = {
             needCategory:false,
             defaultTitle: false
         },
+        "external": {
+            needCategory:false,
+            defaultTitle:false,
+        },
     },
     types: ["hypothesis", 
         "learning",
@@ -361,7 +365,8 @@ const PrimitiveConfig = {
         "categorizer",
         "action",
         "page",
-        "chat"
+        "chat",
+        "external"
     ],
     pageview:{
         "board":{
