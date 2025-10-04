@@ -112,28 +112,6 @@ export default function CardGrid({primitive, category, list, categoryConfig, fie
                             onDoubleClick={props.onDoubleClick ? (e)=>props.onDoubleClick(e,p,list,idx) : undefined}
                         >
                         <PrimitiveCard.ListCard primitive={p} fields={fields} onClick={props.onCardClick}/>
-                        {false && <PrimitiveCard 
-                            key={p.id}
-                            fullId
-                            compact={true} primitive={p} 
-                            onClick={props.onCardClick ? (e,p)=>props.onCardClick(e,p) : undefined}
-                            onInnearCardClick ={ props.onInnerCardClick !== undefined ? props.onInnerCardClick : props.onCardClick ? props.onCardClick : undefined}
-                            onEnter={props.onEnter ? (e)=>props.onEnter(p) : undefined}
-                            //className={`h-full select-none flex justify-between ${props.selectedItem && props.selectedItem.id === p.id ? "bg-white opacity-50 blur-50" : ""}`}
-                            fields={fields} 
-                            border={true} 
-                            showDetails={props.showDetails}
-                            callbackProcessor={props.callbackProcessor}
-                            enableHero={true}
-                            showExpand={true}
-                            showState={true} 
-                            showAsSecondary={true}
-                            imageOnly={props.imageOnly}
-                            showEvidence="compact"
-                            relationships={category?.relationships} 
-                            relationship={primitive && category ? primitive.primitives.relationships(p.id, ["results", category.id]) : undefined}
-                            {...(props.cardProps || {})}
-                            />}
                         </div>
                     )})}
                     </div>)

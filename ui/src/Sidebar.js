@@ -234,7 +234,7 @@ export function Sidebar({primitive, ...props}) {
                             })} 
                         className='ml-auto m-2'/>
                     </div>}
-                    <PrimitiveCard primitive={segment} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
+                    <PrimitiveCard.SidePanel primitive={segment}/>
                 </> 
             }
             {nestedActions.length > 0&& <PrimitiveCard.CardMenu 
@@ -436,7 +436,7 @@ export function Sidebar({primitive, ...props}) {
                 </button>
             </div>}
             {!infoPane && !isMulti && !props.forFlow && !showAsSummary && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
-                <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
+                <PrimitiveCard.SidePanel primitive={primitive} showQuote editState={primitive.type==="hypothesis"}/>
                 {rationaleList}
                 {primitive.type === "result" && !fulltext && (primitive.referenceParameters?.url || primitive.referenceParameters?.notes) && <Panel.MenuButton title='View text' onClick={async ()=>setFullText((await primitive.getDocumentAsText())?.split(" ").slice(0,5000).join(" "))}/>}
                 {primitive.type === "result" && fulltext && <div className='p-3 border rounded-md text-sm'>{fulltext}</div>}
@@ -489,18 +489,18 @@ export function Sidebar({primitive, ...props}) {
                 {primitive.parentPrimitiveRelationships["link"] && showSource &&
                     <div className='mt-6 mb-3 border-t'>
                         <h3 className="mb-2 text-md text-gray-400 pt-2">Linked to</h3>
-                        <PrimitiveCard primitive={primitive.parentPrimitiveRelationships["link"][0]} showState={true} showLink={true} showDetails="panel"/>
+                        <PrimitiveCard.PanelReference primitive={primitive.parentPrimitiveRelationships["link"][0]}/>
                     </div>
                 }
                 {origin && showSource &&
                     <div className='mt-6 mb-3 border-t'>
                         <h3 className="mb-2 text-md text-gray-400 pt-2">Source</h3>
-                        <PrimitiveCard primitive={origin.type === "search" ? origin.origin : origin} showState={true} showLink={true} showDetails="panel"/>
+                        <PrimitiveCard.PanelReference primitive={origin.type === "search" ? origin.origin : origin}/>
                     </div>
                 }
                 {task && <div className='mt-6 mb-3 border-t'>
                     <h3 className="mb-2 text-md text-gray-400  pt-2">Related {task.type}</h3>
-                    <PrimitiveCard primitive={task}  showState={true} showDetails="panel" showUsers="panel" showLink={true}/>
+                    <PrimitiveCard.PanelReference primitive={task} showUsers="panel"/>
                 </div>}
             </div>}
             {(metadata?.sidebar?.showRefs || PrimitiveConfig.sidebar[primitive.type]?.showRefs) && (primitive.primitives.ref?.allIds.length + primitive.primitives.link?.allIds.length + primitive.primitives.source?.allIds.length)> 0 && 

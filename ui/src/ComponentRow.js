@@ -275,7 +275,7 @@ export function ComponentRow(props) {
           </div>
               {!compact && hypothesis_list.map((h)=>(
                 <div key={h.id} className="bg-white col-start-1 sticky z-10 left-0 px-4 py-1">
-                  <PrimitiveCard primitive={h} showState fields={["title","important"]} bigMargin={true} ringColor={color.base} compact={true}  onClick={props.selectPrimitive ? ()=>props.selectPrimitive(h, {unlink:(p)=>unlinkHypothesis(p)}) : undefined}/>
+                  <PrimitiveCard.MatrixItem primitive={h} showState fields={["title","important"]} bigMargin={true} ringColor={color.base} onClick={props.selectPrimitive ? ()=>props.selectPrimitive(h, {unlink:(p)=>unlinkHypothesis(p)}) : undefined}/>
                 </div>
               ))
             }
@@ -420,12 +420,11 @@ export function ComponentRow(props) {
                             idx === fullTextIdx ? "@lg:columns-2 @xl:columns-3 @2xl:columns-4 h-fit no-break-children space-y-3" : ""
                             ].join(" ")}>
                           {renderContent && evidence && (idx === fullTextIdx || expand) && evidence.map((d, idx)=>
-                            <PrimitiveCard 
+                            <PrimitiveCard.MatrixItem
                               key={d.id}
                               primitive={d}
-                              compact={true}
                               titleAtBase
-                              ringColor={color.base} 
+                              ringColor={color.base}
                               relationshipId={h.id}
                               relationship={d.parentRelationship(h, root)[0]}
                               relationships={relationshipConfig}
@@ -437,7 +436,6 @@ export function ComponentRow(props) {
                                   });
                                   e.stopPropagation()
                                 } : undefined} 
-                              border={false}
                               showMeta='small-top'
                               bg={`bg-${color.base}-25`}
                               />

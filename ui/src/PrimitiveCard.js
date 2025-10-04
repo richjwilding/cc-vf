@@ -1198,6 +1198,15 @@ const Banner = function({primitive, ...props}){
     </div>
   )
 }
+
+const CompactBanner = function(props) {
+  return (
+    <Banner
+      {...props}
+      small
+    />
+  )
+}
 const Parameters = function({primitive, ...props}){
 
   const [eventTracker, updateForEvent] = React.useReducer( (x)=>x+1, 0)
@@ -2156,10 +2165,300 @@ export function SmallMeta(props){
     <h3 className={[
         `flex text-slate-400 font-medium tracking-tight text-xs uppercase place-items-center`,
         props.inline ? "" : (props.showMeta === "small-top" ? "mb-2 border-b" : "mt-2")
-        ].join(" ")}>
+        ].join(" ")}> 
               {metadata?.icon && <HeroIcon icon={metadata.icon} className='w-5 h-5 mr-1' strokeWidth={1}/>}
               {metadata?.title ?? `Generic ${props.primitive?.type}`}
             </h3>
+  )
+}
+
+export function RelationshipItem({
+  primitive,
+  parent,
+  onSelect,
+  className,
+  disableHover = true,
+  showLink = true,
+  textSize = 'xs',
+  titleAtBase = true,
+  ...props
+}){
+  const handleClick = props.onClick ?? (onSelect
+    ? (event)=>{
+        event?.stopPropagation?.()
+        onSelect(event, primitive, parent)
+      }
+    : undefined)
+
+  const mergedClassName = [
+    'mx-1 mb-2',
+    className
+  ].filter(Boolean).join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      variant={false}
+      primitive={primitive}
+      compact
+      textSize={textSize}
+      titleAtBase={titleAtBase}
+      showLink={props.showLink ?? showLink}
+      disableHover={props.disableHover ?? disableHover}
+      className={mergedClassName}
+      onClick={handleClick}
+    />
+  )
+}
+
+export function SelectableListItem({
+  primitive,
+  isActive,
+  onSelect,
+  activeClassName = '!bg-ccgreen-100 !border-ccgreen-200 !border',
+  inactiveClassName = '!border !border-gray-50',
+  className,
+  showExpand = true,
+  disableHover = true,
+  ...props
+}){
+  const mergedClassName = [
+    isActive ? activeClassName : inactiveClassName,
+    className
+  ].filter(Boolean).join(' ') || undefined
+
+  const handleSelect = props.onClick ?? (onSelect ? () => onSelect(primitive) : undefined)
+  const handleEnter = props.onEnter ?? (onSelect ? () => onSelect(primitive) : undefined)
+
+  return (
+    <PrimitiveCard
+      {...props}
+      variant={false}
+      primitive={primitive}
+      compact
+      showExpand={props.showExpand ?? showExpand}
+      disableHover={props.disableHover ?? disableHover}
+      className={mergedClassName}
+      onClick={handleSelect}
+      onEnter={handleEnter}
+    />
+  )
+}
+
+export function SidePanel({
+  className,
+  showDetails = 'panel',
+  panelOpen = true,
+  showLink = true,
+  major = true,
+  showEdit = true,
+  editing = true,
+  ...props
+}){
+  const mergedClassName = ['mb-6', className].filter(Boolean).join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      showDetails={showDetails}
+      panelOpen={panelOpen}
+      showLink={showLink}
+      major={major}
+      showEdit={showEdit}
+      editing={editing}
+      className={mergedClassName}
+    />
+  )
+}
+
+export function RelatedPrimitive({
+  className,
+  disableHover = true,
+  showLink = true,
+  compact = true,
+  variant = false,
+  ...props
+}) {
+  const mergedClassName = [className].filter(Boolean).join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      variant={variant}
+      compact={compact}
+      disableHover={disableHover}
+      showLink={showLink}
+      className={mergedClassName}
+    />
+  )
+}
+
+export function PanelReference({
+  className,
+  showDetails = 'panel',
+  showLink = true,
+  showState = true,
+  showUsers,
+  ...props
+}) {
+  const resolvedShowUsers = showUsers === true ? 'panel' : showUsers
+  const mergedClassName = [className].filter(Boolean).join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      className={mergedClassName}
+      showDetails={showDetails}
+      showLink={showLink}
+      showState={showState}
+      showUsers={resolvedShowUsers}
+    />
+  )
+}
+
+export function EditableHeader({
+  className,
+  compact = true,
+  showEdit = true,
+  disableHover = true,
+  editing = true,
+  variant = false,
+  ...props
+}) {
+  const mergedClassName = ['w-full !bg-transparent', className]
+    .filter(Boolean)
+    .join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      variant={variant}
+      compact={compact}
+      showEdit={showEdit}
+      disableHover={disableHover}
+      editing={editing}
+      className={mergedClassName}
+    />
+  )
+}
+
+export function ModalPreview({
+  className,
+  disableHover = true,
+  hideMenu = true,
+  showId = false,
+  variant = false,
+  ...props
+}) {
+  const mergedClassName = [className].filter(Boolean).join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      variant={variant}
+      disableHover={disableHover}
+      hideMenu={hideMenu}
+      showId={showId}
+      className={mergedClassName}
+    />
+  )
+}
+
+export function PrimaryInfo({
+  className,
+  showEdit = true,
+  showId = false,
+  major = true,
+  disableHover = false,
+  ...props
+}) {
+  const mergedClassName = [className].filter(Boolean).join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      showEdit={showEdit}
+      showId={showId}
+      major={major}
+      disableHover={disableHover}
+      className={mergedClassName}
+    />
+  )
+}
+
+export function GridItem({
+  className,
+  border = false,
+  editable = false,
+  noEvents = false,
+  disableHover,
+  ...props
+}) {
+  const mergedClassName = [className].filter(Boolean).join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      border={border}
+      editable={editable}
+      noEvents={noEvents}
+      disableHover={disableHover}
+      className={mergedClassName}
+    />
+  )
+}
+
+export function SecondaryGridItem({ fieldsInline, ...props }) {
+  const mergedFieldsInline = fieldsInline ?? false
+
+  return (
+    <GridItem
+      {...props}
+      fieldsInline={mergedFieldsInline}
+      showAsSecondary
+    />
+  )
+}
+
+export function MatrixItem({
+  className,
+  compact = true,
+  ...props
+}) {
+  const mergedClassName = [className].filter(Boolean).join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      compact={compact}
+      className={mergedClassName}
+    />
+  )
+}
+
+export function RelationshipPreview({
+  className,
+  inline = true,
+  compact = true,
+  disableHover = true,
+  showLink = true,
+  bg = 'bg-transparent',
+  ...props
+}) {
+  const mergedClassName = ['w-fit', className]
+    .filter(Boolean)
+    .join(' ') || undefined
+
+  return (
+    <PrimitiveCard
+      {...props}
+      inline={inline}
+      compact={compact}
+      disableHover={disableHover}
+      showLink={showLink}
+      bg={bg}
+      className={mergedClassName}
+    />
   )
 }
 
@@ -2637,7 +2936,7 @@ function RenderPinValues({values, pin}){
           return <ul>{pinValue.data.map(d=>Object.keys(d).map(k=><li>{k}:{d[k]}</li>))}</ul>
         }else if(renderAs === "primitive"){
             return <div className='flex flex-col space-y-2'>
-                {pinValue.data.map(d=><PrimitiveCard primitive={d}/>)}
+                {pinValue.data.map(d=><PrimitiveCard.MatrixItem primitive={d}/>)}
               </div>
         }
     }
@@ -2664,6 +2963,7 @@ PrimitiveCard.Relationships = Relationships
 PrimitiveCard.EvidenceHypothesisRelationship = EvidenceHypothesisRelationship
 PrimitiveCard.Resources = Resources
 PrimitiveCard.Banner = Banner
+PrimitiveCard.CompactBanner = CompactBanner
 PrimitiveCard.Title = Title
 PrimitiveCard.Hero = Hero
 PrimitiveCard.Evidence = Evidence
@@ -2672,6 +2972,18 @@ PrimitiveCard.EvidenceList = EvidenceList
 PrimitiveCard.RenderItem = RenderItem
 PrimitiveCard.CardMenu = CardMenu
 PrimitiveCard.SmallMeta = SmallMeta
+PrimitiveCard.RelationshipItem = RelationshipItem
+PrimitiveCard.SelectableListItem = SelectableListItem
+PrimitiveCard.SidePanel = SidePanel
+PrimitiveCard.RelatedPrimitive = RelatedPrimitive
+PrimitiveCard.PanelReference = PanelReference
+PrimitiveCard.EditableHeader = EditableHeader
+PrimitiveCard.ModalPreview = ModalPreview
+PrimitiveCard.PrimaryInfo = PrimaryInfo
+PrimitiveCard.GridItem = GridItem
+PrimitiveCard.SecondaryGridItem = SecondaryGridItem
+PrimitiveCard.MatrixItem = MatrixItem
+PrimitiveCard.RelationshipPreview = RelationshipPreview
 PrimitiveCard.ImportList = ImportList
 PrimitiveCard.ListCard = CardForList
 PrimitiveCard.OutputPins = Outputs

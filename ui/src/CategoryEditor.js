@@ -243,12 +243,9 @@ export default function GenericEditor({ primitive, ...props }) {
           </ModalHeader>
           <ModalBody className="space-y-5">
             <div className="space-y-3">
-              <PrimitiveCard
+              <PrimitiveCard.PrimaryInfo
                 key="title"
                 primitive={primitive}
-                showEdit
-                showId={false}
-                major
               />
               {primitive?.metadata?.parameters && (
                 <div className="space-y-2">

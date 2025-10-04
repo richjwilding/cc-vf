@@ -20,7 +20,7 @@ export default function QueryCard({primitive, ...props}){
 
     return  <div className="w-full bg-white rounded-md shadow flex flex-col p-2">
                 <div className="flex justify-between place-items-center">
-                    <PrimitiveCard primitive={primitive} compact showEdit disableHover editing className='w-full place-items-center !bg-transparent'/>
+                    <PrimitiveCard.EditableHeader primitive={primitive} className='place-items-center'/>
                 </div>
                 <Panel collapsable open={props.showDetails} className="!mt-0 ml-1">
                     <div className="w-full flex-col text-xs my-2 space-y-1 shrink-0">
