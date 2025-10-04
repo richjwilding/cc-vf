@@ -87,10 +87,39 @@ class AirtableIntegration extends IntegrationProvider {
     super({
       name: 'airtable',
       title: 'Airtable',
-      scopes: ['data.records:read'],
+      scopes: ['data.records:read', 'schema.bases:read'],
       description: 'Sync records from Airtable bases and tables.',
       requiresPkce: true,
+      supportsDiscovery: true,
     });
+  }
+
+  describeConfiguration() {
+    return {
+      account: [],
+      primitive: [
+        {
+          key: 'baseId',
+          label: 'Base',
+          required: true,
+          discovery: {
+            type: 'bases',
+            itemLabel: 'name',
+          },
+        },
+        {
+          key: 'tableId',
+          label: 'Table',
+          required: true,
+          dependsOn: ['baseId'],
+          discovery: {
+            type: 'tables',
+            requires: ['baseId'],
+            itemLabel: 'name',
+          },
+        },
+      ],
+    };
   }
 
   get clientId() {
@@ -172,35 +201,22 @@ class AirtableIntegration extends IntegrationProvider {
     };
   }
 
-  async fetchRecords(account, config, options = {}) {
-    if (!config?.baseId || !config?.tableId) {
-      throw new Error('Airtable configuration requires baseId and tableId');
-    }
-
+  async performRequest(account, url, options = {}) {
     await this.ensureAccessToken(account);
 
-    logger.debug('Fetching Airtable records', {
-      baseId: config.baseId,
-      tableId: config.tableId,
-      since: options.since,
-    });
-
-    const items = [];
-    let offset;
     let accessToken = account.accessToken;
     let refreshed = false;
-    const pageSize = Number(config.pageSize ?? 100);
-    const maxRecords = Number(options.maxRecords ?? config.maxRecords ?? 1000);
 
-    const formula = buildFilterFormula(config, options.since, options.filters);
-
-    const doRequest = async (url) => {
+    const execute = async () => {
       const response = await fetch(url, {
-        method: 'GET',
+        method: options.method ?? 'GET',
         headers: {
           Authorization: `Bearer ${accessToken}`,
+          ...(options.headers ?? {}),
         },
+        body: options.body,
       });
+
       if (response.status === 401 && !refreshed && account.refreshToken) {
         refreshed = true;
         const tokens = await this.refreshToken(account.refreshToken);
@@ -211,18 +227,47 @@ class AirtableIntegration extends IntegrationProvider {
           }
           if (tokens.expiresAt) {
             account.expiresAt = tokens.expiresAt;
+          } else if (tokens.expiresIn) {
+            account.expiresAt = new Date(Date.now() + Number(tokens.expiresIn) * 1000);
           }
           await account.save();
           accessToken = account.accessToken;
-          return doRequest(url);
+          return execute();
         }
       }
+
       if (!response.ok) {
         const errorBody = await response.text();
         throw new Error(`Airtable API error (${response.status}): ${errorBody}`);
       }
+
+      if (response.status === 204) {
+        return null;
+      }
+
       return response.json();
     };
+
+    return execute();
+  }
+
+  async fetchRecords(account, config, options = {}) {
+    if (!config?.baseId || !config?.tableId) {
+      throw new Error('Airtable configuration requires baseId and tableId');
+    }
+
+    logger.debug('Fetching Airtable records', {
+      baseId: config.baseId,
+      tableId: config.tableId,
+      since: options.since,
+    });
+
+    const items = [];
+    let offset;
+    const pageSize = Number(config.pageSize ?? 100);
+    const maxRecords = Number(options.maxRecords ?? config.maxRecords ?? 1000);
+
+    const formula = buildFilterFormula(config, options.since, options.filters);
 
     do {
       const endpoint = new URL(`${API_BASE}/${config.baseId}/${encodeURIComponent(config.tableId)}`);
@@ -253,7 +298,7 @@ class AirtableIntegration extends IntegrationProvider {
         });
       }
 
-      const payload = await doRequest(endpoint.toString());
+      const payload = await this.performRequest(account, endpoint.toString());
       const pageRecords = Array.isArray(payload.records) ? payload.records : [];
       for (const record of pageRecords) {
         const normalized = normalizeRecord(record, config);
@@ -278,6 +323,63 @@ class AirtableIntegration extends IntegrationProvider {
       items,
       cursor: offset ? { offset } : undefined,
     };
+  }
+
+  async discover(account, params = {}) {
+    const type = params.type ?? 'bases';
+    const cursor = params.cursor;
+
+    if (type === 'bases') {
+      const endpoint = new URL(`${API_BASE}/meta/bases`);
+      if (cursor) {
+        endpoint.searchParams.set('offset', cursor);
+      }
+      const payload = await this.performRequest(account, endpoint.toString());
+      const bases = Array.isArray(payload?.bases) ? payload.bases : [];
+      return {
+        type: 'bases',
+        items: bases.map((base) => ({
+          id: base.id,
+          name: base.name,
+          permissionLevel: base.permissionLevel,
+          region: base.region,
+        })),
+        cursor: payload?.offset ?? null,
+      };
+    }
+
+    if (type === 'tables') {
+      const baseId = params.baseId;
+      if (!baseId) {
+        throw new Error('baseId is required for table discovery');
+      }
+      const endpoint = new URL(`${API_BASE}/meta/bases/${encodeURIComponent(baseId)}/tables`);
+      if (cursor) {
+        endpoint.searchParams.set('offset', cursor);
+      }
+      const payload = await this.performRequest(account, endpoint.toString());
+      const tables = Array.isArray(payload?.tables) ? payload.tables : [];
+      return {
+        type: 'tables',
+        baseId,
+        items: tables.map((table) => ({
+          id: table.id,
+          name: table.name,
+          description: table.description ?? null,
+          primaryFieldId: table.primaryFieldId,
+          fields: Array.isArray(table.fields)
+            ? table.fields.map((field) => ({
+                id: field.id,
+                name: field.name,
+                type: field.type,
+              }))
+            : [],
+        })),
+        cursor: payload?.offset ?? null,
+      };
+    }
+
+    throw new Error(`Unsupported discovery type '${type}' for Airtable`);
   }
 }
 

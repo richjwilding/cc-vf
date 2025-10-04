@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card, CardBody, CardHeader, Chip, Divider, Spinner } from "@heroui/react";
 import toast from "react-hot-toast";
 import MainStore from "./MainStore";
+import IntegrationConfigModal from "./integrations/IntegrationConfigModal.jsx";
 
 function formatDate(value) {
   if (!value) {
@@ -26,6 +27,8 @@ export default function IntegrationsScreen() {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [startingProvider, setStartingProvider] = useState(null);
   const [pendingResult, setPendingResult] = useState(null);
+  const [configAccount, setConfigAccount] = useState(null);
+  const [configProvider, setConfigProvider] = useState(null);
 
   const workspaceId = mainstore.activeWorkspaceId;
   const workspace = workspaceId ? mainstore.workspace(workspaceId) : null;
@@ -79,6 +82,20 @@ export default function IntegrationsScreen() {
       setLoadingAccounts(false);
     }
   }, [workspaceId]);
+
+  const handleAccountUpdated = useCallback((updatedAccount) => {
+    if (!updatedAccount?.id) {
+      return;
+    }
+    setAccounts((prev) => prev.map((account) => (
+      account.id === updatedAccount.id ? updatedAccount : account
+    )));
+  }, []);
+
+  const closeConfigurator = useCallback(() => {
+    setConfigAccount(null);
+    setConfigProvider(null);
+  }, []);
 
   useEffect(() => {
     loadProviders();
@@ -155,6 +172,11 @@ export default function IntegrationsScreen() {
   const renderProviderCard = (provider) => {
     const providerAccounts = accountsByProvider.get(provider.name) ?? [];
     const hasAccounts = providerAccounts.length > 0;
+    const configuration = provider.configuration ?? {};
+    const accountConfigFields = configuration.account ?? [];
+    const primitiveConfigFields = configuration.primitive ?? [];
+    const supportsAccountConfig = accountConfigFields.length > 0;
+    const supportsPrimitiveConfig = primitiveConfigFields.length > 0;
 
     return (
       <Card key={provider.name} shadow="sm" className="border border-default-200">
@@ -191,48 +213,70 @@ export default function IntegrationsScreen() {
             </div>
           ) : hasAccounts ? (
             <div className="space-y-3">
-              {providerAccounts.map((account) => (
-                <div
-                  key={account.id}
-                  className="rounded-large border border-default-200 bg-default-100/50 p-4"
-                >
-                  <div className="flex flex-col gap-1 text-small">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium text-foreground">Authorized account</span>
-                      {account.expiresAt && (
-                        <Chip size="sm" variant="flat" color="success">
-                          Refreshes {formatDate(account.expiresAt)}
-                        </Chip>
+              {providerAccounts.map((account) => {
+                return (
+                  <div
+                    key={account.id}
+                    className="rounded-large border border-default-200 bg-default-100/50 p-4"
+                  >
+                    <div className="flex flex-col gap-2 text-small">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium text-foreground">Authorized account</span>
+                        {account.expiresAt && (
+                          <Chip size="sm" variant="flat" color="success">
+                            Refreshes {formatDate(account.expiresAt)}
+                          </Chip>
+                        )}
+                      </div>
+                      <div className="text-default-500">
+                        Connected {formatDate(account.createdAt) || "recently"}
+                      </div>
+                      {account.scope?.length > 0 && (
+                        <div className="text-default-500">
+                          Scope: {account.scope.join(", ")}
+                        </div>
                       )}
-                    </div>
-                    <div className="text-default-500">
-                      Connected {formatDate(account.createdAt) || "recently"}
-                    </div>
-                    {account.scope?.length > 0 && (
-                      <div className="text-default-500">
-                        Scope: {account.scope.join(", ")}
+                      {account.metadata && Object.keys(account.metadata).length > 0 ? (
+                        <div className="text-default-500">
+                          <p className="text-xs uppercase tracking-wide text-default-400">Metadata</p>
+                          <pre className="max-h-32 overflow-auto rounded-medium bg-default-200/60 p-2 text-xs text-default-600">
+                            {JSON.stringify(account.metadata, null, 2)}
+                          </pre>
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-default-400">
+                        <span>
+                          Updated {formatDate(account.updatedAt) || formatDate(account.createdAt) || "recently"}
+                        </span>
+                        {supportsAccountConfig && (
+                          <Button
+                            size="sm"
+                            variant="bordered"
+                            onPress={() => {
+                              setConfigProvider(provider);
+                              setConfigAccount(account);
+                            }}
+                          >
+                            Configure
+                          </Button>
+                        )}
                       </div>
-                    )}
-                    {account.metadata && Object.keys(account.metadata).length > 0 && (
-                      <div className="text-default-500">
-                        {Object.entries(account.metadata).map(([key, value]) => (
-                          <div key={key}>
-                            <span className="font-medium capitalize">{key}:</span> {String(value)}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="text-default-400">
-                      Updated {formatDate(account.updatedAt) || formatDate(account.createdAt) || "recently"}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="text-small text-default-500">
               No accounts connected yet. Use the Connect button to authorize access.
             </p>
+          )}
+          {supportsPrimitiveConfig && (
+            <div className="text-xs text-default-500">
+              Additional configuration is applied per external primitive:
+              {' '}
+              {primitiveConfigFields.map((field) => field.label || field.key).join(', ')}.
+            </div>
           )}
         </CardBody>
       </Card>
@@ -277,6 +321,14 @@ export default function IntegrationsScreen() {
             </CardBody>
           </Card>
         )}
+
+        <IntegrationConfigModal
+          isOpen={Boolean(configAccount)}
+          provider={configProvider}
+          account={configAccount}
+          onClose={closeConfigurator}
+          onAccountUpdated={handleAccountUpdated}
+        />
       </div>
     </div>
   );

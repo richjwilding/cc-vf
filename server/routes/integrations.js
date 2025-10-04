@@ -68,6 +68,94 @@ router.get('/accounts', async (req, res) => {
   }
 });
 
+router.get('/:provider/discovery', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    const { accountId } = req.query;
+
+    if (!accountId) {
+      return res.status(400).json({ error: 'accountId is required' });
+    }
+
+    const integration = getIntegration(provider);
+    if (!integration) {
+      return res.status(404).json({ error: 'Unknown integration provider' });
+    }
+    if (!integration.supportsDiscovery || typeof integration.discover !== 'function') {
+      return res.status(400).json({ error: 'Discovery not supported for this provider' });
+    }
+
+    const account = await IntegrationAccount.findOne({
+      _id: accountId,
+      userId: req.user._id,
+    });
+
+    if (!account) {
+      return res.status(404).json({ error: 'Integration account not found' });
+    }
+
+    if (!ensureWorkspaceAccess(req, account.workspaceId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const result = await integration.discover(account, req.query ?? {});
+    res.json({
+      items: result?.items ?? [],
+      cursor: result?.cursor ?? null,
+      meta: result?.meta ?? null,
+      type: result?.type ?? null,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/accounts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const account = await IntegrationAccount.findOne({
+      _id: id,
+      userId: req.user._id,
+    });
+
+    if (!account) {
+      return res.status(404).json({ error: 'Integration account not found' });
+    }
+
+    if (!ensureWorkspaceAccess(req, account.workspaceId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { metadata, mergeMetadata = true } = req.body ?? {};
+
+    if (metadata !== undefined) {
+      if (mergeMetadata && metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+        account.metadata = { ...(account.metadata ?? {}), ...metadata };
+      } else {
+        account.metadata = metadata;
+      }
+    }
+
+    await account.save();
+
+    const safeAccount = account.toSafeObject ? account.toSafeObject() : {
+      id: account._id.toString(),
+      provider: account.provider,
+      userId: account.userId?.toString?.() ?? account.userId,
+      workspaceId: account.workspaceId?.toString?.() ?? account.workspaceId,
+      scope: account.scope ?? [],
+      expiresAt: account.expiresAt ?? null,
+      metadata: account.metadata ?? {},
+      createdAt: account.createdAt,
+      updatedAt: account.updatedAt,
+    };
+
+    res.json({ account: safeAccount });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post('/external/:id/sync', async (req, res) => {
   try {
     const { id } = req.params;

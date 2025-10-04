@@ -4,7 +4,7 @@ const logger = getLogger('integrations', 'debug');
 const registry = new Map();
 
 export class IntegrationProvider {
-  constructor({ name, title, scopes = [], description, requiresPkce = false } = {}) {
+  constructor({ name, title, scopes = [], description, requiresPkce = false, supportsDiscovery = false } = {}) {
     if (!name) {
       throw new Error('IntegrationProvider requires a name');
     }
@@ -13,6 +13,7 @@ export class IntegrationProvider {
     this.scopes = scopes;
     this.description = description;
     this.requiresPkce = Boolean(requiresPkce);
+    this.supportsDiscovery = Boolean(supportsDiscovery);
   }
 
   describe() {
@@ -22,6 +23,8 @@ export class IntegrationProvider {
       scopes: this.scopes,
       description: this.description,
       requiresPkce: this.requiresPkce,
+      supportsDiscovery: this.supportsDiscovery,
+      configuration: this.describeConfiguration(),
     };
   }
 
@@ -79,6 +82,17 @@ export class IntegrationProvider {
 
   async fetchRecords() {
     throw new Error('fetchRecords not implemented');
+  }
+
+  async discover() {
+    throw new Error('discover not implemented');
+  }
+
+  describeConfiguration() {
+    return {
+      account: [],
+      primitive: [],
+    };
   }
 }
 

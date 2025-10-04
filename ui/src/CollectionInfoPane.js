@@ -31,6 +31,7 @@ import { DebouncedNumberInput } from "./@components/DebouncedNumberInput"
 import { themes, tagColors } from "./RenderHelpers"
 import { ColorSelector } from "./@components/ColorSelector.jsx"
 import { DebouncedSlider } from "./@components/DebouncedSlider.jsx"
+import ExternalPrimitiveConfigurator from "./integrations/ExternalPrimitiveConfigurator.jsx"
 
 // Add the icons to the library
 
@@ -229,7 +230,31 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
             },
         })
     }
+    const [integrationProviders, setIntegrationProviders] = useState(null)
+    const [loadingProviders, setLoadingProviders] = useState(false)
+
     let content
+
+    useEffect(() => {
+        if (frame?.type === "external" && !integrationProviders && !loadingProviders) {
+            setLoadingProviders(true)
+            fetch('/api/integrations/providers')
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error(`Failed to load integration providers (${response.status})`)
+                    }
+                    return response.json()
+                })
+                .then((body) => {
+                    setIntegrationProviders(Array.isArray(body?.providers) ? body.providers : [])
+                })
+                .catch((error) => {
+                    console.error(error)
+                    setIntegrationProviders([])
+                })
+                .finally(() => setLoadingProviders(false))
+        }
+    }, [frame?.type, integrationProviders, loadingProviders])
 
     const flowElementControl = () => {
         if (frame.flowElement) {
@@ -501,6 +526,26 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
             </div>
         </div>
 
+    } else if (frame?.type === "external") {
+        const providerName = frame?.referenceParameters?.provider;
+        const providerInfo = integrationProviders?.find((entry) => entry.name === providerName);
+
+        content = (
+            <div className="flex flex-col space-y-4 px-3 pb-3">
+                {activeInfo}
+                <div className="rounded-lg border border-default-200 bg-default-100/50 p-4">
+                    <h3 className="text-base font-semibold text-foreground">Integration Configuration</h3>
+                    <p className="mt-1 text-sm text-default-500">
+                        Configure how this external primitive connects to its integration provider.
+                    </p>
+                    <ExternalPrimitiveConfigurator
+                        primitive={frame}
+                        provider={providerInfo}
+                        loadingProviders={loadingProviders}
+                    />
+                </div>
+            </div>
+        )
     } else if (frame) {
         const list = localItems ?? (filters ? primitiveForContent.itemsForProcessingWithFilter(filters) : primitiveForContent.itemsForProcessing)
         const viewConfigs = frame.type === "flow" ? props.flowInstances.map((d, i) => (
