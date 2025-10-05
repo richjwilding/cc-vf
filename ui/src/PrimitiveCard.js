@@ -957,6 +957,7 @@ let mainstore = MainStore()
     const iconOnly = isIconOnly ?? !title
     const { placement: dropdownPlacement, ...restDropdownProps } = dropdownProps
     const resolvedPlacement = dropdownPlacement ?? placement
+    const { className: dropdownMenuClassNameProp, ...restDropdownMenuProps } = dropdownMenuProps
 
     const trigger = (
       <Button
@@ -980,7 +981,12 @@ let mainstore = MainStore()
         <DropdownTrigger>
           {trigger}
         </DropdownTrigger>
-        <DropdownMenu aria-label="Dropdown menu with icons" variant="faded" {...dropdownMenuProps}>
+        <DropdownMenu
+          aria-label="Dropdown menu with icons"
+          variant="faded"
+          className={clsx('max-h-[min(60vh,24rem)] overflow-y-auto', dropdownMenuClassNameProp)}
+          {...restDropdownMenuProps}
+        >
           {menuItems.map((item,idx) => (
             <DropdownItem
               key={item.key ?? idx}
