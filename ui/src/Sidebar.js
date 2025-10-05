@@ -386,7 +386,10 @@ export function Sidebar({primitive, ...props}) {
             {!infoPane && isMulti && commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">{primitive.length} items selected</div> }
             {!infoPane && !props.forFlow && !isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
                 {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />}
-                {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm', className: 'ml-auto m-2' }} /> }
+                {primitive.metadata?.actions && 
+                    <div className='ml-auto'>
+                        <PrimitiveCard.CardMenu primitive={primitive} buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm' }} />
+                        </div>}
             </div>}
             {!infoPane && !isMulti && !props.forFlow && primitive.type === "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <QueryCard primitive={primitive} showDetails={true}/>

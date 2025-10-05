@@ -1,6 +1,8 @@
 import { Input, Textarea } from "@heroui/react"
 import React from "react"
 
+const normalizeStringValue = (val) => (val == null ? "" : val)
+
 export function DebouncedInput({
   value: initialValue,
   onChange,
@@ -10,18 +12,19 @@ export function DebouncedInput({
   onKeyDown,
   ...props
 }) {
-  const [value, setValue] = React.useState(initialValue)
+  const [value, setValue] = React.useState(() => normalizeStringValue(initialValue))
   const timeoutRef = React.useRef(null)
 
   // keep local in sync when parent value changes
   React.useEffect(() => {
-    setValue(initialValue)
+    setValue(normalizeStringValue(initialValue))
   }, [initialValue])
 
   // debounce user edits
   React.useEffect(() => {
+    const normalizedInitial = normalizeStringValue(initialValue)
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    if (value !== initialValue) {
+    if (value !== normalizedInitial) {
       timeoutRef.current = setTimeout(() => {
         onChange?.(value)
         timeoutRef.current = null
@@ -37,7 +40,7 @@ export function DebouncedInput({
     const live = e?.target?.value ?? e?.currentTarget?.value
     const next = typeof live === "string" ? live : value
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    if (next !== initialValue) {
+    if (next !== normalizeStringValue(initialValue)) {
       onChange?.(next)
     }
   }
@@ -66,7 +69,7 @@ export function DebouncedInput({
     ...props,
     variant: props.variant ?? "bordered",
     value,
-    onChange: (e) => setValue(e.target.value),
+    onChange: (e) => setValue(e.target.value ?? ""),
     onBlur: handleBlur,
     onKeyDown: handleKeyDown,
   }

@@ -1,6 +1,20 @@
 import { NumberInput } from "@heroui/react"
 import React from "react"
 
+const normalizeExternalNumber = (val) => {
+  if (val === "" || val === null || typeof val === "undefined") return ""
+  if (typeof val === "number") return val
+  const parsed = parseFloat(String(val).replaceAll(",", ""))
+  return Number.isNaN(parsed) ? "" : parsed
+}
+
+// parse helper (numbers or empty string allowed)
+const parseMaybeNumber = (val) => {
+  if (val === "" || val === null || typeof val === "undefined") return ""
+  const n = typeof val === "number" ? val : parseFloat(String(val).replaceAll(",", ""))
+  return Number.isNaN(n) ? null : n
+}
+
 export function DebouncedNumberInput({
   value: externalValue,
   onValueChange,
@@ -8,7 +22,8 @@ export function DebouncedNumberInput({
   debounce = 500,
   ...props
 }) {
-  const [internalValue, setInternalValue] = React.useState(externalValue)
+  const normalizedExternalValue = normalizeExternalNumber(externalValue)
+  const [internalValue, setInternalValue] = React.useState(normalizedExternalValue)
 
   // keep latest callback in a ref
   const latestCallback = React.useRef(onValueChange ?? onChange)
@@ -18,29 +33,23 @@ export function DebouncedNumberInput({
 
   // sync internal when parent value changes
   React.useEffect(() => {
-    setInternalValue(externalValue)
-  }, [externalValue])
+    setInternalValue(normalizedExternalValue)
+  }, [normalizedExternalValue])
 
   // debounce sends
   const timeoutRef = React.useRef(null)
   React.useEffect(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    timeoutRef.current = setTimeout(() => {
-      if (internalValue !== externalValue) {
+    if (internalValue !== normalizedExternalValue) {
+      timeoutRef.current = setTimeout(() => {
         latestCallback.current?.(internalValue)
-      }
-    }, debounce)
+        timeoutRef.current = null
+      }, debounce)
+    }
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
     }
-  }, [internalValue, debounce, externalValue])
-
-  // parse helper (numbers or empty string allowed)
-  const parseMaybeNumber = (val) => {
-    if (val === "" || val === null || typeof val === "undefined") return ""
-    const n = typeof val === "number" ? val : parseFloat(val.replaceAll(",",""))
-    return Number.isNaN(n) ? null : n
-  }
+  }, [internalValue, debounce, normalizedExternalValue])
 
   // Commit immediately, grabbing the freshest value from the event/DOM
   const commitFromEvent = (e) => {
@@ -54,13 +63,12 @@ export function DebouncedNumberInput({
         : undefined)
 
     const parsed = parseMaybeNumber(raw)
-    console.log(`UPDATE ${raw} > ${parsed}`)
 
     // If the event didn't give us a usable value, fall back to internalValue
     const nextValue = parsed === null ? internalValue : parsed
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    if (nextValue !== externalValue) {
+    if (nextValue !== normalizedExternalValue) {
       latestCallback.current?.(nextValue)
     }
   }

@@ -874,7 +874,7 @@ let mainstore = MainStore()
     showDelete,
     showUnlink,
     showInSidebar,
-    placement = 'bottom-end',
+    placement = 'right',
     buttonProps = {},
     dropdownMenuProps = {},
     dropdownProps = {},
@@ -955,8 +955,41 @@ let mainstore = MainStore()
 
     const { className: buttonClassNameProp, isIconOnly, startContent, ...restButtonProps } = buttonProps
     const iconOnly = isIconOnly ?? !title
-    const { placement: dropdownPlacement, ...restDropdownProps } = dropdownProps
+    const {
+      placement: dropdownPlacement,
+      popoverProps: dropdownPopoverPropsProp = {},
+      classNames: dropdownClassNamesProp,
+      portalContainer: dropdownPortalContainerProp,
+      shouldFlip: dropdownShouldFlipProp,
+      shouldCloseOnScroll: dropdownShouldCloseOnScrollProp,
+      ...restDropdownProps
+    } = dropdownProps
+
     const resolvedPlacement = dropdownPlacement ?? placement
+    const defaultPortalContainer = typeof window !== 'undefined' ? document.body : undefined
+
+    const portalContainer = dropdownPortalContainerProp ?? dropdownPopoverPropsProp.portalContainer ?? defaultPortalContainer
+    const shouldFlip = dropdownShouldFlipProp ?? dropdownPopoverPropsProp.shouldFlip ?? true
+    const shouldCloseOnScroll = dropdownShouldCloseOnScrollProp ?? dropdownPopoverPropsProp.shouldCloseOnScroll
+
+    const dropdownClassNames = {
+      ...dropdownPopoverPropsProp.classNames,
+      ...dropdownClassNamesProp,
+    }
+
+    dropdownClassNames.content = clsx(
+      'max-h-[calc(100vh-4rem)] overflow-y-auto overscroll-contain !flex !flex-col !items-stretch !justify-start',
+      dropdownPopoverPropsProp.classNames?.content,
+      dropdownClassNamesProp?.content,
+    )
+
+    const legacyPopoverRest = { ...dropdownPopoverPropsProp }
+    legacyPopoverRest.containerPadding = legacyPopoverRest.containerPadding ?? 32
+    delete legacyPopoverRest.classNames
+    delete legacyPopoverRest.portalContainer
+    delete legacyPopoverRest.shouldFlip
+    delete legacyPopoverRest.shouldCloseOnScroll
+
     const { className: dropdownMenuClassNameProp, ...restDropdownMenuProps } = dropdownMenuProps
 
     const trigger = (
@@ -977,14 +1010,22 @@ let mainstore = MainStore()
     return(<>
       {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
       {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
-      <Dropdown placement={resolvedPlacement} {...restDropdownProps}>
+      <Dropdown
+        placement={resolvedPlacement}
+        portalContainer={portalContainer}
+        shouldFlip={shouldFlip}
+        classNames={dropdownClassNames}
+        {...(shouldCloseOnScroll !== undefined ? { shouldCloseOnScroll } : {})}
+        {...legacyPopoverRest}
+        {...restDropdownProps}
+      >
         <DropdownTrigger>
           {trigger}
         </DropdownTrigger>
         <DropdownMenu
           aria-label="Dropdown menu with icons"
-          variant="faded"
-          className={clsx('max-h-[min(60vh,24rem)] overflow-y-auto', dropdownMenuClassNameProp)}
+          variant="flat"
+          className={clsx(dropdownMenuClassNameProp)}
           {...restDropdownMenuProps}
         >
           {menuItems.map((item,idx) => (
@@ -2994,5 +3035,3 @@ PrimitiveCard.ListCard = CardForList
 PrimitiveCard.OutputPins = Outputs
 PrimitiveCard.InputPins = InputPins
 PrimitiveCard.ControlPins = ControlPins
-
-

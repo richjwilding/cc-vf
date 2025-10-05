@@ -138,13 +138,6 @@ export function PrimitivePage({primitive, ...props}) {
     }
 
 
-    const setLocalMetric = (id)=>{
-      console.log({primitive: primitive, metric: id})
-      setSelectedMetric({primitive: primitive, metric: id})
-    }
-
-
-
     let outcomesList = primitive.isTask ? primitive.primitives.outcomes.allUniqueEvidence : primitive.primitives.origin.allUniqueEvidence
     
     const leftHandSection = ()=>{
