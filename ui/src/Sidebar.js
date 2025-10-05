@@ -225,20 +225,22 @@ export function Sidebar({primitive, ...props}) {
             <p className='text-lg'>{items.length} items</p>
             {segment && <>
                     {primitive.metadata?.actions && <div className='w-full flex'>
-                        <PrimitiveCard.CardMenu primitive={segment} 
+                        <PrimitiveCard.CardMenu primitive={segment}
                             custom={nestedActions.map(d=>{
                                 return {
                                     ...d,
                                     action: async ()=>await MainStore().doPrimitiveAction( primitive, "auto_cascade", {cascade_key: d.key, ids: items?.map(d=>d.id)})
                                 }
-                            })} 
-                        className='ml-auto m-2'/>
+                            })}
+                            buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm', className: 'ml-auto m-2' }}
+                        />
                     </div>}
-                    <PrimitiveCard primitive={segment} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
+                    <PrimitiveCard.SidePanel primitive={segment}/>
                 </> 
             }
-            {nestedActions.length > 0&& <PrimitiveCard.CardMenu 
-                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
+            {nestedActions.length > 0&& <PrimitiveCard.CardMenu
+                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>}
+                            buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm' }}
                             custom={nestedActions.map(d=>{
                                 const doAction = async (options)=>{
                                     await MainStore().doPrimitiveAction( 
@@ -264,7 +266,6 @@ export function Sidebar({primitive, ...props}) {
                                     }
                                 }
                             })} 
-                            size={10}
                         />
 
             }
@@ -385,7 +386,10 @@ export function Sidebar({primitive, ...props}) {
             {!infoPane && isMulti && commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">{primitive.length} items selected</div> }
             {!infoPane && !props.forFlow && !isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
                 {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />}
-                {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} className='ml-auto m-2'/> }            
+                {primitive.metadata?.actions && 
+                    <div className='ml-auto'>
+                        <PrimitiveCard.CardMenu primitive={primitive} buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm' }} />
+                        </div>}
             </div>}
             {!infoPane && !isMulti && !props.forFlow && primitive.type === "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <QueryCard primitive={primitive} showDetails={true}/>
@@ -436,7 +440,7 @@ export function Sidebar({primitive, ...props}) {
                 </button>
             </div>}
             {!infoPane && !isMulti && !props.forFlow && !showAsSummary && primitive.type !== "query" && <div className="pb-2 pl-4 pr-4 pt-4">
-                <PrimitiveCard primitive={primitive} showQuote editState={primitive.type==="hypothesis"} showDetails="panel" panelOpen={true} showLink={true} major={true} showEdit={true} editing={true} className='mb-6'/>
+                <PrimitiveCard.SidePanel primitive={primitive} showQuote editState={primitive.type==="hypothesis"}/>
                 {rationaleList}
                 {primitive.type === "result" && !fulltext && (primitive.referenceParameters?.url || primitive.referenceParameters?.notes) && <Panel.MenuButton title='View text' onClick={async ()=>setFullText((await primitive.getDocumentAsText())?.split(" ").slice(0,5000).join(" "))}/>}
                 {primitive.type === "result" && fulltext && <div className='p-3 border rounded-md text-sm'>{fulltext}</div>}
@@ -489,18 +493,18 @@ export function Sidebar({primitive, ...props}) {
                 {primitive.parentPrimitiveRelationships["link"] && showSource &&
                     <div className='mt-6 mb-3 border-t'>
                         <h3 className="mb-2 text-md text-gray-400 pt-2">Linked to</h3>
-                        <PrimitiveCard primitive={primitive.parentPrimitiveRelationships["link"][0]} showState={true} showLink={true} showDetails="panel"/>
+                        <PrimitiveCard.PanelReference primitive={primitive.parentPrimitiveRelationships["link"][0]}/>
                     </div>
                 }
                 {origin && showSource &&
                     <div className='mt-6 mb-3 border-t'>
                         <h3 className="mb-2 text-md text-gray-400 pt-2">Source</h3>
-                        <PrimitiveCard primitive={origin.type === "search" ? origin.origin : origin} showState={true} showLink={true} showDetails="panel"/>
+                        <PrimitiveCard.PanelReference primitive={origin.type === "search" ? origin.origin : origin}/>
                     </div>
                 }
                 {task && <div className='mt-6 mb-3 border-t'>
                     <h3 className="mb-2 text-md text-gray-400  pt-2">Related {task.type}</h3>
-                    <PrimitiveCard primitive={task}  showState={true} showDetails="panel" showUsers="panel" showLink={true}/>
+                    <PrimitiveCard.PanelReference primitive={task} showUsers="panel"/>
                 </div>}
             </div>}
             {(metadata?.sidebar?.showRefs || PrimitiveConfig.sidebar[primitive.type]?.showRefs) && (primitive.primitives.ref?.allIds.length + primitive.primitives.link?.allIds.length + primitive.primitives.source?.allIds.length)> 0 && 

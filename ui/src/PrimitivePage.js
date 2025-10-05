@@ -1,21 +1,17 @@
 import { PrimitiveCard } from './PrimitiveCard'
-import { MetricCard } from './MetricCard'
-import { HeroIcon } from './HeroIcon'
 import {Fragment, useEffect, useReducer, useRef, useState, useMemo, useCallback, useLayoutEffect} from 'react';
 import { useLinkClickHandler, useNavigate } from "react-router-dom";
 import Panel from './Panel';
-import { Tab, Transition } from '@headlessui/react'
+import { Transition } from '@headlessui/react'
 import {
   QuestionMarkCircleIcon,
 } from '@heroicons/react/20/solid'
 import { PrimitivePopup } from './PrimitivePopup';
-import { MetricPopup } from './MetricPopup';
 import MainStore from './MainStore';
-import { CheckIcon, XMarkIcon, HandThumbUpIcon, HandThumbDownIcon, GifIcon, ArrowPathIcon, ArrowsPointingInIcon, PlusIcon } from '@heroicons/react/24/outline';
-import { formatDistance, subDays } from 'date-fns'
+import { PlusIcon } from '@heroicons/react/24/outline';
+import { formatDistance } from 'date-fns'
 import ResultViewer from './ResultViewer';
 import useDataEvent from './CustomHook';
-import MetricEditor from './MetricEditor';
 import { ComponentRow } from './ComponentRow';
 import AIStatusPopup from './AIStatusPopup';
 import { AssessmentCard } from './AssessmentCard';
@@ -23,7 +19,6 @@ import CollectionViewer from './CollectionViewer';
 import EditableTextField from './EditableTextField';
 import PrimitiveConfig from './PrimitiveConfig';
 import VFTable from './VFTable';
-import MapViewer from './MapViewer';
 import BoardViewer from './BoardViewer';
 import ReportViewExporter from './ReportViewExporter';
 import RouterTest from './RouterTest';
@@ -45,10 +40,7 @@ export function PrimitivePage({primitive, ...props}) {
     const hasDocumentViewer = primitive.type === "result" && (primitive.referenceParameters?.notes || primitive.referenceParameters?.url)
     const [eventRelationships, updateRelationships] = useReducer( (x)=>x+1, 0)
     const callbackId = useRef(null)
-    const [editMetric, setEditMetric] = useState(null)
     const [selected, setSelected] = useState(null)
-    const [selectedMetric, setSelectedMetric] = useState(null)
-    const [groupMetricsOpen, setGroupMetricsOpen] = useState(false)
     const [activePrim, setActivePrim] = useState(primitive.id)
     const [plainText, setPlainText] = useState()
     const resultViewer = useRef(null)
@@ -63,7 +55,7 @@ export function PrimitivePage({primitive, ...props}) {
         if( val === 'assessment_table'){
           return true
         } 
-        if( val === 'map' || val === 'evidence' || val === "report" ){
+        if( val === 'evidence' || val === "report" ){
           return true
         } 
         if( val.type === "result"){
@@ -93,7 +85,6 @@ export function PrimitivePage({primitive, ...props}) {
             return (primitive.type === "activity" ? primitive.primitives.results.descendants : primitive.primitives.descendants).filter((d)=>d.type==="evidence")
     }, [primitive.id])
     const hasNestedEvidence = (PrimitiveConfig.pageview[primitive.type]?.evidence ?? true) && (primitive.isTask || nestedEvidence.length > 0)
-    const showMetrics = (primitive.isTask || primitive.type === "cohort" ) && primitive.metadata.metrics
 
 
     const hasQuestions = (task && task.metadata?.sections?.questions) || (primitive && primitive.metadata?.sections?.questions)
@@ -115,9 +106,7 @@ export function PrimitivePage({primitive, ...props}) {
 
     if( activePrim !== primitive.id ){
       setActivePrim(primitive.id)
-      setSelectedMetric(null)
       setSelected(null)
-      setGroupMetricsOpen(false)
       if( props.selectPrimitive ){
         props.selectPrimitive(null)
       }
@@ -149,13 +138,6 @@ export function PrimitivePage({primitive, ...props}) {
     }
 
 
-    const setLocalMetric = (id)=>{
-      console.log({primitive: primitive, metric: id})
-      setSelectedMetric({primitive: primitive, metric: id})
-    }
-
-
-
     let outcomesList = primitive.isTask ? primitive.primitives.outcomes.allUniqueEvidence : primitive.primitives.origin.allUniqueEvidence
     
     const leftHandSection = ()=>{
@@ -164,7 +146,7 @@ export function PrimitivePage({primitive, ...props}) {
               <section>
                 <div className="bg-white shadow sm:rounded-lg grid grid-cols-5 @container">
                   <div className="px-4 py-5 sm:px-6 col-span-5">
-                    <PrimitiveCard primitive={primitive} showEdit={true} hideTitle={true} major={true}/>
+                    <PrimitiveCard.PrimaryInfo primitive={primitive} hideTitle />
                   </div>
                   <div className="border-gray-200 px-4 pb-5 sm:px-6 col-span-5 @lg:col-span-3">
                     <PrimitiveCard.Details allowEdit={true} primitive={primitive} title={`${primitive.displayType} details`} hideFooter={true}/>
@@ -193,12 +175,12 @@ export function PrimitivePage({primitive, ...props}) {
                     { primitive.isTask && <PrimitiveCard.Users primitive={primitive} title={`Team members`} asTable={true}/>}
                     { primitive.origin && 
                         <Panel key='relatedOrigin' title={`Related ${primitive.origin.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
-                          <PrimitiveCard variant={false} compact={true} primitive={primitive.origin}  disableHover={true} showLink={true}/>
+                          <PrimitiveCard.RelatedPrimitive primitive={primitive.origin}/>
                         </Panel>
                     }
                     { !primitive.isTask && task && task.id !== primitive.origin.id && 
                         <Panel key='relatedTask' title={`Related ${task.type}`} titleClassName='text-sm pb-2 font-medium text-gray-500 flex border-b border-gray-200'>
-                          <PrimitiveCard variant={false} compact={true} primitive={task}  disableHover={true} showLink={true}/>
+                          <PrimitiveCard.RelatedPrimitive primitive={task}/>
                         </Panel>
                     }
                   </div>
@@ -216,60 +198,8 @@ export function PrimitivePage({primitive, ...props}) {
                   </div>}
                 </div>
                 </section>
-                {showMetrics && <Panel key='metrics' title='Metrics' titleButton={{action:()=>setEditMetric({new: true})}} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={primitive.metrics}>
-                  <div className='@container'>
-                    <div className="gap-3  grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-3">
-                        {(primitive.metrics === undefined || primitive.metrics.length === 0) && 
-                          <div className='col-span-1 @md:col-span-2 @xl:col-span-3 w-full p-2'>
-                            <button
-                            onClick={()=>setEditMetric({new: true})}
-                            type="button"
-                            className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                          >
-                            <span className="mt-2 block text-sm font-semibold text-gray-900">Create a metric</span>
-                          </button>
-                          </div>
-                        }
-                        {primitive.metrics && primitive.metrics.map((metric)=>{
-                          let wide = metric.type === "conversion"
-                          const m = <MetricCard 
-                              key={metric.id} 
-                              groupOpen={wide ? undefined : groupMetricsOpen}
-                              groupControl={wide ? undefined : setGroupMetricsOpen}
-                              className='h-full' 
-                              onClick={setLocalMetric} 
-                              primitive={primitive} 
-                              metric={(metric)} 
-                              editMetric={setEditMetric}
-                              wideSizeClasses='col-span-1 @md:col-span-2 @xl:col-span-3'
-                              onCardClick={(p)=>setSelected(p)}/>
-                          if( wide ){
-                            return m
-                          }else{
-                            const open = {
-                              zIndex: 100
-                            };
-                            
-                            const closed = {
-                              transitionEnd: { zIndex: 0 }
-                            };
-                            const id = `m${metric.id}`
-                            return <div 
-                                        animate={
-                                          selectedMetric?.metric === metric.id ? open : closed
-                                        }
-                                      key={id} >
-                                        {selectedMetric?.metric !== metric.id && m}
-                                  </div> 
-                          }
-                        })}
-                    </div>
-                  </div>
-                </Panel>
-              }
-
-              {hasNestedEvidence && showWorkingPane !== "evidence" &&
-                    <Panel key='evidence_panel' title="Evidence" expandButton={()=>setShowWorkingPane('evidence')} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
+                {hasNestedEvidence && showWorkingPane !== "evidence" &&
+                      <Panel key='evidence_panel' title="Evidence" expandButton={()=>setShowWorkingPane('evidence')} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
                           {(nestedEvidence === undefined || nestedEvidence.length === 0) && 
                             <div className='w-full p-2'>
                               <button
@@ -281,11 +211,7 @@ export function PrimitivePage({primitive, ...props}) {
                             </div>
                           }
                       <PrimitiveCard.EvidenceList onCardClick={(p)=>props.selectPrimitive(p)} showCategories={primitive.primitives.allCategory.length > 0} relationshipTo={primitive} relationshipMode="presence"  evidenceList={nestedEvidence} aggregate={true} relatedTask={primitive} frameClassName='columns-1 xs:columns-2 sm:columns-3 md:columns-4' hideTitle='hideTitle'/>
-                    </Panel>}
-              {showWorkingPane !== "map" &&
-                    <Panel key='map_panel' title="Maps" expandButton={()=>setShowWorkingPane('map')} titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true}>
-                      <MapViewer primitive={primitive}/>
-                    </Panel>}
+                      </Panel>}
               {primitive.type === "assessment" && primitive.framework &&
                     <Panel key='assessment_panel' title="Assessment" titleClassName='w-full text-md font-medium text-gray-500 pt-5 pb-2 px-0.5 flex place-items-center' collapsable={true} open={true}>
                       { Object.values(primitive.framework.components).map((c) => {
@@ -551,14 +477,7 @@ export function PrimitivePage({primitive, ...props}) {
                       <VFTable primitive={primitive}/>
                     }
                     {hasDocumentViewer && (typeof(showWorkingPane) === 'boolean')  && <ResultViewer ref={resultViewer} enableEvidence={true} onHighlightClick={(d)=>console.log(d)} primitive={primitive} />}
-                    {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}
-                    {showWorkingPane === "map" && 
-                      <MapViewer 
-                        primitive={primitive}
-                        closeButton={()=>setShowWorkingPane()}
-                      
-                      />}
-                    {false && showWorkingPane === "board" && <RouterTest/>}
+                    {showWorkingPane === "assessment" && primitive.framework && componentView && <ComponentRow selectPrimitive={props.selectPrimitive} showFullText={true}  compact={false} evidenceDetail={true} primitive={primitive} key={componentView.id} component={componentView}/>}                    {false && showWorkingPane === "board" && <RouterTest/>}
                     {true && showWorkingPane === "board" && <BoardViewer primitive={primitive}/>}
                     {(showWorkingPane instanceof Object && showWorkingPane.type === "result" )  && 
                       <CollectionViewer 
@@ -590,111 +509,34 @@ export function PrimitivePage({primitive, ...props}) {
                 ].join(" ")
               }>
               <div className={`bg-white px-4 py-5 shadow sm:rounded-lg sm:px-6 sticky ${props.widePage ? "2xl:top-[2em]" : "2xl:top-[6em]"}`}>
-                            <Tab.Group>
-                                <Tab.List key='tabs' className="-mb-px flex space-x-8 border-b border-gray-200" aria-label="Tabs">
-                                <Tab key='t1' as={Fragment}>
-                                    {({ selected }) => ( 
-                                    <button
-                                    className={classNames(
-                                    selected
-                                    ? 'border-indigo-500 text-indigo-600 '
-                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-                                    'py-2 px-2 text-lg border-b-2 text-gray-900 ring-offset-0 focus:outline-none focus:border-indigo-900')}
-                                    aria-current={selected ? 'page' : undefined}
-                                    >
-                                    Outcomes {selected}
-                                    </button>)}
-                                    </Tab>
-                                  {!primitive.isTask && task && 
-                                <Tab key='t2' as={Fragment}>
-                                    {({ selected }) => ( 
-                                    <button
-                                    className={classNames(
-                                    selected
-                                    ? 'border-indigo-500 text-indigo-600 '
-                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-                                    'py-2 px-2 text-lg border-b-2 text-gray-900 ring-offset-0 focus:outline-none focus:border-indigo-900')}
-                                    aria-current={selected ? 'page' : undefined}
-                                    >
-                                    Metrics{selected}
-                                    </button>)}
-                                    </Tab>}
-                                </Tab.List>
-                                <Tab.Panels key='panels'>
-                                    <Tab.Panel>
-                                      <div key='evidence' className="mt-6 flow-root">
-                                        <ul role="list" className="p-1 space-y-2">
-                                          {outcomesList.map((p)=>(
-                                              <PrimitiveCard 
-                                                key={p.id} 
-                                                showMenu 
-                                                showEdit 
-                                                doubleClickToEdit 
-                                                menuProps={{showVisitPage:false, showDelete: "origin", showUnlink: true, showInSidebar: true}} 
-                                                relatedTo={primitive} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                      <div className="justify-stretch mt-6 flex flex-col">
-                                        <button
-                                          type="button"
-                                          className="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                                        >
-                                          Add new
-                                        </button>
-                                      </div>
-                                    </Tab.Panel>
-                                    {!primitive.isTask && task && task.metrics && 
-                                      <Tab.Panel >
-                                        <div 
-                                          key='metrics'
-                                          style={{gridTemplateColumns: 'max-content 1fr'}}
-                                          className='grid grid-cols-2 mt-6 mx-2'>
-                                          {task.metrics.filter((m)=>m.type==="count").map((metric)=>{
-                                            let included = false
-                                            let list
-                                            const v = metric.value                                          
-                                            if( v instanceof Array){
-                                              list = v.map((d)=>d.list).flat()
-                                            }else{
-                                              list = v.list
-                                            }
-                                            included = list.map((d)=>d.id).includes( primitive.id )
-
-                                            return (
-                                              <Fragment key={metric.id}>
-                                                <button
-                                                    type="button"
-                                                    onClick={()=>task.toggleRelationship(primitive, metric)}
-                                                    className="ml-1 flex p-1 m-1 flex-none items-center justify-center rounded-full bg-white text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none active:ring-2 active:ring-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                                                >
-                                                  {included && <CheckIcon className='w-5 h-5 text-green-500'/>}
-                                                  {!included && <XMarkIcon className='w-5 h-5 text-amber-600'/>}
-                                                </button>
-                                                <a href='#' onClick={()=>setSelectedMetric({primitive: task, metric: metric.id, highlight: primitive.id})}>
-                                                  <p className='p-2 text-sm truncate text-gray-500 hover:text-indigo-600 hover:underline'>{metric.title}</p>
-                                                </a>
-                                              </Fragment>
-                                              )
-                                          })}
-                                        </div>
-                                      <div className="justify-stretch mt-6 flex flex-col">
-                                        <button
-                                          type="button"
-                                          className="flex-1 rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                                        >
-                                          Create new
-                                        </button>
-                                      </div>
-                                      </Tab.Panel>}
-                                </Tab.Panels>
-                            </Tab.Group>
+              <div className="-mb-px border-b border-gray-200">
+                <h3 className="py-2 px-2 text-lg font-medium text-gray-900">Outcomes</h3>
+              </div>
+              <div key='evidence' className="mt-6 flow-root">
+                <ul role="list" className="p-1 space-y-2">
+                  {outcomesList.map((p)=>(
+                      <PrimitiveCard.MatrixItem
+                        key={p.id}
+                        showMenu
+                        showEdit
+                        doubleClickToEdit
+                        menuProps={{showVisitPage:false, showDelete: "origin", showUnlink: true, showInSidebar: true}}
+                        relatedTo={primitive} compact={true} primitive={p} showMeta="large" onClick={()=>resultViewer.current && resultViewer.current.showPrimitive(p.id)}/>
+                  ))}
+                </ul>
+              </div>
+              <div className="justify-stretch mt-6 flex flex-col">
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                  Add new
+                </button>
+              </div>
               </div>
             </section>}
           </div>
         {selected && <PrimitivePopup primitive={selected} contextOf={primitive} editing={true} setPrimitive={setSelected}/>}
-        <MetricPopup selected={selectedMetric?.metric} contextOf={selectedMetric?.primitive} highlight={selectedMetric?.highlight} setSelected={setSelectedMetric}/>
-        {editMetric && <MetricEditor metric={editMetric} primitive={primitive} setOpen={()=>setEditMetric(null)}/> }
         {showAIPopup && <AIStatusPopup category={showAIPopup.category} path={showAIPopup.path} primitive={primitive} close={()=>setShowAIPopup(false)}/>}
       </div>
     </>

@@ -182,7 +182,14 @@ export function PrimitiveTable(props) {
                             cell: info => {
                                 const primitive = info.row.original.primitive
                                 const items = primitive.primitives[d.relationship]?.allItems
-                                const list = items.map((d)=><PrimitiveCard textSize='xs' onClick={props.onClick ? (e)=>{e.stopPropagation(); props.onClick(e, d, primitive)} : undefined} primitive={d} compact={true} className={'mx-1 mb-2'} titleAtBase showLink/>)
+                                const list = items.map((d)=>
+                                    <PrimitiveCard.RelationshipItem
+                                        key={d.id ?? d.plainId}
+                                        primitive={d}
+                                        parent={primitive}
+                                        onSelect={props.onClick}
+                                    />
+                                )
                                 return <div className="flex flex-wrap w-full  place-items-start group">
                                     {list}
                                 </div>
@@ -208,7 +215,14 @@ export function PrimitiveTable(props) {
                                 const primitive = info.row.original.primitive
                                 const items = primitive.primitives.results[d.resultId]?.allItems
                                 const category = primitive.metadata?.resultCategories?.[ d.resultId ]
-                                const list = items.map((d)=><PrimitiveCard textSize='xs' onClick={props.onClick ? (e)=>{e.stopPropagation(); props.onClick(e, d, primitive)} : undefined} primitive={d} compact={true} className={'mx-1 mb-2'} titleAtBase showLink/>)
+                                const list = items.map((d)=>
+                                    <PrimitiveCard.RelationshipItem
+                                        key={d.id ?? d.plainId}
+                                        primitive={d}
+                                        parent={primitive}
+                                        onSelect={props.onClick}
+                                    />
+                                )
                                 return <div className="flex flex-wrap w-full  place-items-start group">
                                     {list}
                                     <div className="flex w-full invisible group-hover:visible">
@@ -383,7 +397,11 @@ export function PrimitiveTable(props) {
                         },
                         header: () => {
                             return (<div className="flex w-full">
-                                <PrimitiveCard disableHover textSize='xs' onClick={props.onClick ? (e)=>{e.stopPropagation(); props.onClick(e, d)} : undefined} primitive={d} compact={true} className={'mx-1 mb-2 w-full'} titleAtBase showLink/>
+                                <PrimitiveCard.RelationshipItem
+                                    primitive={d}
+                                    className='w-full'
+                                    onSelect={props.onClick}
+                                />
                             </div>)
                         },
                         sortingFn: (a,b,idx)=>{

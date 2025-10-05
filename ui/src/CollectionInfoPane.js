@@ -154,6 +154,7 @@ function CategoryHeader({ itemCategory, items, newItemParent, actionAnchor, ...p
             {activeTab?.discovery && nestedActions.length > 0 &&
                 <><PrimitiveCard.CardMenu
                     title="Actions"
+                    buttonProps={{ variant: 'bordered', size: 'sm' }}
                     custom={nestedActions.map(d => {
                         const doAction = async (options) => {
                             await MainStore().doPrimitiveAction(
@@ -179,7 +180,6 @@ function CategoryHeader({ itemCategory, items, newItemParent, actionAnchor, ...p
                             }
                         }
                     })}
-                    size={10}
                 />
                     {!props.filters && searchCategoryList && <div className="text-sm my-3 space-y-3">
                         {searchCategoryList.map(d =>

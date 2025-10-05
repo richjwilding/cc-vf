@@ -234,7 +234,7 @@ export default function SegmentCard({primitive, showAll, setShowAll, ...props}){
             {!props.hideDetails && <p key='description' className={props.cardView ? 'text-lg text-gray-600 m-2 mb-3' : 'text-xs text-gray-600 mb-2'}>{primitive.referenceParameters.description}</p>}
             {props.showGrid  && <div style={{gridTemplateColumns: `repeat(${columns}, minmax(min-content, 1fr))`}} className={`grid place-items-center gap-1`}>
                 {visibleList.map((d)=>(
-                    <PrimitiveCard 
+                    <PrimitiveCard.MatrixItem
                         fullId
                         primitive={d}
                         micro={!props.imageOnly}
