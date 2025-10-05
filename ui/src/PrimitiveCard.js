@@ -2386,40 +2386,6 @@ export function PrimaryInfo({
   )
 }
 
-export function GridItem({
-  className,
-  border = false,
-  editable = false,
-  noEvents = false,
-  disableHover,
-  ...props
-}) {
-  const mergedClassName = [className].filter(Boolean).join(' ') || undefined
-
-  return (
-    <PrimitiveCard
-      {...props}
-      border={border}
-      editable={editable}
-      noEvents={noEvents}
-      disableHover={disableHover}
-      className={mergedClassName}
-    />
-  )
-}
-
-export function SecondaryGridItem({ fieldsInline, ...props }) {
-  const mergedFieldsInline = fieldsInline ?? false
-
-  return (
-    <GridItem
-      {...props}
-      fieldsInline={mergedFieldsInline}
-      showAsSecondary
-    />
-  )
-}
-
 export function MatrixItem({
   className,
   compact = true,
@@ -2980,8 +2946,6 @@ PrimitiveCard.PanelReference = PanelReference
 PrimitiveCard.EditableHeader = EditableHeader
 PrimitiveCard.ModalPreview = ModalPreview
 PrimitiveCard.PrimaryInfo = PrimaryInfo
-PrimitiveCard.GridItem = GridItem
-PrimitiveCard.SecondaryGridItem = SecondaryGridItem
 PrimitiveCard.MatrixItem = MatrixItem
 PrimitiveCard.RelationshipPreview = RelationshipPreview
 PrimitiveCard.ImportList = ImportList
