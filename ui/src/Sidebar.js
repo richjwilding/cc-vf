@@ -225,20 +225,22 @@ export function Sidebar({primitive, ...props}) {
             <p className='text-lg'>{items.length} items</p>
             {segment && <>
                     {primitive.metadata?.actions && <div className='w-full flex'>
-                        <PrimitiveCard.CardMenu primitive={segment} 
+                        <PrimitiveCard.CardMenu primitive={segment}
                             custom={nestedActions.map(d=>{
                                 return {
                                     ...d,
                                     action: async ()=>await MainStore().doPrimitiveAction( primitive, "auto_cascade", {cascade_key: d.key, ids: items?.map(d=>d.id)})
                                 }
-                            })} 
-                        className='ml-auto m-2'/>
+                            })}
+                            buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm', className: 'ml-auto m-2' }}
+                        />
                     </div>}
                     <PrimitiveCard.SidePanel primitive={segment}/>
                 </> 
             }
-            {nestedActions.length > 0&& <PrimitiveCard.CardMenu 
-                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
+            {nestedActions.length > 0&& <PrimitiveCard.CardMenu
+                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>}
+                            buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm' }}
                             custom={nestedActions.map(d=>{
                                 const doAction = async (options)=>{
                                     await MainStore().doPrimitiveAction( 
@@ -264,7 +266,6 @@ export function Sidebar({primitive, ...props}) {
                                     }
                                 }
                             })} 
-                            size={10}
                         />
 
             }
@@ -385,7 +386,7 @@ export function Sidebar({primitive, ...props}) {
             {!infoPane && isMulti && commonMultiType && <div className="pb-2 pl-4 pr-4 pt-4">{primitive.length} items selected</div> }
             {!infoPane && !props.forFlow && !isMulti && (primitive.referenceParameters?.hasImg || primitive.metadata?.actions) && <div className='w-full flex'>
                 {primitive.referenceParameters?.hasImg  &&  <VFImage className="w-8 h-8 mx-2 object-contain my-auto" src={`/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`} />}
-                {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} className='ml-auto m-2'/> }            
+                {primitive.metadata?.actions && <PrimitiveCard.CardMenu primitive={primitive} buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm', className: 'ml-auto m-2' }} /> }
             </div>}
             {!infoPane && !isMulti && !props.forFlow && primitive.type === "query" && <div className="pb-2 pl-4 pr-4 pt-4">
                 <QueryCard primitive={primitive} showDetails={true}/>

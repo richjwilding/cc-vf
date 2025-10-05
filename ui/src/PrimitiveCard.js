@@ -51,6 +51,7 @@ import { Icon } from '@iconify/react/dist/iconify.js';
 import CategoryIdSelector from './@components/CategoryIdSelector';
 import { DebouncedInput } from './@components/DebouncedInput';
 import { DebouncedNumberInput } from './@components/DebouncedNumberInput';
+import clsx from 'clsx';
 
 export const ExpandArrow = function(props) {
   return (
@@ -862,144 +863,145 @@ let mainstore = MainStore()
 
   }
 
-  const CardMenu = function({primitive,...props}){
+  const CardMenu = function({
+    primitive,
+    custom = [],
+    relatedTo,
+    callbackProcessor,
+    icon,
+    title,
+    showVisitPage = true,
+    showDelete,
+    showUnlink,
+    showInSidebar,
+    placement = 'bottom-end',
+    buttonProps = {},
+    dropdownMenuProps = {},
+    dropdownProps = {},
+    className,
+  }){
     const [showDeletePrompt, setShowDeletePrompt] = React.useState(false)
     const [manualInputPrompt, setManualInputPrompt] = React.useState(false)
     const navigate = useNavigate();
-    const buttonClass = `${props.size > 6 ? 'p-1' : 'p-0.5'} shrink-0 grow-0 self-center rounded-md border ${props.bg === "transparent" ? "border-transparent hover:border-gray-300 hover:bg-white hover:shadow-sm" : `border-gray-300 ${props.bg || "bg-white"} shadow-sm`} font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`
-
-    const buttonIcon = props.icon ?? <Bars3Icon className='w-full h-full'/> 
 
     const handleDelete = ()=>{
       mainstore.removePrimitive( primitive )
       setShowDeletePrompt( null )
     }
 
-    let items = (props.custom || [])
-    if( primitive ){
+    let items = [...custom]
 
-      items = items.concat([
-        {
+    if( primitive ){
+      if( showInSidebar !== false ){
+        items.push({
           title: 'Show in sidebar',
           action: ()=>mainstore.sidebarSelect(primitive),
-          icon: ArrowTopRightOnSquareIcon
-        },
-        {
+          icon: ArrowTopRightOnSquareIcon,
+        })
+      }
+
+      if( showVisitPage !== false ){
+        items.push({
           title: 'Open page',
           action: ()=>navigate(`/item/${primitive.id}`),
           icon: ArrowTopRightOnSquareIcon,
-          skip: props.showVisitPage === undefined ? false : !props.showVisitPage
-        },
-        {
-          title: 'Delete',
-          action: ()=>setShowDeletePrompt(true),
-          icon: TrashIcon,
-          skip: (props.relatedTo && !((props.relatedTo && props.showDelete === 'origin' && primitive.origin.id === props.relatedTo.id)) || (props.showDelete === undefined ? false : (props.showDelete === true)))
-        },
-        {
-          title: `Unlink from ${props.relatedTo?.displayType}`,
-          action: ()=>props.relatedTo.removeRelationship(primitive, props.relatedTo.metadata.isAggregation ? "" : "outcomes"),
-          icon: TrashIcon,
-          skip: (props.showUnlink === false || props.showUnlink === undefined) ? true : (props.relatedTo === undefined ) || (props.relatedTo && props.relatedTo.id === primitive.origin.id) || !(props.relatedTo && props.relatedTo?.primitives.includes(primitive))
-        }
-        
-      ]).concat(
-        primitive.metadata?.actions
-        ? primitive.metadata.actions.filter((d)=>d.menu).map((d)=>{
-          return {
-            title: d.title, 
-            icon: d.icon || "PlayIcon", 
-            action: async ()=>{
-              if( d.manualFields ){
-                setManualInputPrompt({
-                  confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs, props.callbackProcessor),
-                })
-              }else if( d.actionFields ){
-                setManualInputPrompt({
-                  primitive: primitive,
-                  fields: d.actionFields,
-                  confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs, props.callbackProcessor),
-                  //confirm: async (inputs)=>console.log(inputs),
-                })
-              }else{
-                const res = await MainStore().doPrimitiveAction(primitive, d.key, undefined, props.callbackProcessor)
+        })
+      }
+
+      items.push({
+        title: 'Delete',
+        action: ()=>setShowDeletePrompt(true),
+        icon: TrashIcon,
+        skip: (relatedTo && !((relatedTo && showDelete === 'origin' && primitive.origin.id === relatedTo.id)) || (showDelete === undefined ? false : (showDelete === true)))
+      })
+
+      items.push({
+        title: `Unlink from ${relatedTo?.displayType}`,
+        action: ()=>relatedTo?.removeRelationship(primitive, relatedTo.metadata.isAggregation ? "" : "outcomes"),
+        icon: TrashIcon,
+        skip: (showUnlink === false || showUnlink === undefined) ? true : (relatedTo === undefined ) || (relatedTo && relatedTo.id === primitive.origin.id) || !(relatedTo && relatedTo?.primitives.includes(primitive))
+      })
+
+      if( primitive.metadata?.actions ){
+        items = items.concat(
+          primitive.metadata.actions
+            .filter((d)=>d.menu)
+            .map((d)=>{
+              return {
+                title: d.title,
+                icon: d.icon || "PlayIcon",
+                action: async ()=>{
+                  if( d.manualFields ){
+                    setManualInputPrompt({
+                      confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs, callbackProcessor),
+                    })
+                  }else if( d.actionFields ){
+                    setManualInputPrompt({
+                      primitive: primitive,
+                      fields: d.actionFields,
+                      confirm: async (inputs)=>await MainStore().doPrimitiveAction(primitive, d.key, inputs, callbackProcessor),
+                    })
+                  }else{
+                    await MainStore().doPrimitiveAction(primitive, d.key, undefined, callbackProcessor)
+                  }
+                }
               }
-            }}})
-            : [] 
-            ).filter((d)=>!d.skip)
-          }
-            const baseColor = props.color || "gray"
-            
-            return(<>
+            })
+        )
+      }
+    }
+
+    const menuItems = items.filter((d)=>d && !d.skip)
+
+    const { className: buttonClassNameProp, isIconOnly, startContent, ...restButtonProps } = buttonProps
+    const iconOnly = isIconOnly ?? !title
+    const { placement: dropdownPlacement, ...restDropdownProps } = dropdownProps
+    const resolvedPlacement = dropdownPlacement ?? placement
+
+    const trigger = (
+      <Button
+        {...restButtonProps}
+        isIconOnly={iconOnly}
+        radius={restButtonProps.radius ?? 'sm'}
+        variant={restButtonProps.variant ?? (iconOnly ? 'light' : 'flat')}
+        size={restButtonProps.size ?? (iconOnly ? 'sm' : 'md')}
+        startContent={title && icon ? icon : startContent}
+        className={clsx('min-w-0', className, buttonClassNameProp)}
+        aria-label={restButtonProps['aria-label'] ?? (!title ? `Open menu for ${primitive?.title ?? 'item'}` : undefined)}
+      >
+        {title ?? (!title ? (icon ?? <Bars3Icon className='h-5 w-5'/>) : null)}
+      </Button>
+    )
+
+    return(<>
       {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
       {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
-      <div className={[`h-${props.size || 8} w-${props.size || 8}`, 'shrink-0', props.className].join(" ")}>
-        <Dropdown>
-          <DropdownTrigger>
-            {props.title ? <Button size="sm" variant="bordered">{props.title ?? "Open Menu"}</Button> : <Button size="sm" isIconOnly className={buttonClass} variant="bordered">{buttonIcon}</Button>}
-          </DropdownTrigger>
-          <DropdownMenu aria-label="Dropdown menu with icons" variant="faded">
-            {items.map((item,idx) => (
-              <DropdownItem
-                key={idx}
-                onPress={item.action ? (e)=>{
-                  item.action()
-                } : undefined}
-                startContent={<>
-                        {item.icon && (item.icon.render || item.icon instanceof Function) && <item.icon aria-hidden="true" className='w-6 h-6'/>}
-                        {item.icon && typeof(item.icon)==="string" && <HeroIcon icon={item.icon} aria-hidden="true" className='w-6 h-6'/>}
-                </>}
-              >
-                  {item.title}
-              </DropdownItem>
-            ))}
-          </DropdownMenu>
-        </Dropdown>
-      </div>
+      <Dropdown placement={resolvedPlacement} {...restDropdownProps}>
+        <DropdownTrigger>
+          {trigger}
+        </DropdownTrigger>
+        <DropdownMenu aria-label="Dropdown menu with icons" variant="faded" {...dropdownMenuProps}>
+          {menuItems.map((item,idx) => (
+            <DropdownItem
+              key={item.key ?? idx}
+              onPress={item.action ? ()=>{
+                item.action()
+              } : undefined}
+              startContent={
+                <>
+                  {item.icon && (item.icon.render || item.icon instanceof Function) && <item.icon aria-hidden="true" className='w-6 h-6'/>}
+                  {item.icon && typeof(item.icon)==="string" && <HeroIcon icon={item.icon} aria-hidden="true" className='w-6 h-6'/>}
+                </>
+              }
+            >
+              {item.title}
+            </DropdownItem>
+          ))}
+        </DropdownMenu>
+      </Dropdown>
     </>)
-            
-            /*return(<>
-      {manualInputPrompt && <InputPopup cancel={()=>setManualInputPrompt(false)} {...manualInputPrompt}/>}
-      {showDeletePrompt && <ConfirmationPopup message={`This will also delete all items that belong to this ${primitive.displayType}`} title="Confirm deletion" confirm={handleDelete} cancel={()=>setShowDeletePrompt(false)}/>}
-      <div className={[`h-${props.size || 8} w-${props.size || 8}`, 'shrink-0', props.className].join(" ")}>
-        <Menu>
-          {({open})=>(<>
-          {!open && <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}>{buttonIcon}</Menu.Button>}
-          {open && <Float portal placement={props.placement ?? 'bottom-end'}>
-              <Menu.Button key={`b-${open}`} onClick={(e)=>e.stopPropagation()} className={buttonClass}>{buttonIcon}</Menu.Button>
-              <Menu.Items className={`absolute z-10 p-1 mt-2  origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none right-0 w-min`}>
-                <div className="py-1">
-                  {items.map((item,idx) => (
-                    <Menu.Item>
-                    {({ active }) => (
-                      <a
-                        href={item.href}
-                        key={idx}
-                        onClick={(e)=>{e.stopPropagation();item.action && item.action()}}
-                        className={[
-                          active ? `bg-${baseColor}-100 text-${baseColor}-900` : `text-${baseColor}-700 bg-${props.colorKey ? `${baseColor}-50` : 'white' }`,
-                          props.colorKey ? 'my-2 mx-1 rounded-md' : '',
-                          'flex place-items-center space-x-2 px-2 py-1 text-sm'
-                        ].join(" ")}
-                      >
-                        {item.icon && (item.icon.render || item.icon instanceof Function) && <item.icon aria-hidden="true" className='w-6 h-6'/>}
-                        {item.icon && typeof(item.icon)==="string" && <HeroIcon icon={item.icon} aria-hidden="true" className='w-6 h-6'/>}
-                        <p className='whitespace-nowrap'>{item.title}</p>
-                      </a>
-                    )}
-                    </Menu.Item>
-                  ))}                  
-                </div>
-            </Menu.Items>
-          </Float>}
-          </>
-          )}
-      </Menu>
-    </div>
-    </>)*/
 
   }
-  
 
 
 const Resources = function({primitive, ...props}){
@@ -1190,7 +1192,11 @@ const Banner = function({primitive, ...props}){
         {!props.small && metadata && <div className="text-xs md:text-sm font-medium text-gray-500">{metadata.title}<p className='hidden xs:inline'> - {metadata.description}</p></div>}
       </div>
       {props.showMenu &&
-        <CardMenu primitive={primitive} showVisitPage={false} size='12' bg='transparent'/>
+        <CardMenu
+          primitive={primitive}
+          showVisitPage={false}
+          buttonProps={{ variant: 'light', isIconOnly: true, size: 'md' }}
+        />
       }
       {props.showStateAction &&
               <DropdownButton colorKey='colorBase' items={mainstore.stateInfo[primitive.type]} selected={primitive.state}/>
@@ -1694,7 +1700,11 @@ const Hero = function({primitive, ...props}){
               </div>
             </div>
           </div>
-          <CardMenu primitive={primitive} bg='transparent' className='absolute right-2 top-2'/>
+          <CardMenu
+            primitive={primitive}
+            className='absolute right-2 top-2'
+            buttonProps={{ variant: 'light', isIconOnly: true }}
+          />
           <p className='px-4 py-2 text-gray-800 text-lg my-2 flex-1'>{primitive.title}</p>
           <Users primitive={primitive} hideTitle={true} className='px-4'/>
           <Title primitive={primitive} showState={true} className='px-4 py-4 flex-0'/>
@@ -1978,6 +1988,8 @@ const Entity=({primitive, ...props})=>{
   
   const showAsProcessing = primitive.processing?.pivot
 
+  const menuButtonSize = buttonSize >= 12 ? 'lg' : buttonSize > 6 ? 'md' : 'sm'
+
   return (
     <div 
         onClick={props.onClick ? (e)=>{props.onClick(e, primitive)} : undefined}
@@ -1998,13 +2010,17 @@ const Entity=({primitive, ...props})=>{
           props.className].filter((d)=>d).join(' ')
         }>
           {header}
-          {!props.hideMenu && <CardMenu 
-            primitive={primitive} 
+          {!props.hideMenu && <CardMenu
+            primitive={primitive}
             callbackProcessor={props.callbackProcessor}
-            bg='bg-white/50 group-hover:bg-white' 
-            className='absolute right-1 top-1' 
-            size={buttonSize}
-            showVisitPage={false} 
+            className='absolute right-1 top-1'
+            showVisitPage={false}
+            buttonProps={{
+              variant: 'light',
+              isIconOnly: true,
+              size: menuButtonSize,
+              className: 'bg-white/50 group-hover:bg-white'
+            }}
             custom={[
               {
                 title: 'Expand',
@@ -2490,9 +2506,19 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
     fields = fields.map((d)=>d instanceof Object ? d.field : d)
   }
 
-  let content = (fields && !fields.includes('title')) ? undefined : 
+  const baseMenuProps = props.menuProps ?? {}
+  const { buttonProps: providedMenuButtonProps = {}, className: menuClassName, ...restMenuProps } = baseMenuProps
+  const mergedMenuButtonProps = {
+    variant: 'light',
+    isIconOnly: true,
+    size: 'sm',
+    ...providedMenuButtonProps,
+    className: clsx('invisible group-hover:visible', menuClassName, providedMenuButtonProps.className),
+  }
+
+  let content = (fields && !fields.includes('title')) ? undefined :
       <>
-        {props.editable === false 
+        {props.editable === false
           ? 
             <p
               className={`${(primitive.title || "").search(/\s/) == -1 ? "break-all" : "break-word"} grow text-${mainTextSize} ${withHero ? "px-2 self-end text-slate-50 font-bold w-full" : "text-slate-700"}`}
@@ -2513,7 +2539,13 @@ export function PrimitiveCard({primitive, className, showDetails, showUsers, sho
           </EditableTextField>
         }
         {props.showMenu &&
-          <CardMenu primitive={primitive} callbackProcessor={props.callbackProcessor} relatedTo={props.relatedTo} {...props.menuProps} size='6' bg='transparent' className='invisible group-hover:visible'/>
+          <CardMenu
+            primitive={primitive}
+            callbackProcessor={props.callbackProcessor}
+            relatedTo={props.relatedTo}
+            buttonProps={mergedMenuButtonProps}
+            {...restMenuProps}
+          />
         }
         {(!props.compact && props.showEdit) &&
           <button
@@ -2790,7 +2822,10 @@ function CardForList({primitive, fields, ...props}){
         <PrimitiveCard.Evidence primitive={primitive} hideTitle={true} compact={true} aggregate={true}/>
         <div className='w-full justify-between flex '>
           <p className='mt-2 text-slate-400 text-xs'>{primitive.displayType} #{primitive.plainId}</p>
-          <CardMenu primitive={primitive} bg="transparent" size={6}/>
+          <CardMenu
+            primitive={primitive}
+            buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm' }}
+          />
         </div>
     </div>
 }
