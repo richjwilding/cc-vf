@@ -369,8 +369,9 @@ export default function CollectionViewer({primitive, category, ...props}){
 
         const items = resultCategory.actions.filter(d=>d.collectionAction || d.showInCollection)
         if( items.length > 0){
-            actionMenu = <PrimitiveCard.CardMenu 
-                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>} 
+            actionMenu = <PrimitiveCard.CardMenu
+                            icon={<PlayIcon className="w-4 h-4 m-[0.45rem]"/>}
+                            buttonProps={{ variant: 'light', isIconOnly: true, size: 'sm' }}
                             custom={items.map(d=>{
                                 const doAction = async (options)=>{
                                     await MainStore().doPrimitiveAction( 
@@ -396,7 +397,6 @@ export default function CollectionViewer({primitive, category, ...props}){
                                     }
                                 }
                             })} 
-                            size={10}
                         />
 
         }
