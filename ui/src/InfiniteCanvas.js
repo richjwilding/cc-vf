@@ -446,27 +446,28 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     function getFrame(id){
         return myState.current.frames.find(d=>d.id === id)
     }
-    function updateIndicators(id, indicators){
+    function updateIndicators(id, indicatorData){
         const frame = myState.current.frames.find(d=>d.id === id)
-        if( frame?.indicators ){
-            const oldAttrs = frame.indicators.attrs
-            const newIndicators = renderIndicators(indicators, {
-                x: oldAttrs.x,
-                y: oldAttrs.y,
-                imageCallback: processImageCallback
-            })
+        if( !frame ){
+            return
+        }
 
-            frame.indicators.destroyChildren()
+        if( !frame.label ){
+            return
+        }
 
-            const children = newIndicators.getChildren()
-            while(children.length > 0){
-                frame.indicators.add(children[0]);
-            }
-            newIndicators.destroy()
-            finalizeImages(frame.indicators)
-
-            frame.indicators.drawScene(layerRef.current.getCanvas())
-            //stageRef.current.batchDraw()
+        if( indicatorData ){
+            frame.label.indicatorData = { ...indicatorData }
+        }else{
+            frame.label.indicatorData = undefined
+        }
+        const stageScale = stageRef.current?.scale()?.x ?? 1
+        const frameScale = frame.scale ?? 1
+        const scaleFactor = frame.labelScale ?? Math.min(25, Math.max(1 / stageScale / frameScale, 2))
+        layoutFrameLabel(frame, scaleFactor)
+        const layer = frame.label.getLayer()
+        if( layer ){
+            layer.batchDraw()
         }
 
     }
@@ -526,7 +527,6 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             y: frameOffset,
             width: 1000,
             height: 10,
-            strokeWidth: options.flow ? 1.0 : 0.5,
             fill:undefined,//"#fcfcfc",
             dash: options.flow ? [8, 4] : undefined,
             //cornerRadius: 10,
@@ -599,9 +599,11 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
     }
     function updateIndicatorPosition( id, frame){
         frame ||= myState.current.frames.find(d=>d.id === id)
-        if( frame.indicators){
-            frame.indicators.x( frame.node.width() - frame.indicators.width())
+        if( !frame?.label ){
+            return
         }
+        const scaleFactor = frame.labelScale ?? 1
+        layoutFrameLabel(frame, scaleFactor)
 
     }
 
@@ -793,6 +795,119 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
 
     }
 
+    function layoutFrameLabel(frame, scaleFactor = 1){
+        if( !frame?.label ){
+            return
+        }
+
+        const label = frame.label
+        const titleNode = label.titleNode
+        if( !titleNode ){
+            return
+        }
+
+        const frameWidth = frame.node.width()
+        const indicatorKey = label.indicatorData ? `${label.indicatorData.count}|${label.indicatorData.progress ?? ''}` : 'none'
+        if( label.labelScale === scaleFactor && label._lastIndicatorKey === indicatorKey && label._lastFrameWidth === frameWidth ){
+            return
+        }
+
+        const originWidth = label.attrs.originWidth ?? titleNode.width()
+        const labelBg = label.labelBg
+
+        const baseFontSize = label.attrs.scaleFont ?? titleNode.fontSize() ?? 12
+        const fontSize = baseFontSize * scaleFactor
+        if( titleNode.fontSize() !== fontSize ){
+            titleNode.fontSize(fontSize)
+        }
+
+        const titleHeight = titleNode.height() || fontSize
+        const labelOffsetY = titleHeight + Math.max(2, 2 * scaleFactor)
+
+        if( label.offsetY() !== labelOffsetY ){
+            label.offsetY(labelOffsetY)
+        }
+        if( label.height() !== titleHeight ){
+            label.height(titleHeight)
+        }
+        if( labelBg ){
+            if( labelBg.height() !== titleHeight ){
+                labelBg.height(titleHeight)
+            }
+        }
+
+        let indicatorWidth = 0
+        let indicatorHeight = 0
+        let outerGap = label.indicatorBase?.outerGap ?? 10
+
+        if( label.indicatorData ){
+            const baseBarWidth = label.indicatorBase?.barWidth ?? 60
+            const baseInsideGap = label.indicatorBase?.insideGap ?? 6
+            const baseOuterGap = label.indicatorBase?.outerGap ?? 10
+            const baseFontSizeIndicator = label.indicatorBase?.countFontSize ?? 12
+
+            const indicator = renderIndicators(label.indicatorData, {
+                label,
+                baseBarWidth,
+                baseInsideGap,
+                baseOuterGap,
+                baseFontSize: baseFontSizeIndicator,
+                scaleFactor: scaleFactor ** 0.5,
+                titleHeight
+            })
+
+            if( indicator ){
+                indicatorWidth = indicator.width()
+                outerGap = baseOuterGap
+                const indicatorX = Math.max(0, frameWidth - indicatorWidth)
+                indicator.height(titleHeight)
+                indicatorHeight = titleHeight
+                const indicatorY = Math.max(0, (titleHeight - indicatorHeight) / 2) - (labelOffsetY / 2)
+                if( indicator.x() !== indicatorX ){
+                    indicator.x(indicatorX)
+                }
+                if( indicator.y() !== indicatorY ){
+                    indicator.y(indicatorY)
+                }
+            }
+        }else{
+            renderIndicators(undefined, {label})
+        }
+
+        const indicatorPresent = !!label.indicatorGroup
+        const maxLabelWidthWithoutIndicator = Math.min(originWidth * scaleFactor, frameWidth * 1.25)
+        const labelWidth = indicatorPresent ? frameWidth : maxLabelWidthWithoutIndicator
+
+        let availableTitleWidth = Math.min(originWidth * scaleFactor, labelWidth)
+        if( indicatorPresent ){
+            availableTitleWidth = Math.max(0, labelWidth - indicatorWidth - outerGap)
+            availableTitleWidth = Math.min(availableTitleWidth, originWidth * scaleFactor)
+        }
+
+        if( titleNode.width() !== availableTitleWidth ){
+            titleNode.width(availableTitleWidth)
+        }
+        if( titleNode.height() !== titleHeight ){
+            titleNode.height(titleHeight)
+        }
+        if( titleNode.y() !== 0 ){
+            titleNode.y(0)
+        }
+
+        if( label.width() !== labelWidth ){
+            label.width(labelWidth)
+        }
+        if( labelBg && labelBg.width() !== labelWidth ){
+            labelBg.width(labelWidth)
+        }
+
+        frame.indicators = label.indicatorGroup ?? null
+        label.labelScale = scaleFactor
+        frame.labelScale = scaleFactor
+        label._lastIndicatorKey = indicatorKey
+        label._lastFrameWidth = frameWidth
+    }
+
     function setupFrameForItems( id, title, items, x, y, s, options ){
         let ids, removeIds
         const existing = myState.current.frames?.find(d=>d.id === id) 
@@ -825,13 +940,14 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         height:18,
                         name:"frame_label",
                     })
-                    label.add(new Konva.Rect({
+                    const labelBg = new Konva.Rect({
                         x:0,
                         y:0,
                         width:18,
                         height:18,
                         fill: props.background ?? "#ffffff"
-                    }))
+                    })
+                    label.add(labelBg)
                     const titleText = new Konva.Text({
                         text: typeof(title) == "function" ? title() : title,
                         x:0,
@@ -839,16 +955,29 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                         verticalAlign:"middle",
                         fontSize:12,
                         lineHeight: 1.5,
+                        height: 12 - 1.5,
                         color: '#444',
+                        wrap: false,
                         ellipsis: true
                     })
-                    label.attrs.originWidth = titleText.width()
+                    const titleWidth = titleText.width()
+                    const titleHeight = titleText.height()
+                    label.offsetY(titleHeight)
+                    label.width(titleWidth)
+                    label.height(titleHeight)
+                    labelBg.width(titleWidth)
+                    labelBg.height(titleHeight)
+                    label.attrs.originWidth = titleWidth
                     label.attrs.scaleFont = 12
                     label.attrs.hideScale = options.titleAlwaysPresent ?  undefined : 3
+                    label.attrs.baseOffsetY = label.offsetY()
+                    label.attrs.baseHeight = titleHeight
                     
 
                     
                     label.add(titleText)
+                    label.labelBg = labelBg
+                    label.titleNode = titleText
                     frame.label = label
                     frame.node.add(label)
                 }
@@ -895,14 +1024,13 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             }
 
             if( options.indicators ){
-                const indicators = renderIndicators( options.indicators(), {
-                    x: maxX,
-                    y: 0,
-                    imageCallback: processImageCallback
-                }) 
-                frame.node.add( indicators )
-                frame.indicators = indicators
+                const indicatorData = options.indicators()
+                renderIndicators(indicatorData, {
+                    label: frame.label
+                })
+                frame.indicators = frame.label?.indicatorGroup
             }
+            layoutFrameLabel(frame, 1)
             frame.routing = existing?.routing
             if( addRoutingForFrame( frame ) ){
                 refreshLinks()
@@ -2051,16 +2179,9 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
                                 if( d.attrs.hideScale){
                                     d.visible(iScale > d.attrs.hideScale)
                                 }
-                                const w = Math.min( d.attrs.originWidth * iScale, frame.node.attrs.width * 1.25)
-                                const h =  (iScale * d.attrs.scaleFont) * 1.2
-                                d.children[1].fontSize( iScale * d.attrs.scaleFont )
-                                d.children[1].width( w )
-                                d.children[0].width( w )
-                                d.children[0].height( h )
-                                d.children[1].height( h )
-                                d.offsetY( h + 2)
-                                d.height( h )
-                                d.width( w )
+                                if( frame.label && d._id === frame.label._id ){
+                                    layoutFrameLabel(frame, iScale)
+                                }
                             }
                             vis++
                             if( enableNodePruning ){

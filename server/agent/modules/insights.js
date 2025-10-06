@@ -1,6 +1,10 @@
 import OpenAI from "openai";
 import { getLogger } from "../../logger.js";
 import { createCategorizationTool } from "./create_categorization.js";
+import {
+  prepareInsightCategorizationTool,
+  executeInsightCategorizationTool,
+} from "./insight_categorization.js";
 
 const logger = getLogger("agent_module_insights", "debug", 0);
 
@@ -80,6 +84,8 @@ export const insightTools = [
     implementation: prepareCategorizationPreprocessing,
   },
   createCategorizationTool,
+  prepareInsightCategorizationTool,
+  executeInsightCategorizationTool,
 ];
 
 export const insightMode = {
@@ -93,16 +99,16 @@ export const insightMode = {
     "one_shot_summary",
     "parameter_values_for_data",
     "existing_categorizations",
-    "suggest_categories",
-    "create_categorization",
     "sample_data",
     "suggest_slide_skeleton",
     "design_slide",
     "object_params",
     "prepare_categorization_preprocessing",
+    "prepare_insight_categorization",
+    "execute_insight_categorization",
   ]),
   systemPrompt:
-    "You are in insight mode. Focus on filtering existing data, aggregating results, and running single-shot analyses to answer the user's questions. Prefer calling get_connected_data to inspect already linked sources before calling get_data_sources to discover new ones. If the user asks for slide ideas, you may call suggest_slide_skeleton here and let design_slide in slides mode handle the detailed build when ready.",
+    "You are in insight mode. Focus on filtering existing data, aggregating results, and running single-shot analyses to answer the user's questions. Prefer calling get_connected_data to inspect already linked sources before calling get_data_sources to discover new ones. When the user asks you to build or run a new categorization across their data, first call prepare_insight_categorization to draft the plan and only run execute_insight_categorization after they confirm. Do not call create_categorization directly on raw searches—use the plan workflow so a view is created when needed. Reuse the schema metadata returned by get_connected_data or get_data_sources; only call object_params if you do not already have the fields you need. If the user asks for slide ideas, you may call suggest_slide_skeleton here and let design_slide in slides mode handle the detailed build when ready.",
   enterTriggers: [
     /\b(analyze|analysis|insight|query|filter|aggregate|summarize|what (do|does) the data)\b/i,
   ],
@@ -113,10 +119,22 @@ export const insightMode = {
     lastAction: null,
     history: [],
     categorizations: [],
+    pendingCategorization: null,
+    lastSources: null,
   }),
   contextName: "INSIGHT_CONTEXT",
   buildContext: (state = {}, scope = {}) => ({
     last_action: state.lastAction,
+    pending_categorization_plan: state.pendingCategorization
+      ? {
+          id: state.pendingCategorization.id,
+          theme: state.pendingCategorization.categorization?.theme,
+          field: state.pendingCategorization.categorization?.field,
+          view_id: state.pendingCategorization.existingViewId ?? null,
+          source_ids: state.pendingCategorization.searchSourceIds
+            ?? state.pendingCategorization.sourceIds,
+        }
+      : null,
     selected_sources: scope.immediateContext?.filter(Boolean)
       ?.filter((item) => ["search", "view", "filter", "query", "summary"].includes(item.type))
       ?.map((item) => ({ id: item.id, type: item.type, title: item.title })) ?? [],

@@ -10,28 +10,43 @@ function ensureInsightState(scope) {
         return null;
     }
 
+    let state = null;
     if (scope.mode === "insights" && scope.modeState) {
-        return scope.modeState;
+        state = scope.modeState;
+    } else {
+        state = scope.getStoredModeState?.("insights");
     }
 
-    const stored = scope.getStoredModeState?.("insights");
-    if (stored) {
-        return stored;
-    }
-
-    const fallback = {
+    const initialize = () => ({
         lastAction: null,
         history: [],
         categorizations: [],
-    };
+        pendingCategorization: null,
+        lastSources: null,
+    });
 
-    scope.setStoredModeState?.("insights", fallback);
-
-    if (scope.mode === "insights") {
-        scope.modeState = fallback;
+    if (!state) {
+        state = initialize();
+        scope.setStoredModeState?.("insights", state);
+        if (scope.mode === "insights") {
+            scope.modeState = state;
+        }
+        return state;
     }
 
-    return fallback;
+    if (!Object.prototype.hasOwnProperty.call(state, "pendingCategorization")) {
+        state.pendingCategorization = null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(state, "lastSources")) {
+        state.lastSources = null;
+    }
+
+    scope.setStoredModeState?.("insights", state);
+    if (scope.mode === "insights") {
+        scope.modeState = state;
+    }
+
+    return state;
 }
 
 function recordInsightCategorization(scope, payload) {

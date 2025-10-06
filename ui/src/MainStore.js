@@ -101,7 +101,12 @@ const actions = {
                     return true
                 }
                 return false
-            }
+            case "category":
+                if( d.processing?.mark_categories?.status === "running" ){
+                    return true
+                }
+                return false
+        }
     },
     progressStats(d, receiver, obj){
         switch(d.type){

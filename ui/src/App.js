@@ -144,8 +144,7 @@ function App() {
     
   const id = window.location.pathname.match(/^\/item\/([a-fA-F0-9]{24})(?=\/|$)/)?.[1]
   const pagePrimitive = mainstore.primitive(id)
-  console.log(`App got ${id}`)
-
+  
   function setWorkspace(workspace){
     mainstore.setActiveWorkspace(workspace)
     forceUpdate()

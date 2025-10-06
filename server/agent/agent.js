@@ -37,6 +37,7 @@ import { slideTools, slideMode } from "./modules/slides.js";
 import { vizMode } from "./modules/viz.js";
 import { searchTools, searchMode } from "./modules/search.js";
 import { insightTools, insightMode } from "./modules/insights.js";
+import { executeInsightCategorizationTool } from "./modules/insight_categorization.js";
 import { flowBuilderTools, flowBuilderMode } from "./modules/flow_builder.js";
 import { summaryTools } from "./modules/summary.js";
 import { classifyFlowIntent } from "./modules/flow_router.js";
@@ -263,6 +264,11 @@ function exportSessionState(session) {
       return value;
     }
     const pruned = { ...value };
+
+    if (Object.prototype.hasOwnProperty.call(pruned, "lastSources")) {
+      delete pruned.lastSources;
+    }
+
     if (value.data && typeof value.data === "object") {
       const data = { ...value.data };
       if (data.dataSources) {
@@ -275,7 +281,7 @@ function exportSessionState(session) {
 
   return {
     mode: session.mode ?? null,
-    state: session.state ?? null,
+    state: pruneStateForPersistence(session.state ?? null),
     states: Object.fromEntries(stateEntries.map(([key, value]) => [key, pruneStateForPersistence(value)])),
   };
 }
@@ -1041,7 +1047,7 @@ export async function handleChat(primitive, options, req, res) {
                     //sendSse({ content: `>> ASSISTANT CALLING ${funcName} : ${funcArgs}\n\n` });
                     const args = JSON.parse(funcArgs);
                     sendSse({ content: `[[agent_running]]` });
-                    logger.info(`${scope.chatUUID} calling ${funcName}\n${funcArgs}...`)
+                    logger.info(`${scope.chatUUID} AGENT CALLING ${funcName}\n${funcArgs}...`)
                     const fn = toolRegistry.get(funcName)
                     history.push({
                         role: 'assistant',
@@ -1309,6 +1315,51 @@ registerAction("run_agent_create_categorization", undefined, async (primitive, a
     } catch (err) {
         logger.error(`Error running ${action}`, { error: err?.message });
         return { error: "Failed to create categorization" };
+    }
+})
+registerAction("run_agent_create_execute_insight_categorization", undefined, async (primitive, action, options = {}) => {
+    try {
+        const planPayload = options.plan ?? null;
+        const params = {};
+        if (planPayload) {
+            params.plan = { ...planPayload, confirmed: true };
+        }
+        if (!params.plan && options.plan_id) {
+            params.plan_id = options.plan_id;
+        }
+        if (options.confirmed) {
+            params.confirmed = true;
+        }
+
+        if (!params.plan && !params.plan_id) {
+            logger.warn(`No plan provided for ${action}`);
+            return { error: "No plan information provided" };
+        }
+
+        let storedState = null;
+        const scope = {
+            primitive,
+            workspaceId: primitive.workspaceId,
+            mode: "insights",
+            modeState: storedState,
+            getStoredModeState: (modeId) => (modeId === "insights" ? storedState : null),
+            setStoredModeState: (modeId, state) => {
+                if (modeId === "insights") {
+                    storedState = state;
+                }
+            },
+            touchSession: () => {},
+            linkToChat: async () => {},
+            functionMap: {
+                object_params: (innerParams, innerScope, notify) => object_params.implementation(innerParams, innerScope, notify),
+            },
+        };
+
+        const result = await executeInsightCategorizationTool.implementation(params, scope, () => {});
+        return result;
+    } catch (err) {
+        logger.error(`Error running ${action}`, { error: err?.message });
+        return { error: "Failed to execute insight categorization" };
     }
 })
 registerAction("run_agent_materialize_summary", undefined, async (primitive, action, options = {}) => {

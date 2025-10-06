@@ -193,10 +193,12 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
       const [activeChatInfo, setActiveChatInfo] = useState(null);
       const [chatLoading, setChatLoading] = useState(false);
       const [chatVersion, bumpChatVersion] = useReducer((count) => count + 1, 0);
+      const [categoryVersion, bumpCategoryVersion] = useReducer((count) => count + 1, 0);
       const messagesRef = useRef(messages);
       useDataEvent('relationship_update remove_primitives', primitive?.id, () => bumpChatVersion());
       const chatEventIds = useMemo(() => (availableChats ?? []).map((chat) => chat?.id ?? chat?._id).filter(Boolean), [availableChats]);
       useDataEvent('control_update set_field', chatEventIds, () => bumpChatVersion());
+      useDataEvent('relationship_update add_primitives remove_primitives', activeChatInfo?.id, () => bumpCategoryVersion());
 
       useEffect(() => {
         if (!primitive?.id) {
@@ -399,8 +401,115 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
         });
       }
 
+      const activeChatPrimitive = useMemo(() => {
+        if (!activeChatInfo?.id) {
+          return null;
+        }
+        return mainstore.primitive(activeChatInfo.id) ?? null;
+      }, [mainstore, activeChatInfo?.id, chatVersion, categoryVersion]);
+
+      const relatedCategories = useMemo(() => {
+        if (!activeChatPrimitive) {
+          return [];
+        }
+
+        const seen = new Map();
+        const register = (entry) => {
+          if (!entry || entry.type !== 'category') {
+            return;
+          }
+          const cid = entry.id ?? entry._id;
+          if (!cid || seen.has(cid)) {
+            return;
+          }
+          seen.set(cid, entry);
+        };
+
+        const collect = (candidate) => {
+          if (!candidate) {
+            return;
+          }
+          if (Array.isArray(candidate)) {
+            candidate.forEach(register);
+            return;
+          }
+          if (Array.isArray(candidate.allItems)) {
+            candidate.allItems.forEach(register);
+          }
+          if (Array.isArray(candidate.allCategory)) {
+            candidate.allCategory.forEach(register);
+          }
+          if (Array.isArray(candidate.items)) {
+            candidate.items.forEach(register);
+          }
+        };
+
+        const { primitives } = activeChatPrimitive;
+        if (primitives) {
+          collect(primitives.allCategory);
+          collect(primitives.category?.allItems);
+          collect(primitives.origin?.allCategory);
+          collect(primitives.origin?.category?.allItems);
+          collect(primitives.link?.allCategory);
+          collect(primitives.link?.category?.allItems);
+        }
+
+        return Array.from(seen.values());
+      }, [activeChatPrimitive, categoryVersion]);
+
+      const trackedCategoryIds = useMemo(
+        () => relatedCategories.map((category) => category?.id ?? category?._id).filter(Boolean),
+        [relatedCategories]
+      );
+
+      useDataEvent('processing_update set_field set_status set_processing', trackedCategoryIds, () => bumpCategoryVersion());
+
+      const describeProgress = useCallback((category) => {
+        const progress = category?.progress;
+        if (progress === null || progress === undefined) {
+          return 'Processing...';
+        }
+        if (typeof progress === 'string') {
+          return progress;
+        }
+        if (typeof progress === 'number') {
+          const value = progress > 1 ? progress : progress * 100;
+          return `${Math.round(value)}% complete`;
+        }
+        if (typeof progress === 'object') {
+          if (typeof progress.message === 'string' && progress.message.trim().length > 0) {
+            return progress.message;
+          }
+          if (typeof progress.percentage === 'number' && Number.isFinite(progress.percentage)) {
+            const value = progress.percentage > 1 ? progress.percentage : progress.percentage * 100;
+            return `${Math.round(value)}% complete`;
+          }
+        }
+        return 'Processing...';
+      }, []);
+
+      const runningCategories = useMemo(
+        () => relatedCategories.filter((category) => category?.isRunning),
+        [relatedCategories]
+      );
+
+      const runningSummaries = useMemo(() => {
+        if (!runningCategories.length) {
+          return [];
+        }
+        return runningCategories.map((category) => ({
+          id: category.id ?? category._id,
+          title:
+            category.title ||
+            (category.plainId ? `Categorization #${category.plainId}` : 'Active categorization'),
+          progress: describeProgress(category),
+        }));
+      }, [describeProgress, runningCategories]);
+
+      const categorizationLocked = runningSummaries.length > 0;
+
       async function sendChat() {
-        if( pending || chatLoading){return}
+        if( pending || chatLoading || categorizationLocked){return}
         const rawInput = inputBox.current?.value?.();
         const draft = typeof rawInput === 'string' ? rawInput.trim() : '';
         if (!draft) {
@@ -631,7 +740,7 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
 
       function handleInputKeyPress(e){
         if(e.key === "Enter"){
-            if( !e.altKey ){
+            if( !e.altKey && !categorizationLocked ){
                 sendChat()
                 return true
             }
@@ -1002,6 +1111,22 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
                 })}
               </div>
             )}
+            {runningSummaries.length > 0 && (
+              <div className="mt-3 flex w-full items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                <HeroIcon icon="Cog6ToothIcon" className="h-5 w-5 animate-spin text-amber-600" />
+                <div className="flex flex-col gap-1">
+                  <span className="font-medium">Categorization running - chat is temporarily paused.</span>
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {runningSummaries.map((item) => (
+                      <li key={item.id}>
+                        <span className="font-semibold">{item.title}</span>
+                        {item.progress ? ` · ${item.progress}` : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
             <div className={clsx([
                     "w-full flex space-x-2",
                     props.seperateInput ? "mt-4 bg-white shadow-lg p-3 rounded-lg border"  : "pt-3" 
@@ -1009,13 +1134,13 @@ const AgentChat = forwardRef(function AgentChat({primitive, scope: agentScope, .
                 <div className="flex flex-1 items-stretch flex flex-1 items-stretch max-h-60 overflow-y-scroll">
                     <MarkdownEditor onFocus={handleInputFocus} onBlur={handleInputBlur} ref={inputBox} initialMarkdown={""} onKeyUp={handleInputKeyPress} float={props.seperateInput}/>
                 </div>
-                <Button variant='light' radius='full' isIconOnly size="sm" onPress={()=>sendChat()} isDisabled={pending || chatLoading}>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={()=>sendChat()} isDisabled={pending || chatLoading || categorizationLocked}>
                   <Icon icon="solar:round-arrow-up-linear" className='w-6 h-6 text-default-600 hover:text-default-800'/>
                 </Button>
-                <Button variant='light' radius='full' isIconOnly size="sm" onPress={rewind} isDisabled={pending || chatLoading}>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={rewind} isDisabled={pending || chatLoading || categorizationLocked}>
                   <Icon icon="solar:rewind-back-circle-outline" className='w-6 h-6 text-default-600 hover:text-default-800'/>
                 </Button>
-                <Button variant='light' radius='full' isIconOnly size="sm" onPress={clear} isDisabled={pending || chatLoading}>
+                <Button variant='light' radius='full' isIconOnly size="sm" onPress={clear} isDisabled={pending || chatLoading || categorizationLocked}>
                   <Icon icon="solar:trash-bin-trash-linear" className='w-6 h-6 text-default-600 hover:text-default-800'/>
                 </Button>
             </div>

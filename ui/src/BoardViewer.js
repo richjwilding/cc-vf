@@ -314,6 +314,152 @@ function renderSubBoard(d, stageOptions = {}){
 }
 
 let mainstore = MainStore()
+
+function collectCategoriesInScopeForView(basePrimitive, viewState) {
+    if (!basePrimitive || !viewState) {
+        return [];
+    }
+
+    const categories = [];
+    const seen = new Set();
+
+    const addCategory = (cat) => {
+        if (!cat || cat.type !== "category") {
+            return;
+        }
+        if (seen.has(cat.id)) {
+            return;
+        }
+        seen.add(cat.id);
+        categories.push(cat);
+    };
+
+    const addCategoryList = (list) => {
+        if (!list) {
+            return;
+        }
+        for (const item of list) {
+            addCategory(item);
+        }
+    };
+
+    addCategoryList(basePrimitive?.primitives?.allUniqueCategory);
+    addCategoryList(basePrimitive?.primitives?.origin?.allUniqueCategory);
+
+    const ancestorContent = basePrimitive?.findParentPrimitives?.({ type: ["view", "query", "categorizer"] }) ?? [];
+    addCategoryList(ancestorContent.flatMap(parent => parent?.primitives?.origin?.allUniqueCategory ?? []));
+
+    const ancestorBoards = basePrimitive?.findParentPrimitives?.({ type: ["board", "flow"] }) ?? [];
+    addCategoryList(ancestorBoards.flatMap(parent => parent?.primitives?.origin?.allUniqueCategory ?? []));
+
+    const origin = basePrimitive?.origin;
+    if (origin?.type === "flow" || origin?.type === "flowinstance") {
+        const assignable = origin?.primitives?.origin?.allCategorizer?.filter(cat => cat?.metadata?.mode === "assign") ?? [];
+        addCategoryList(assignable);
+    }
+
+    if (viewState?.axis) {
+        for (const axisKey of ["row", "column"]) {
+            const axisConfig = viewState.axis[axisKey];
+            if (axisConfig?.type === "category" && axisConfig.primitiveId) {
+                const axisPrimitive = mainstore.primitive(axisConfig.primitiveId);
+                addCategory(axisPrimitive);
+            }
+        }
+    }
+
+    if (Array.isArray(viewState?.pinSource)) {
+        viewState.pinSource.forEach(sourcePrimitive => {
+            addCategoryList(sourcePrimitive?.primitives?.origin?.allUniqueCategory);
+        });
+    }
+
+    const scopeItems = uniquePrimitives([
+        ...(Array.isArray(viewState?.primitiveList) ? viewState.primitiveList : []),
+        ...(Array.isArray(viewState?.list) ? viewState.list.map(entry => entry?.primitive).filter(Boolean) : []),
+    ]);
+
+    scopeItems.forEach(item => {
+        addCategoryList(item?.primitives?.allUniqueCategory);
+        addCategoryList(item?.primitives?.origin?.allUniqueCategory);
+        if (Array.isArray(item?.parentPrimitives)) {
+            item.parentPrimitives.forEach(parent => {
+                if (parent?.type === "category") {
+                    addCategory(parent);
+                    if (Array.isArray(parent.parentPrimitives)) {
+                        parent.parentPrimitives.forEach(grandParent => addCategory(grandParent));
+                    }
+                }
+            });
+        }
+    });
+
+    return categories;
+}
+
+function attachCategoryProgressIndicator(baseRenderView, basePrimitive, viewState) {
+    if (!baseRenderView || !basePrimitive || !viewState) {
+        return;
+    }
+
+    const categories = collectCategoriesInScopeForView(basePrimitive, viewState);
+    const categoryIds = categories.map(cat => cat.id);
+
+    const watchIds = new Set(viewState.internalWatchIds ?? []);
+    categoryIds.forEach(id => watchIds.add(id));
+    viewState.internalWatchIds = Array.from(watchIds);
+    viewState.categoryScopeIds = categoryIds;
+
+    if (categoryIds.length === 0) {
+        viewState.categoryIndicatorBuilder = undefined;
+        return;
+    }
+
+    const buildCategoryIndicators = () => {
+        const trackedCategories = categoryIds.map(id => mainstore.primitive(id)).filter(Boolean);
+        const running = trackedCategories.filter(cat => cat?.isRunning);
+
+        if (running.length === 0) {
+            return undefined;
+        }
+
+        const progressValues = running
+            .map(cat => {
+                let value = cat.percentageProgress;
+                if (typeof value === "number" && !Number.isNaN(value)) {
+                    if (value <= 1) {
+                        return Math.max(0, Math.min(1, value));
+                    }
+                    return Math.max(0, Math.min(1, value / 100));
+                }
+
+                const progressText = cat.progress;
+                if (typeof progressText === "string") {
+                    const match = progressText.match(/([0-9]+(?:\.[0-9]+)?)%/);
+                    if (match) {
+                        const parsed = parseFloat(match[1]);
+                        if (!Number.isNaN(parsed)) {
+                            return Math.max(0, Math.min(1, parsed / 100));
+                        }
+                    }
+                }
+                return undefined;
+            })
+            .filter(value => value !== undefined);
+
+        const averageProgress = progressValues.length > 0
+            ? Math.max(0, Math.min(1, progressValues.reduce((a, c) => a + c, 0) / progressValues.length))
+            : undefined;
+
+        return {
+            count: running.length,
+            progress: averageProgress
+        };
+    };
+
+    viewState.categoryIndicatorBuilder = buildCategoryIndicators;
+    baseRenderView.indicators = () => buildCategoryIndicators();
+}
 function SharedRenderView(d, primitive, myState, stageOptions = {}) {
     const view = myState[d.id];
     const primitiveToRender = view.primitive.type === "element" ? view.primitive: (view.underlying ?? view.primitive);
@@ -414,7 +560,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
         if( page?.type === "page"){
             sizing = page.frames[d.id]?.placeholder?.sizing
         }
-        return {
+        const placeholderView = {
           ...baseRenderView,
           canChangeSize: true,
           items: stageOptions => {
@@ -428,6 +574,8 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
             });
           }
         }
+        attachCategoryProgressIndicator(placeholderView, view.primitive ?? d, view);
+        return placeholderView
     }
   
     // Determine "items" and "canChangeSize" based on view.config
@@ -699,6 +847,8 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
         break;
     }
   
+    attachCategoryProgressIndicator(renderView, view.primitive ?? d, view);
+
     return renderView;
   }
     function getPageVariants( pageInputs, inputs, allItems = false ){
@@ -1609,6 +1759,36 @@ export default function BoardViewer({primitive,...props}){
         }
       };
 
+    const updateCategoryIndicators = (changedIds = []) => {
+        if( !canvas.current?.updateIndicators){
+            return
+        }
+        const idsToCheck = Array.isArray(changedIds) ? changedIds : [changedIds]
+        const changed = new Set(idsToCheck.filter(Boolean))
+        if( changed.size === 0){
+            return
+        }
+        Object.keys(myState).forEach(frameKey=>{
+            if( frameKey === "current"){
+                return
+            }
+            const frameState = myState[frameKey]
+            if( !frameState || typeof frameState !== "object"){
+                return
+            }
+            if( !Array.isArray(frameState.categoryScopeIds) || frameState.categoryScopeIds.length === 0){
+                return
+            }
+            if( frameState.categoryScopeIds.some(catId=>changed.has(catId))){
+                const builder = frameState.categoryIndicatorBuilder
+                if( typeof builder === "function"){
+                    const indicators = builder()
+                    canvas.current.updateIndicators(frameState.id, indicators)
+                }
+            }
+        })
+    }
+
     window.exportFrames = exportMultiple
 
     useDataEvent("relationship_update set_parameter set_field delete_primitive set_title new_child delete_primitive", undefined, (ids, event, info, fromRemote)=>{
@@ -1671,7 +1851,12 @@ export default function BoardViewer({primitive,...props}){
                                 
 
                                 if( event === "set_field" && info && typeof(info)==="string"){
-                                    if( info.startsWith('processing.ai.')){
+                                    if( info.includes('processing.mark_categories')){
+                                        updateCategoryIndicators(ids)
+                                        needRefresh = false
+                                        needRebuild = false
+                                        continue
+                                    }else if( info.startsWith('processing.ai.')){
                                         const board = myState[frameId]
                                         canvas.current.refreshFrame( board.id, renderView(board.primitive))
                                     }else if(info.startsWith('frames.') && info.endsWith('.showItems')){

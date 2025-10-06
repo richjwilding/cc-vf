@@ -277,6 +277,20 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
     let list = await getDataForImport( primitive, undefined, true ) 
     logger.info(`Search runner ${primitive.id} / ${primitive.plainId} got ${list.length} items`)
 
+    function normalizeTerms(terms){
+        if( Array.isArray(terms) ){
+            return terms
+        }
+        if( typeof(terms) === "string"){
+            let asArray
+            if( terms.includes("\n")){
+                asArray = terms.split("\n")
+            }else{
+                asArray = terms.split(",")
+            }
+            return asArray.map(d=>d.trim())
+        }
+    }
     function buildSearchKey(terms){
         return (terms ?? []).map(d=>d.toLowerCase()).sort().join("-")
     }
@@ -288,7 +302,8 @@ registerAction( "run_search", undefined, async (primitive, action, options, req)
         logger.info(`Got ${childSearches.length} existing searches`)
         if( list.length > 0){
             const searchConfig = await getConfig( primitive )
-            const searchKey = buildSearchKey(searchConfig.terms)
+            const terms = normalizeTerms(searchConfig.terms )
+            const searchKey = buildSearchKey(terms)
             
             const searchCategory = await Category.findOne({id: primitive.referenceId})
             let itemCategoryId = searchCategory?.actingOn

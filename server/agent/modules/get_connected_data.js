@@ -10,6 +10,62 @@ const DATA_TYPES = new Set(["view", "query", "filter", "search", "summary"]);
 
 const filterCache = new Map();
 
+function ensureInsightState(scope) {
+  if (!scope) {
+    return null;
+  }
+  let state = null;
+  if (scope.mode === "insights" && scope.modeState) {
+    state = scope.modeState;
+  } else if (scope.getStoredModeState) {
+    state = scope.getStoredModeState("insights");
+  }
+  const initialize = () => ({
+    lastAction: null,
+    history: [],
+    categorizations: [],
+    pendingCategorization: null,
+    lastSources: null,
+  });
+  if (!state) {
+    state = initialize();
+    scope.setStoredModeState?.("insights", state);
+    if (scope.mode === "insights") {
+      scope.modeState = state;
+    }
+  } else {
+    if (!Object.prototype.hasOwnProperty.call(state, "pendingCategorization")) {
+      state.pendingCategorization = null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(state, "lastSources")) {
+      state.lastSources = null;
+    }
+  }
+  return state;
+}
+
+function updateInsightSources(scope, updates = {}) {
+  if (!scope) {
+    return;
+  }
+  const state = ensureInsightState(scope);
+  if (!state) {
+    return;
+  }
+  const current = state.lastSources ?? {};
+  const next = {
+    ...current,
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
+  state.lastSources = next;
+  scope.setStoredModeState?.("insights", state);
+  if (scope.mode === "insights") {
+    scope.modeState = state;
+  }
+  scope.touchSession?.();
+}
+
 function toIdString(value) {
   if (value == null) return null;
   try {
@@ -505,6 +561,7 @@ export async function implementation(params = {}, scope = {}, notify) {
       id: primitive._id,
       type: primitive.type,
       referenceId: primitive.referenceId,
+      referenceIds: metrics.referenceIds ?? [],
       number_results: estimateItemCount(primitive),
       ...summarizeConnection({
         connection_reason: entry.connection_reason,
@@ -540,6 +597,11 @@ export async function implementation(params = {}, scope = {}, notify) {
     const reasonB = b.connection_reason?.includes("immediate_context") ? 0 : 1;
     if (reasonA !== reasonB) return reasonA - reasonB;
     return (b.number_results ?? 0) - (a.number_results ?? 0);
+  });
+
+  updateInsightSources(scope, {
+    connected: candidates,
+    connected_updated_at: new Date().toISOString(),
   });
 
   if (!candidates.length) {

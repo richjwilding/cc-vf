@@ -656,7 +656,6 @@ export async function getConfigFromDB(primitive, { skipInputs = false, skipDynam
 
     try {
         const result = await PrimitiveConfigView.aggregate(pipeline).toArray()
-        console.log(result)
         let { overrideRequests, effectiveWithoutOverrides, overridePrimitives } = result[0]
         const inputsForPrimitives = {}
         const config = effectiveWithoutOverrides

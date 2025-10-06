@@ -9344,52 +9344,100 @@ function convertMarkupToTable( markup, options = {} ){
     }
 }
 
-export function renderIndicators(indicatorList, options){
-    const indicatorWidth = 20
-    
-    const padding = 2
-    const offsetX = 4
-    const fullWidth = indicatorWidth + padding + padding
-    const height = indicatorList.length * fullWidth
+export function renderIndicators(indicatorData, options = {}){
+    const { label } = options;
 
-    const g = new Konva.Group({
-        x: (options.x ?? fullWidth),
-        y: options.y ?? 0,
-        width: fullWidth + offsetX,
-        height: height,
-        name:"indicators"
-    })
-    const r = new Konva.Rect({
-        x: offsetX,
-        y: 0,
-        width: fullWidth,
-        height: height,
-        fill: '#fcfcfc',
-        stroke: '#b8b8b8',
-        strokeWidth: 0.5,
-            strokeScaleEnabled: false,
-        cornerRadius: 10
-    })
-    g.add(r)
-    let y = 2
-    for(const indicator of indicatorList){
-        if( indicator.icon){
-            renderReactSVGIcon( <HeroIcon icon={indicator.icon}/>, 
-                {
-                    target: g,
-                    props: {fill: indicator.color},
-                    x:padding + offsetX, 
-                    y:padding,
-                    width: indicatorWidth,
-                    height: indicatorWidth,
-                    center: true,
-                    imageCallback: options.imageCallback
-                }
-            )
-        }
-        y += fullWidth
+    if (!label) {
+        return undefined;
     }
-    return g
+
+    if (!indicatorData || !indicatorData.count) {
+        if (label.indicatorGroup) {
+            label.indicatorGroup.destroy();
+            label.indicatorGroup = undefined;
+        }
+        label.indicatorData = undefined;
+        return undefined;
+    }
+
+    const titleHeight = options.titleHeight ?? (label.indicatorBase?.titleHeight ?? 16);
+    const baseBarWidth = options.baseBarWidth ?? (label.indicatorBase?.barWidth ?? 60);
+    const baseInsideGap = options.baseInsideGap ?? (label.indicatorBase?.insideGap ?? 6);
+    const baseOuterGap = options.baseOuterGap ?? (label.indicatorBase?.outerGap ?? 10);
+    const baseFontSize = options.baseFontSize ?? (label.indicatorBase?.countFontSize ?? 12);
+    const scaleFactor = options.scaleFactor ?? 1;
+
+    const barWidth = baseBarWidth * scaleFactor;
+    const insideGap = baseInsideGap * scaleFactor;
+    const countFontSize = baseFontSize * scaleFactor;
+    const progressValue = Math.max(0, Math.min(1, indicatorData.progress ?? 0));
+
+    let indicatorGroup = label.indicatorGroup;
+    if (!indicatorGroup) {
+        indicatorGroup = new Konva.Group({ name: "frame_indicator" });
+        label.add(indicatorGroup);
+        label.indicatorGroup = indicatorGroup;
+    } else {
+        indicatorGroup.destroyChildren();
+    }
+
+    const track = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: barWidth,
+        height: titleHeight,
+        fill: "#e5e7eb",
+        cornerRadius: titleHeight / 2,
+        listening: false,
+    });
+    indicatorGroup.add(track);
+
+    const fill = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: barWidth * progressValue,
+        height: titleHeight,
+        fill: "#34d399",
+        cornerRadius: titleHeight / 2,
+        listening: false,
+    });
+    indicatorGroup.add(fill);
+
+    const countText = new Konva.Text({
+        text: `x${indicatorData.count}`,
+        fontSize: countFontSize,
+        fontFamily: "Poppins",
+        fill: "#0f172a",
+        listening: false,
+    });
+    indicatorGroup.add(countText);
+
+    const textMetrics = countText.getSelfRect();
+    const textY = Math.max(0, (titleHeight - textMetrics.height) / 2);
+    countText.y(textY);
+    countText.x(barWidth + insideGap);
+
+    const indicatorWidth = barWidth + insideGap + textMetrics.width;
+    indicatorGroup.width(indicatorWidth);
+    indicatorGroup.height(titleHeight);
+    indicatorGroup.x(0);
+    indicatorGroup.y(0);
+    indicatorGroup.attrs.insideGap = insideGap;
+    indicatorGroup.attrs.outerGap = baseOuterGap;
+    indicatorGroup.attrs.scaleFactor = scaleFactor;
+
+    label.indicatorData = indicatorData;
+    label.indicatorBase = {
+        barWidth: baseBarWidth,
+        barHeight: titleHeight,
+        insideGap: baseInsideGap,
+        outerGap: baseOuterGap,
+        countFontSize: baseFontSize,
+        titleHeight,
+        textWidth: textMetrics.width / Math.max(scaleFactor, 0.0001)
+    };
+
+    return indicatorGroup;
 }
 
 function renderFormattedSections( text, g, fullOptions = {} ){

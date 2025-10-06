@@ -6,7 +6,7 @@ export default function MyCombo({selectedItem, setSelectedItem, ...props}) {
     label={props.title}
     size="sm"
     variant="bordered"
-    selectedKeys={[selectedItem].flat()}
+    selectedKeys={[selectedItem].flat().filter(Boolean)}
     disallowEmptySelection={true}
     onSelectionChange={(v) => {
       const keys = Array.from(v)[0]

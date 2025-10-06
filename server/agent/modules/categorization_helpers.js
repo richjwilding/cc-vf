@@ -6,6 +6,28 @@ const logger = getLogger("agent_categorization_helper", "debug", 0);
 const CATEGORY_DEFAULT_TITLE = "LLM Categorization";
 const ALLOWED_PARENT_TYPES = new Set(["view", "query", "board"]);
 
+export function normalizeCategorizationField(field) {
+  if (typeof field !== "string") {
+    return null;
+  }
+
+  const trimmed = field.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (lower === "context" || lower === "title") {
+    return lower;
+  }
+
+  if (lower.startsWith("param.")) {
+    return trimmed.slice(trimmed.indexOf(".") + 1).trim();
+  }
+
+  return trimmed;
+}
+
 function sanitizeTitle(value, fallback) {
   if (typeof value === "string" && value.trim()) {
     return value.trim().slice(0, 200);
@@ -45,17 +67,23 @@ export async function materializeCategorization({
   }
 
   const workspaceId = parent.workspaceId;
+  const normalizedField = normalizeCategorizationField(field);
+
   const categorizationTitle = sanitizeTitle(
     title,
     theme
       ? `${theme} categorization`
-      : field
-        ? `Categorization of ${field}`
+      : normalizedField
+        ? `Categorization of ${normalizedField}`
         : CATEGORY_DEFAULT_TITLE,
   );
 
   const referenceParameters = {
-    field: field ? (field === "title" ? field : `param.${field}`) : undefined,
+    field: normalizedField
+      ? normalizedField === "context" || normalizedField === "title"
+        ? normalizedField
+        : `param.${normalizedField}`
+      : undefined,
     theme: theme ?? undefined,
     referenceId: referenceIds,
     created_by_agent: true,

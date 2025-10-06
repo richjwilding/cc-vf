@@ -5,6 +5,7 @@ import { PassThrough } from "stream";
 import Assembler from "stream-json/Assembler";
 import { get, set } from "lodash";
 import { flattenStructuredResponse } from "../PrimitiveConfig";
+import { normalizeCategorizationField } from "./modules/categorization_helpers.js";
 
 export const isObjectId = id => /^[0-9a-fA-F]{24}$/.test(id);
 export function remapHistoryFraming(funcName, history, framing){
@@ -340,11 +341,16 @@ export async function getDataForAgentAction(params, scope){
 
     let sources = await resolveId(sourceIds, {...scope, projection: "_id referenceId workspaceId primitives type flowElement"})
 
-    let field = "context"
-    if( params.field === "title"){
-      field = "title"
-    }else if(params.field){
-      field = `param.${params.field}`
+    let field = "context";
+    const normalizedField = normalizeCategorizationField(params.field);
+    if (normalizedField) {
+      if (normalizedField === "title") {
+        field = "title";
+      } else if (normalizedField === "context") {
+        field = "context";
+      } else {
+        field = `param.${normalizedField}`;
+      }
     }
     for( const source of sources){
         const [_items, _toSummarize] = await getDataForProcessing(source, {field, action_override: true}, undefined, {forceImport: true})

@@ -818,7 +818,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                     variant="bordered"
                                                     labelPlacement="outside"
                                                     disallowEmptySelection={true}
-                                                    selectedKeys={[`${frame.renderConfig?.[d]}`]}
+                                                    selectedKeys={[frame.renderConfig?.[d]].filter(Boolean).map(d=>`${d}`)}
                                                     onSelectionChange={(v)=>{
                                                         v = Array.from(v)[0]
                                                         if( v === "false"){
@@ -830,7 +830,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                     }}
                                                     >
                                                          {viewConfig.config[d].options.map(n => (
-                                                                <SelectItem key={n.id}>{n.title}</SelectItem>
+                                                                <SelectItem key={n.id} textValue={n.title}>{n.title}</SelectItem>
                                                             ))}
                                                     </Select>
                                     case "boolean":
@@ -1116,7 +1116,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                                 label="Style"
                                                                 size="sm"
                                                                 variant="bordered"
-                                                                selectedKeys={[sectionStyle]}
+                                                                selectedKeys={[sectionStyle].filter(Boolean)}
                                                                 disallowEmptySelection={true}
                                                                 onSelectionChange={(v) => {
                                                                     frame.setField(`renderConfig.themeStyle`, Array.from(v)[0])
