@@ -598,8 +598,9 @@ export async function processQueue(job, cancelCheck, extendJob){
                                 }
                             }
                         }
-                        if( source.platform === "coresignal" ){
-                            await queryCoresignalPersonSearch( primitive, terms, callopts )
+                        if( source.platform === "coresignal_people" ){
+                            origin = origin ?? await Primitive.findOne({_id: oId})
+                            await queryCoresignalPersonSearch( primitive, terms, {...callopts, origin} )
                             collectionAsync = true
                         }
                         if( source.platform === "crunchbase" ){

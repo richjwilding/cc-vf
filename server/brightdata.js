@@ -780,12 +780,12 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
     }
 }
 
-export async function restartCollection( primitive, {api} = {} ){
+export async function restartCollection( primitive, {api, provider} = {} ){
     if( !api ){
         throw "No API defined for collection"
     }
     const config = bdExtractors[api]
-        await BrightDataQueue().scheduleCollection( primitive, {api})
+        await BrightDataQueue().scheduleCollection( primitive, {api, provider})
     //await schedule( primitive, {api, callopts: {enrich: config.enrich}})
 
 }

@@ -1720,7 +1720,7 @@ export default function BoardViewer({primitive,...props}){
             return [89,145].map(id=>categoryById[id]).filter(Boolean)
         }
 
-        const baseCategoryIds = [38,81,148,154,130,140,131,142,118,135,136,137,132,133,144]
+        const baseCategoryIds = [38,81,148,154,130,140,131,142,118,135,136,137,132,133,144, 158]
         const ordered = baseCategoryIds.map(id=>categoryById[id]).filter(Boolean)
         const seen = new Set(ordered.map(category=>category.id))
 
