@@ -11,6 +11,7 @@ import { buildDocumentTextEmbeddings } from './DocumentSearch';
 import { queryMetaAds } from './ad_helper';
 import { fetchInstagramPostsFromProfile, queryChatGPTViaBD, queryGlassdoorReviewWithBrightData, queryInstagramWithBrightData, queryLinkedInCompanyPostsBrightData, queryLinkedInCompanyProfilePostsBrightData, queryLinkedInUserPostsBrightData, queryPerplexityViaBD, queryRedditWithBrightData, queryReviewsIO, querySubredditWithBrightData, queryTiktokWithBrightData, queryTrustPilotForCompanyReviewsBrightData } from './brightdata';
 import { queryInstagramPostsByRapidAPI, queryLinkedInCompaniesByRapidAPI, queryLinkedInCompanyPostsByRapidAPI, queryQuoraByRapidAPI, queryTwitterProfilePostsByRapidAPI } from './rapid_helper';
+import { queryCoresignalPersonSearch } from './coresignal.js';
 import BaseQueue from './base_queue';
 import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
 import { findTrustPilotURLFromDetails } from './actions/trustpilot_helper';
@@ -446,19 +447,21 @@ export async function processQueue(job, cancelCheck, extendJob){
 
                         const callopts = {
                             site: config.site,
-                            quoteKeywords: config.phrase, 
-                            countPerTerm: config.countPerTerm, 
-                            timeFrame: config.timeFrame, 
-                            count: config.count ?? 50, 
+                            quoteKeywords: config.phrase,
+                            countPerTerm: config.countPerTerm,
+                            timeFrame: config.timeFrame,
+                            count: config.count ?? 50,
                             progressUpdate,
-                            existingCheck, 
-                            filterPre: mapFilter(source.filterPre), 
-                            filterMid: mapFilter(source.filterMid), 
-                            filterPost: mapFilter(source.filterPost), 
-                            createResult: createResult, 
-                            prefix: prefix, 
+                            existingCheck,
+                            filterPre: mapFilter(source.filterPre),
+                            filterMid: mapFilter(source.filterMid),
+                            filterPost: mapFilter(source.filterPost),
+                            createResult: createResult,
+                            prefix: prefix,
                             cancelCheck: cancelCheck,
-                            extendJob
+                            extendJob,
+                            config,
+                            source
                         }
 
                         if( source.platform === "linkedin" ){
@@ -594,6 +597,10 @@ export async function processQueue(job, cancelCheck, extendJob){
                                     }
                                 }
                             }
+                        }
+                        if( source.platform === "coresignal" ){
+                            await queryCoresignalPersonSearch( primitive, terms, callopts )
+                            collectionAsync = true
                         }
                         if( source.platform === "crunchbase" ){
                             if( source.type === "organization" ){

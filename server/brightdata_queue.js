@@ -1,7 +1,8 @@
 import Primitive from "./model/Primitive.js";
 import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpdate, executeConcurrently, fetchPrimitive, fetchPrimitives, findResultSetForCategoryId, getDataForProcessing, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import Category from "./model/Category.js";
-import { setBrightdataScheduler, handleCollection } from './brightdata.js';
+import { setBrightdataScheduler, handleCollection as handleBrightDataCollection } from './brightdata.js';
+import { handleCollection as handleCoresignalCollection } from './coresignal.js';
 import BaseQueue from "./base_queue.js";
 
 
@@ -15,10 +16,26 @@ export async function processQueue(job, cancelCheck){
             if( data.mode === "collect" ){
                 console.log(`Check...`)
                 dispatchControlUpdate(primitiveId, field , {status: "Checking for results"}, {...data, track: primitiveId})
-                return await handleCollection( primitive, data )
+                const provider = data.provider ?? "brightdata"
+                const handler = provider === "coresignal" ? handleCoresignalCollection : handleBrightDataCollection
+                const result = await handler( primitive, data )
+                if( result?.reschedule ){
+                    return result
+                }
+
+                const collectedCount = Array.isArray(result) ? result.length : Number(result?.collected ?? 0)
+                dispatchControlUpdate(primitiveId, field , {status: "Collected", date: new Date(), count: collectedCount}, {...data, track: primitiveId})
+
+                if( primitive.processing?.query?.collecting ){
+                    const updatedPrimitive = await fetchPrimitive( primitiveId )
+                    const totalCount = Object.values(updatedPrimitive.primitives?.origin ?? {}).length
+                    await dispatchControlUpdate(primitiveId, "processing.query" , {status: "complete", scanned: collectedCount, totalCount, message: `Collected ${collectedCount} new items (total ${totalCount})`})
+                }
+
+                return result
             }else if( data.mode === "enrich"){
                 console.log(`check for enrich...`)
-                const result = await handleCollection( primitive, data, false)
+                const result = await handleBrightDataCollection( primitive, data, false)
                 let collected = 0
 
                 if( result?.reschedule ){
@@ -122,12 +139,15 @@ class BDQueueClass extends BaseQueue{
         const workspaceId = primitive.workspaceId
         //const field = "processing.bd.collect"
         const api = options.api
-        const field = `processing.bd.${api}.status`
+        const provider = options.provider ?? "brightdata"
+        const fieldPrefix = provider === "coresignal" ? "processing.coresignal" : "processing.bd"
+        const field = `${fieldPrefix}.${api}.status`
         const data = {
-            mode: options.callopts?.enrich ? "enrich" : "collect", 
+            mode: options.callopts?.enrich ? "enrich" : "collect",
             api,
-            field, 
-            text:"Awaiting results", 
+            provider,
+            field,
+            text:"Awaiting results",
             ...options
         }
         const delay = (reschedule ? 45 : 0.5) * 1000
