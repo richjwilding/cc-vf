@@ -3908,7 +3908,8 @@ function MainStore (prims){
         const status = await fetch('/api/status').then(response => response.json())
         if( !status.logged_in ){
             if( window.location.pathname !== "/signup" && !window.location.pathname.startsWith("/reset") && window.location.pathname !== "/login" && !window.location.pathname.startsWith("/published")){
-                window.location.href = `/login?post=${encodeURI(window.location.pathname)}`
+                const desiredPath = `${window.location.pathname}${window.location.search ?? ''}${window.location.hash ?? ''}` || '/';
+                window.location.href = `/login?redirect=${encodeURIComponent(desiredPath)}`
             }
             obj.data.categories = []
             obj.data.primitives = {}

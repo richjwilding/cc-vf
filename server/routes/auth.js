@@ -11,6 +11,28 @@ import { getCompanyInfoFromDomain } from '../task_processor';
 
 var router = express.Router();
 
+const sanitizeRedirectPath = (target) => {
+  if (!target || typeof target !== 'string') {
+    return undefined;
+  }
+  if (!target.startsWith('/')) {
+    return undefined;
+  }
+  if (target.startsWith('//')) {
+    return undefined;
+  }
+  return target;
+};
+
+const consumeRedirectFromSession = (req) => {
+  if (!req.session) {
+    return undefined;
+  }
+  const redirectPath = sanitizeRedirectPath(req.session.redirectAfterLogin);
+  delete req.session.redirectAfterLogin;
+  return redirectPath;
+};
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT) || 587,
@@ -228,7 +250,8 @@ router.post('/login', (req, res, next) => {
         if (err) {
           return res.status(500).json({ error: 'Could not log in.' });
         }
-        return res.json({
+        const redirectPath = consumeRedirectFromSession(req);
+        const responseBody = {
           message: 'Login successful',
           user: {
             _id: user._id,
@@ -236,7 +259,11 @@ router.post('/login', (req, res, next) => {
             name: user.name,
             avatarUrl: user.avatarUrl,
           },
-        });
+        };
+        if (redirectPath) {
+          responseBody.redirect = redirectPath;
+        }
+        return res.json(responseBody);
       });
     })(req, res, next);
   });

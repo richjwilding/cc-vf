@@ -194,7 +194,6 @@ Each section of the of the output should be an element of an array. If a section
 
 
     let output = "Provide your output in a JSON object with this structure:\n" + JSON.stringify(structure)
-    console.log(`STRUCTURE:\n\n`, structure.structure)
 
     return {task: `### Task\n\n${task}`,
             structure: structure.structure,

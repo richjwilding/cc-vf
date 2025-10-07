@@ -39,13 +39,6 @@ registerAction("continue_flow_instance", {id: "flowinstance"}, async (p,a,o, req
 
     FlowQueue().runFlowInstance(p, {...o, instantiatedBy: userId, manual: true})
 })
-registerAction("step_info", undefined, async (p,a,o)=>{
-    let flowInstance = o.flowInstance ?? (await primitiveParentsOfType(p, "flowinstance"))?.[0]
-    if( flowInstance ){
-        const status = await stepInstanceStatus(p, flowInstance)
-        return status
-    }
-})
 registerAction("instance_info", {id: "flowinstance"}, async (p,a,o)=>flowInstanceStatus(p,o))
 registerAction("run_subflow", {id: "flowinstance"}, async (p,a,o)=>{
     const allSubFlows = await primitivePrimitives(p, "primitives.subfi")
@@ -601,7 +594,7 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                 }
             }
             
-            const remapArray = (arr, f) =>
+            const remapArray = (arr, f, {mapFor} = {}) =>
                 arr.map(x => {
                     const s = x.toString();
                     if( skippedIds.has(s)){
@@ -616,6 +609,9 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                             logger.verbose(`Skipping flowinstance relationship`)
                             return undefined
                         }
+                    }
+                    if( f.type === "view" && mapFor === "axis"){
+                        return s
                     }
                     if( f !== seed ){
                         logger.error(`Couldnt find mapped id for ${s} ${f.type}`, f)
@@ -634,8 +630,8 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                     
                     if (p.axis) {
                         o.axis = {}
-                        if (Array.isArray(p.axis.column)) o.axis.column = remapArray(p.axis.column, orig);
-                        if (Array.isArray(p.axis.row))    o.axis.row    = remapArray(p.axis.row, orig);
+                        if (Array.isArray(p.axis.column)) o.axis.column = remapArray(p.axis.column, orig, {mapFor: "axis"});
+                        if (Array.isArray(p.axis.row))    o.axis.row    = remapArray(p.axis.row, orig, {mapFor: "axis"});
                     }
                     
                     // dynamic outputs/inputs
@@ -1198,6 +1194,10 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
                         if( !importTarget ){
                             logger.debug(`Step ${step.id} importing from something (${importId}) outside of this flow instance (${flowInstance.id} / ${flowInstance.plainId}) `)
                             importTarget = await fetchedCachedPrimitive(importId)
+                            if( step.type === "view" && importTarget.type === "category" && rel.startsWith("axis.")){
+                                targetImports.push({id: importId, paths})
+                                continue
+                            }
                             if( step.type === "page" && importTarget.type === "element"){
                                 logger.debug(` -> ${importTarget.id} is an element - skipping`)
                                 continue
@@ -1620,143 +1620,10 @@ export async function flowInstanceStepsStatus( flowInstance ){
     }
     return out
 }
-async function stepInstanceStatus( step, flowInstance, cache){
-    const should = await shouldStepRun( step, flowInstance, cache)
-    const running = should.need ? await stepIsRunning( step, flowInstance ) : false
-    return {
-        ...should,
-        running,
-    }
-}
 async function getFlowInstanceSteps( flowInstance ){
     return await primitiveChildren( flowInstance )
 }
 
-async function shouldStepRun( step, flowInstance, cache = {} ){
-    let flowStarted = flowInstance.processing?.flow?.started
-    let canReason, needReason
-    let can = undefined, need = false
-
-    if( 
-        (step.type === "flowinstance" && flowStarted && new Date(step.processing?.flow?.started) >= new Date(flowStarted)) ||
-        (step.type !== "flowinstance" && flowStarted && step.processing?.flow?.started === flowStarted)
-        ){
-        if(step.processing?.flow?.status === "complete"){
-            needReason = "complete"
-        }else{
-            need = true
-            needReason = "not_complete"
-        }
-    }else{
-        need = true
-        needReason = "not_executed"
-    }
-
-    if( need ){
-        can = true
-        canReason = "all_ready"
-
-        async function fetchImports( importIds ){
-            let importPrimitives = importIds.map(d=>cache[d]).filter(d=>d)
-            if( importPrimitives.length !== importIds.length){
-                console.log(`-- Cache miss - fetching importIds`)
-                importPrimitives = await fetchPrimitives( importIds )
-            }
-            return importPrimitives
-        } 
-
-
-        async function checkOutstandingSource( rel ){
-            let can = true
-            let inAncestor = false
-            const pp = (new Proxy(step.primitives ?? {}, PrimitiveParser())).fromPath(rel)
-            const importIds = pp.uniqueAllIds
-            if( importIds.length > 0){
-                const importPrimitives = await fetchImports( importIds)
-                for(const baseImp of importPrimitives){
-                    let imp = baseImp
-                    if( imp.type === "segment"){
-                        if( step.type === "flowinstance"){
-                            logger.debug(`Got segment import for instance of sub flow`)
-                            const parentStep = (await fetchImports( [primitiveOrigin(imp)] ))[0]
-                            if( !parentStep || (parentStep.id !== flowInstance.id && !Object.keys(parentStep.parentPrimitives ?? {}).includes( flowInstance.id ))){
-                                throw `mismatch on segment origin ${parentStep.id} not a child of flowInstance ${flowInstance.id}`                                
-                            }
-                            imp = parentStep
-                        }else{
-                            throw "Need to move to segment origin to get flow step?"
-                        }
-                    }
-                    if( imp.type === "category" ){
-                        logger.verbose(`-- Got category ${imp.id} / ${imp.plainId} for ${rel} - checking parent`)
-                        const parent = (await fetchImports( [primitiveOrigin(imp)] ))[0]
-                        if( parent ){
-                            logger.verbose(`-- Got parent of category  = ${parent.id} / ${parent.plainId}`)
-                            imp = parent
-                        }else{
-                            logger.verbose(`-- Couldnt get parent`)
-                        }
-
-                    }
-                    if( imp.id !== flowInstance.id){
-                        if( !Object.keys(imp.parentPrimitives ?? {}).includes(flowInstance.id) ){
-                            logger.verbose(`-- ${imp.id} / ${imp.plainId} not in this flow instance - checking ancestors`)
-                            const chainResult = await relevantInstanceForFlowChain( [imp], [flowInstance.id])
-                            if( chainResult.length === 0){
-                                logger.error(`${imp.id} / ${imp.plainId} is not linked to flow instance ${flowInstance.id} / ${flowInstance.plainId} for ${step.id} / ${step.plainId}`)
-                                can = false
-                                continue
-                            }else{
-                                inAncestor = true
-                                logger.verbose(`-- found in ancestor chain`)
-                            }
-                        }
-                    }
-                    const isSameFlow       = imp.id === flowInstance.id;
-                    const hasValidStart    = flowStarted !== undefined;
-                    const otherFlowStarted = imp.processing?.flow?.started;
-                    const isComplete       = imp.processing?.flow?.status === "complete";
-
-                    const timingOk = !inAncestor ? otherFlowStarted === flowStarted : otherFlowStarted <= flowStarted;
-                    const importPrimValid = isSameFlow || (hasValidStart && isComplete && timingOk);
-
-                    logger.debug(`Checking status of ${rel} step ${imp.id} / ${imp.plainId} = ${importPrimValid} for ${step.id} / ${step.plainId}`)
-                    can = can && importPrimValid
-                }
-            }
-            return !can
-        }
-        const waitImports = await checkOutstandingSource( "imports" )
-        const waitInputs = await checkOutstandingSource( "inputs" )
-        let waitAxis = false
-        if( step.type === "view" || step.type === "query" ){
-            const waitAxisCol = await checkOutstandingSource( "axis.column" )
-            const waitAxisRow = await checkOutstandingSource( "axis.row" )
-            waitAxis = waitAxisCol || waitAxisRow
-        }
-        if( waitImports || waitInputs || waitAxis){
-            canReason = ""
-            if( waitImports){
-                canReason = "data_"
-            }
-            if( waitInputs){
-                canReason += "inputs_"
-            }
-            if( waitAxis){
-                canReason += "axis_"
-            }
-            canReason += "not_ready"
-            can = false
-        }
-    }
-
-
-    return {can, need, canReason, needReason}
-}
-async function stepIsRunning( step ){
-    const status = await FlowQueue().stepStatus(step)
-    return status.running || status.waiting
-}
 export async function runStep( step, options = {}){
     let flowInstance = options.flowInstance ?? (await primitiveParentsOfType(step, "flowinstance"))?.[0]
     let flowStarted = options.flowStarted ?? flowInstance.processing?.flow?.started

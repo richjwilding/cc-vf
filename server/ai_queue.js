@@ -1281,6 +1281,9 @@ export async function processQueue(job){
                                 result = await comapreToPeers( parentForScope, segment, primitive, config)
                                 if( typeof(result) === "object"){
                                     dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)
+                                    if( result.title){
+                                        dispatchControlUpdate( primitive.id, "title", result.title)
+                                    }
                                     result = result.plain
                                 }
                             }else{

@@ -864,6 +864,18 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                                                     }
                                                 }}
                                             /></div>
+                                    case "font_size":
+                                        return <DebouncedNumberInput
+                                            label={viewConfig.config[d].title ?? "Font size"}
+                                            variant="bordered"
+                                            labelPlacement="outside"
+                                            minValue={viewConfig.config[d].min ?? 1}
+                                            maxValue={viewConfig.config[d].max ?? 144}
+                                            value={currentValue}
+                                            onValueChange={(v)=>{
+                                                return onValueChange(v)
+                                            }}
+                                        />
                                     case "column_count":
                                         return <DebouncedNumberInput
                                             label="Columns"

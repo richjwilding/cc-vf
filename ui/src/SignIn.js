@@ -15,6 +15,41 @@ export default function Component() {
     email: "",
     password: "",
   });
+  const redirectTarget = React.useMemo(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const rawValue = params.get("redirect");
+    if (!rawValue) {
+      return undefined;
+    }
+    try {
+      const parsed = new URL(rawValue, window.location.origin);
+      if (parsed.origin !== window.location.origin) {
+        return "/";
+      }
+      const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      if (path.startsWith("/login")) {
+        return "/";
+      }
+      if (!path.startsWith("/")) {
+        return "/";
+      }
+      return path || "/";
+    } catch (error) {
+      if (rawValue.startsWith("/") && !rawValue.startsWith("//") && !rawValue.startsWith("/login")) {
+        return rawValue;
+      }
+      return "/";
+    }
+  }, []);
+  const googleLoginUrl = React.useMemo(() => {
+    if (!redirectTarget) {
+      return "/google/login";
+    }
+    return `/google/login?redirect=${encodeURIComponent(redirectTarget)}`;
+  }, [redirectTarget]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -55,7 +90,11 @@ export default function Component() {
 
     const data = await response.json();
     if( data.user ){
-      window.location.href = "/"
+      const target =
+        data.redirect ||
+        redirectTarget ||
+        "/";
+      window.location.href = target;
       return
     }
     setErrors("Unrecognized username or incorrect password")
@@ -132,7 +171,7 @@ export default function Component() {
           </div>
           <div className="flex flex-col gap-2">
             <Button
-              onClick={()=>{window.location.href = "/google/login"}} 
+              onClick={()=>{window.location.href = googleLoginUrl}} 
               startContent={<Icon icon="flat-color-icons:google" width={24} />}
               variant="bordered"
             >

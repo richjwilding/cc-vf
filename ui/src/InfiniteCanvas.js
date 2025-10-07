@@ -821,7 +821,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
             titleNode.fontSize(fontSize)
         }
 
-        const titleHeight = titleNode.height() || fontSize
+        const titleHeight = fontSize//titleNode.height() || fontSize
         const labelOffsetY = titleHeight + Math.max(2, 2 * scaleFactor)
 
         if( label.offsetY() !== labelOffsetY ){
@@ -920,7 +920,7 @@ const InfiniteCanvas = forwardRef(function InfiniteCanvas(props, ref){
         }
         let framePadding = options.canvasMargin ?? [5,5,5,5]
         let ringOffset = 0, halfRingWidth = 0
-        if( !options.frameLess){
+        if( !options.frameless && !options.ringless){
             ringOffset = 8
             halfRingWidth = 5
         }

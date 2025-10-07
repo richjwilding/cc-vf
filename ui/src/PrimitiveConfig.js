@@ -570,10 +570,23 @@ const PrimitiveConfig = {
                             {id:"percentage", title: "Percentage"}
                         ]
                     },
+                    "axis_text":{
+                        type: "axis_text",
+                        title: "Headers"
+                    },
                     "titles":{
                         type: "boolean",
                         title: "Show title",
                         default: false,
+                        options: [
+                            {id:false, title: "No"},
+                            {id:true, title: "Yes"}
+                        ]
+                    },
+                    "show_legend":{
+                        type: "option_list",
+                        title: "Show Legend",
+                        default: true,
                         options: [
                             {id:false, title: "No"},
                             {id:true, title: "Yes"}
@@ -862,18 +875,14 @@ const PrimitiveConfig = {
                             {id:"row", title: "by row"}
                         ]
                     },
+                    "axis_text":{
+                        type: "axis_text",
+                        title: "Headers"
+                    },
                     "legend_size":{
-                        type: "option_list",
+                        type: "font_size",
                         title: "Legend size",
-                        default: true,
-                        options: [
-                            {id:8, title: 8},
-                            {id:10, title: 10},
-                            {id:12, title: 12},
-                            {id:14, title: 14},
-                            {id:16, title: 16},
-                            {id:18, title: 18},
-                        ]
+                        default: true
                     },
                     "show_legend":{
                         type: "option_list",
@@ -2094,7 +2103,11 @@ const PrimitiveConfig = {
                         console.log(`-- Got category ${imp.id} / ${imp.plainId} for ${rel} - checking parent`)
                         const parent = (await fetchImports( [originId] ))[0]
                         if( parent ){
-                            console.log(`-- Got parent of catgeory  = ${parent.id} / ${parent.plainId}`)
+                            console.log(`-- Got parent of category  = ${parent.id} / ${parent.plainId}`)
+                            if( !parent.flowElement && !Object.values(parent.parentPrimitives ).find(d=>d.includes("primitives.config"))){
+                                console.log(`--- Parent is not in a flow, can proceed`)
+                                return false
+                            }
                             imp = parent
                         }else{
                             console.log(`-- Couldnt get parent`)

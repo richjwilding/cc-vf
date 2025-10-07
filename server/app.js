@@ -63,11 +63,40 @@ export async function fetchUserProfile(userId) {
         refreshToken: userDoc.refreshToken,
         expiry_date:  userDoc.expiry_date,
     }
-  
+
     userCache.set(userId, profile)
-  
+
     return profile
   }
+
+function sanitizeRedirectPath(target) {
+  if (!target || typeof target !== 'string') {
+    return undefined;
+  }
+  if (!target.startsWith('/')) {
+    return undefined;
+  }
+  if (target.startsWith('//')) {
+    return undefined;
+  }
+  return target;
+}
+
+function setPostAuthRedirect(req, path) {
+  if (!req.session) {
+    return;
+  }
+  req.session.redirectAfterLogin = path;
+}
+
+function consumePostAuthRedirect(req) {
+  if (!req.session) {
+    return '/';
+  }
+  const target = sanitizeRedirectPath(req.session.redirectAfterLogin);
+  delete req.session.redirectAfterLogin;
+  return target || '/';
+}
 
 
 
@@ -239,6 +268,13 @@ if (process.env.NODE_ENV !== 'production') {
 
 
 app.get('/google/login',
+  (req, res, next) => {
+    const requestedRedirect = sanitizeRedirectPath(req.query.redirect);
+    if (requestedRedirect && !requestedRedirect.startsWith('/login')) {
+      setPostAuthRedirect(req, requestedRedirect);
+    }
+    next();
+  },
   passport.authenticate('google', {
           scope: ['email', 'profile', 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/adwords'],
             accessType: 'offline',
@@ -251,7 +287,8 @@ app.get('/google/callback',
       failureRedirect: '/failed',
   }),
   function (req, res) {
-    res.redirect('/');
+    const redirectTarget = consumePostAuthRedirect(req);
+    res.redirect(redirectTarget);
 
   }
 );
@@ -332,12 +369,16 @@ app.get('/api/status', (req, res) => {
 })
 
 var ensureAuthenticated = async function (req, res, next) {
-    const publicUrls = ['/login', '/reset', '/signup', '/manifest.json', '/logo192.png'];
+    const publicExact = ['/login', '/signup', '/manifest.json', '/logo192.png'];
+    const publicPrefixes = ['/reset'];
     const staticPrefixes = ['/auth','/static/css/', '/static/js/', '/images/'];
+
+    const pathOnly = req.path || req.originalUrl;
   
     if (
-      publicUrls.includes(req.originalUrl) ||
-      staticPrefixes.some((p) => req.originalUrl.startsWith(p))
+      publicExact.includes(pathOnly) ||
+      publicPrefixes.some((p) => pathOnly.startsWith(p)) ||
+      staticPrefixes.some((p) => pathOnly.startsWith(p))
     ) {
       return next();
     }
@@ -348,6 +389,23 @@ var ensureAuthenticated = async function (req, res, next) {
         const prim = await fetchPrimitive(id, { published: true }, { _id: 1, published: 1 });
         if (prim) return next();
       }
+
+      if (req.method === 'GET') {
+        const originalTarget = sanitizeRedirectPath(req.originalUrl || req.path);
+
+        if (
+          originalTarget &&
+          !originalTarget.startsWith('/login') &&
+          !originalTarget.startsWith('/auth') &&
+          !originalTarget.startsWith('/api') &&
+          !originalTarget.startsWith('/admin') &&
+          !originalTarget.startsWith('/published')
+        ) {
+          setPostAuthRedirect(req, originalTarget);
+          return res.redirect(`/login?redirect=${encodeURIComponent(originalTarget)}`);
+        }
+      }
+
       return res.redirect('/login');
     }
   

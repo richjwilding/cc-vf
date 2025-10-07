@@ -170,8 +170,22 @@ export async function getSegemntDefinitions( primitive, customAxis, config, with
                 itemMap[ items[idx].id ].push( data )
                 return data
             })
-            let uniqueValues = [undefined, ...values].flat().map(d=>d ? d : undefined).filter((d,i,a)=>a.indexOf(d)===i)
-            axisValues.push(uniqueValues)
+            if( thisAxis.limit ){
+                let order = thisAxis.order ?? {field: "value"}
+                if( order?.field === "value" || order?.field === "count"){
+                    let counts = values.reduce((a,c)=>{a[c] = (a[c] ?? 0)+1;return a},{})
+                    let sorted = Object.entries(counts).sort((a,b)=>a[1] - b[1])
+                    if( order.descend ){
+                        sorted = sorted.reverse()
+                    }
+                    const clamped = sorted.slice(0, thisAxis.limit)
+                    axisValues.push(clamped.map(d=>d[0]))
+                }
+
+            }else{
+                let uniqueValues = [undefined, ...values].flat().map(d=>d ? d : undefined).filter((d,i,a)=>a.indexOf(d)===i)
+                axisValues.push(uniqueValues)
+            }
         }
         filterConfig.push(mappedFilter)
     }
@@ -890,7 +904,7 @@ export async function comapreToPeers( parent, activeSegment, primitive, options 
     try{
         const allSegments = await primitiveChildren( parent, "segment")
         const config = await getConfig( primitive )
-        let targetSegmentConfig
+        /*let targetSegmentConfig
         if( (primitive.referenceParameters?.by_axis === false) && (!options.by_axis)){
             targetSegmentConfig = [
                 {
@@ -900,11 +914,11 @@ export async function comapreToPeers( parent, activeSegment, primitive, options 
             ]
         }else{
             targetSegmentConfig = await getSegemntDefinitions(parent)
-        }
+        }*/
 
-        const others = [], thisOne = []
+        const others = allSegments.filter(d=>d.id !== activeSegment.id), thisOne = [activeSegment]
         
-        for(const importConfig of targetSegmentConfig){
+        /*for(const importConfig of targetSegmentConfig){
             let existing = allSegments.find(d=>PrimitiveConfig.checkImports( d, importConfig.id, importConfig.filters))
             if(existing){
                 const importSet = existing.referenceParameters.importConfig.find(d=>d.id === parent.id)
@@ -914,7 +928,7 @@ export async function comapreToPeers( parent, activeSegment, primitive, options 
                     others.push( existing )
                 }
             }
-        }
+        }*/
         console.log(`Got ${thisOne.length} / ${others.length} segments`)
 
         const param = config.field?.slice(6)
@@ -936,41 +950,53 @@ export async function comapreToPeers( parent, activeSegment, primitive, options 
         
         const {results:otherItems} = await executeConcurrently( others, async (segment)=>{
             const items = await getItemsForQuery( segment)
-            return {title: await getFilterName(segment), content: translateItem(items).filter(d=>d)}
+            const translated = translateItem(items).filter(d=>d)
+            return {title: await getFilterName(segment), content: translated}
         })
 
         const activePrimitives = await getItemsForQuery( thisOne[0] )
-        const activeItem = translateItem(activePrimitives).filter(d=>d)[0]
-        const activeText = `Covering - ${await getFilterName(thisOne[0])}:\n${activeItem}`
+        const activeItem = translateItem(activePrimitives).filter(d=>d)
+        const activeSegmentTitle = await getFilterName(thisOne[0])
+        const activeText = `Covering - ${activeSegmentTitle}:\n${JSON.stringify(activeItem)}`
         const otherText = otherItems.map((d,i)=>`\n\nItem ${i+1}:${d.title}\n=============\n${d.content}`)
 
-        const fullText = `The data is a set of summaries for different segements - i need your help to compare and contrast these segments with one i am particularly interested in. Here are the peer segments for context:\n ${otherText}\n\nAnd here is the target segement to update:\n ${activeText}\n---END OF SEGMENT\n\n`
+        const fullText = `The data is a set of summaries for different segements - i need your help to compare and contrast these segments with one i am particularly interested in. Here are the peer segments for context:\n ${otherText}\n\nAnd here is the segment im focussed on:\n ${activeText}\n---END OF SEGMENT\n\n`
 
-        let result
-        let prompt = (config.prompt ? config.prompt : undefined) ?? "Compare all of the segments and then highlight what is unique about the one i am interested in"
+        let prompt = "Compare all of the segments and then highlight what is unique about the one i am interested in"
+        let output = `Provide the output as a json object with a field called 'summary' containing the new summary as a string with suitable linebreaks to deliniate sections. Inlcude the title of this segemnt which if ${activeSegmentTitle}`
+        let wholeResponse = false
+        if( config.prompt){
+            const revised = await reviseUserRequest(config.prompt + `. The title of your summary  must be '${activeSegmentTitle}'`, {engine: config.engine})
+            prompt = revised?.task
+            output = revised?.output
+            wholeResponse = true
+        }
+        
         const streamline = await summarizeMultiple([fullText],{
             prompt,
-            output: structured ? "Generate a n new output for the segment im interested in in a json object with a field called 'new_segment'. The field must be in the same structure as the input for this segment - including nested subsections - but with the relevant content fields updated where necessary - add a 'omit' field to any subsections which should be removed from this segment, and a 'updates' field containing a 30 word overview of your changes. Ensure you consider and include every entry in the input array - and every nested subsection of this segment."
-                    : "Provide the output as a json object with a field called 'summary' containing the new summary as a string with suitable linebreaks to deliniate sections",
+            output,
+            //output: structured ? "Generate a n new output for the segment im interested in in a json object with a field called 'new_segment'. The field must be in the same structure as the input for this segment - including nested subsections - but with the relevant content fields updated where necessary - add a 'omit' field to any subsections which should be removed from this segment, and a 'updates' field containing a 30 word overview of your changes. Ensure you consider and include every entry in the input array - and every nested subsection of this segment."
+            //        : "Provide the output as a json object with a field called 'summary' containing the new summary as a string with suitable linebreaks to deliniate sections",
 //            output: "Provide the output as a json object with a field called 'summary' containing the new summary as a markdown string in the format specified",
             engine: config.engine ?? "gpt4p",
             markdown: true,//config.markdown, 
             temperature: config.temperature ?? primitive.referenceParameters?.temperature,
             heading: true,//config.heading,
             keepLineBreaks: true,
-            wholeResponse: structured,
+            wholeResponse,
             debug: true,
             debug_content:true
         })
 
         if( structured ){
             console.log(streamline)
-            if( streamline.success ){
-                const segment = removeOmittedItemsFromStructure( streamline.summary.new_segment )
+            if( streamline.summary.structure ){
+                const segment = removeOmittedItemsFromStructure( streamline.summary.structure )
                 const flat = flattenStructuredResponse( segment, segment)
                 console.log(flat)
                 console.log("done")
                 return {
+                    title: activeSegmentTitle,
                     plain: flattenStructuredResponse( segment, segment),
                     structured: segment
                 }

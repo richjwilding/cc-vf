@@ -6980,6 +6980,7 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
     const perSeriesMax = [];
     const perSegmentTotals = [];
     let globalMaxCount = 0
+    let globalMinCount = Infinity
     for (let sIdx = 0; sIdx < segments.length; sIdx++){
         const { count } = segments[sIdx]
         if (Array.isArray(count)) {
@@ -6990,6 +6991,7 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                 totals[i] = (totals[i] ?? 0) + v
                 perSeriesMax[i] = Math.max(perSeriesMax[i] ?? 0, v)
                 if (v > globalMaxCount) globalMaxCount = v
+                if (v < globalMinCount) globalMinCount = v
             }
             perSegmentTotals[sIdx] = segSum
         } else {
@@ -6998,43 +7000,72 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
             perSeriesMax[0] = Math.max(perSeriesMax[0] ?? 0, v)
             perSegmentTotals[sIdx] = v
             if (v > globalMaxCount) globalMaxCount = v
+            if (v < globalMinCount) globalMinCount = v
         }
     }
 
-    // Determine scaling maxima
-    let singleYAxis = true
+    if (globalMinCount === Infinity) {
+        globalMinCount = 0
+    }
+
+    // Determine scaling range, allowing explicit overrides
+    let minValue
     let maxValue
     if (asPercent) {
+        minValue = 0
         maxValue = 100
     } else if (options.stack) {
-        // Stacked: scale by the largest stacked height among segments
         const stackedMax = Math.max(0, ...perSegmentTotals)
+        const stackedMin = Math.min(0, ...perSegmentTotals)
+        minValue = stackedMin
         maxValue = stackedMax || 1
     } else {
-        // Grouped bars: use a single global max across all bars
+        minValue = Math.min(0, globalMinCount)
         maxValue = globalMaxCount
     }
+
+    if (options.minY !== undefined) {
+        minValue = options.minY
+    }
+    if (options.maxY !== undefined) {
+        maxValue = options.maxY
+    }
+
+    if (minValue > maxValue) {
+        const tmp = minValue
+        minValue = maxValue
+        maxValue = tmp
+    }
+
+    if (minValue === maxValue) {
+        const epsilon = Math.abs(minValue) > 1 ? Math.abs(minValue) * 0.01 : 1
+        maxValue = minValue + epsilon
+    }
     let colors = options.colors ?? options.theme?.palette?.categoryColors ?? categoryColors
-    
+
     let axisList = []
     let yAxisList = []
 
     const barBase = height - (showAxis ? axisFontSize * 3 : 0.2)
     const barSize = barBase
+    const valueRange = maxValue - minValue
+    const safeRange = valueRange === 0 ? 1 : valueRange
+    const scaleY = barSize / safeRange
+    const clampValue = (value) => Math.max(minValue, Math.min(maxValue, value))
+    const valueToY = (value) => barBase - ((value - minValue) * scaleY)
     let baseLine 
     let ox = 0
 
 
     if( showAxis ){
         let rescaleAxis = false
-        const yTicks = generateAxisTicks(  [0, maxValue] )
-        const scaleY = barSize / maxValue
+        const yTicks = generateAxisTicks([minValue, maxValue])
         let yAxisGap = 0
         if( showLines && showAxisValue ){
             const maxAxisValueHeight = barSize / yTicks.length * 0.3
             yTicks.forEach((y, i)=>{
-                const yp = barBase - (y * scaleY)
-                if( yp > 0){
+                const yp = valueToY(y)
+                if( Number.isFinite(yp) && yp >= 0 && yp <= barBase){
                     const r = prepareAxisText( formatNumber(y), {
                         fontSize: axisFontSize, 
                         maxHeight: maxAxisValueHeight,
@@ -7076,8 +7107,8 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
         if( showLines){
             const dash = [5,3]
             yTicks.forEach((y, i)=>{
-                const yp = barBase - (y * scaleY)
-                if( yp > 0){
+                const yp = valueToY(y)
+                if( Number.isFinite(yp) && yp >= 0 && yp <= barBase){
                     const line = new Konva.Line( {
                         points: [yAxisGap, yp, width, yp],
                         stroke: i === 0 ? gridStroke : subGridStroke,
@@ -7150,23 +7181,29 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
     }
 
     
-    const colorBySubSegment = options.colorBySecondary ?? segmentCount  === 1
+    const colorBySubSegment = subSegments > 1 //options.colorBySecondary ?? segmentCount  === 1
     const whiteMixFactor = 0.8 / (colorBySubSegment ? segmentCount : subSegments)
 
     for( const s of  segments){
-        // Reset stack position per segment
-        let y = barBase;
-        [s.count].flat().forEach((ss, iIdx)=>{
+        // Reset stack position per segment in value space
+        let stackBaseValue = minValue
+        ;[s.count].flat().forEach((ss, iIdx)=>{
             let x
             if( mode === "interleave"){
                 x = ox + (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
             }else{
                 x = ox + (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
             }
-            const scale = barSize / maxValue
             const denom = asPercent ? (perSegmentTotals[idx] || 0) : 1
-            const count = asPercent ? (denom ? (100 * (ss ?? 0) / denom) : 0) : (ss ?? 0)
-            const h = count * scale
+            const rawValue = ss ?? 0
+            const count = asPercent ? (denom ? (100 * rawValue / denom) : 0) : rawValue
+            const startValue = options.stack ? stackBaseValue : minValue
+            const endValue = options.stack ? stackBaseValue + count : count
+            const clampedStart = clampValue(startValue)
+            const clampedEnd = clampValue(endValue)
+            const barTopY = valueToY(clampedEnd)
+            const barBottomY = valueToY(clampedStart)
+            const h = barBottomY - barTopY
             if( h > 0){
                 const majorIdx = colorBySubSegment ? iIdx : idx
                 const minorIdx = colorBySubSegment ? idx : iIdx
@@ -7177,7 +7214,7 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                 
                 var bar = new Konva.Rect({
                     x: x,
-                    y: y - h,
+                    y: barTopY,
                     width: barWidth,
                     height: h,
                     fill: color,
@@ -7186,10 +7223,10 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                 });
                 g.add(bar)
             }
-            if( showValue ){
+            if( showValue && h > 0 ){
                 const t = new CustomText({
                     x: x,
-                    y: (barBase - h) - fontSize * 1.2,
+                    y: barTopY - fontSize * 1.2,
                     fontSize: fontSize,
                     text: asPercent ? `${count.toFixed(0)}%` : count,
                     align:"center",
@@ -7202,7 +7239,7 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                 g.add(t)
             }
             if( options.stack){
-                y -= h
+                stackBaseValue += count
             }
         })
         idx++
@@ -7370,9 +7407,12 @@ function renderSubCategoryChart( title, data, options = {}){
     let minH = innerPadding[2] + innerPadding[0]
     let usableWidth = width 
     let usableHeight = height
+
+    const legendData = options.sublabels ? options.sublabels.items.map((d,i)=>({label:d.label,count:d.count, idx:i})) : data.slice()
+
     if( showLegend ){
         const maxLegendWidth = usableWidth * 0.5
-        const legendData = options.colorBySecondary ? (options.sublabels?.items ?? []) : data
+        //const legendData = options.colorBySecondary ? (options.sublabels?.items ?? []) : data
         legend = renderLegend( legendData,{
                             ...options,
                             fontSize: options.legendSize ?? (config.fontSize * 0.8),
@@ -7426,6 +7466,8 @@ function renderSubCategoryChart( title, data, options = {}){
         const barGraphOptions = {
             width: usableWidth, 
             height: usableHeight, 
+            minY: options.min,
+            maxY: options.max,
             x: innerPadding[3], 
             barHeght: options.scale ? usableHeight * options.scale : undefined, 
             y: innerPadding[0], 
@@ -7533,7 +7575,7 @@ function renderSubCategoryChart( title, data, options = {}){
     r.width( finalWidth )
     sg.height( finalHeight )
     r.height( finalHeight )
-    sg.attrs.legendInfo = {colors, data}
+    sg.attrs.legendInfo = {colors, data: legendData}
     return sg
 }
 function renderLegend( data, {colors, itemSize, height, width, maxWidth, ...options} ){
@@ -7886,6 +7928,111 @@ registerRenderer( {type: "default", configs: "set_distribution"}, function rende
     }
     return renderMatrix(primitive, list ?? [], {...forwardOptions, rowExtents: extents?.row, columnExtents: extents.column, viewConfig})
 })
+function resolveAllocationScopeRanges(table, cell, scope){
+    const allocationRanges = table?.ranges?.allocations
+    if(!allocationRanges){
+        return null
+    }
+    if( scope === "row" ){
+        return allocationRanges.rows?.order?.[cell.rIdx] ?? allocationRanges.rows?.idx?.[cell.rowIdx] ?? null
+    }
+    if( scope === "column" ){
+        return allocationRanges.columns?.order?.[cell.cIdx] ?? allocationRanges.columns?.idx?.[cell.columnIdx] ?? null
+    }
+    return allocationRanges.table
+}
+
+function computeAllocationRange(container){
+    if(!container){
+        return null
+    }
+    const items = container.items ?? []
+    if( items.length === 0 ){
+        return {min: 0, max: 0}
+    }
+    let min = Infinity
+    let max = -Infinity
+    for( const entry of items ){
+        const entryMin = entry?.min ?? entry?.count ?? 0
+        const entryMax = entry?.max ?? entry?.count ?? entryMin
+        if( entryMin < min ){min = entryMin}
+        if( entryMax > max ){max = entryMax}
+    }
+    if( min === Infinity ){min = 0}
+    if( max === -Infinity ){max = 0}
+    return {
+        min: Math.min(0, min),
+        max
+    }
+}
+
+function collectDeepestAllocationRangeItems(source, fields, level = 0){
+    if(!source || !fields?.length){
+        return []
+    }
+    const field = fields[level]
+    if(!field){
+        return []
+    }
+    const container = source[field]
+    if(!container){
+        return []
+    }
+    if(level === fields.length - 1){
+        return container.items ?? []
+    }
+    const items = []
+    for(const entry of container.items ?? []){
+        if(entry?.allocations){
+            const nested = collectDeepestAllocationRangeItems(entry.allocations, fields, level + 1)
+            if(nested.length){
+                items.push(...nested)
+            }
+        }
+    }
+    return items
+}
+
+function collectDeepestAllocationEntries(source, fields, level = 0){
+    if(!source || !fields?.length){
+        return []
+    }
+    const field = fields[level]
+    if(!field){
+        return []
+    }
+    const entries = source[field] ?? []
+    if(level === fields.length - 1){
+        return entries
+    }
+    const items = []
+    for(const entry of entries){
+        if(entry?.allocations){
+            const nested = collectDeepestAllocationEntries(entry.allocations, fields, level + 1)
+            if(nested.length){
+                items.push(...nested)
+            }
+        }
+    }
+    return items
+}
+
+function resolveAllocationScaleValue(cell, fields){
+    const fieldList = Array.isArray(fields) ? fields.filter(Boolean) : [fields].filter(Boolean)
+    if(fieldList.length === 0){
+        return cell.count ?? 0
+    }
+    const deepestEntries = collectDeepestAllocationEntries(cell.allocations, fieldList)
+    const targetEntries = deepestEntries.length ? deepestEntries : (cell.allocations?.[fieldList[0]] ?? [])
+    if(!targetEntries || targetEntries.length === 0){
+        return cell.count ?? 0
+    }
+    return targetEntries.reduce((acc, entry)=>{
+        const value = entry?.count ?? 0
+        return value > acc ? value : acc
+    }, 0)
+}
+
 registerRenderer( {type: "default", configs: "datatable_distribution"}, function renderFunc({table, cell, renderOptions, ...options}){
     const config = {itemSize: 280, padding: [10,10,10,10], ...options}
     let scale = 1
@@ -7913,10 +8060,6 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
         values = sortByOrder(values)
         values = values.map(d=>({label:d.label, count: Object.values(d.allocations)[0].map(d=>d.count)}))
         sublabels = Object.values(table.allocations)[1]
-        /*if( renderOptions.style !== "bar"){
-            values = values.map(d=>d[0])
-            sublabels = null
-        }*/
     }else{
         values = Object.values(values)
         values = sortByOrder(values)
@@ -7925,15 +8068,44 @@ registerRenderer( {type: "default", configs: "datatable_distribution"}, function
     /*if( !values ){
         values = [{count:cell.count, label: "Count"}]
     }*/
-    if(table.ranges && renderOptions.calcRange){
-        if( renderOptions.calcRange === "row"){
-            ({min, max} = table.ranges.rows.order[cell.rIdx])
-        }else if( renderOptions.calcRange === "column"){
-            ({min, max} = table.ranges.columns.order[cell.cIdx])
-        }else{
-            ({min, max} = table.ranges.table)
+    const allocationDefs = table.defs?.allocations ?? []
+    const useAllocationRanges = allocationDefs.length > 0 && (renderOptions.style === "bar" || renderOptions.style === "stacked_bar")
+    let scaleReferenceValue = count
+    if( renderOptions.calcRange ){
+        let resolvedRange
+        if( useAllocationRanges ){
+            const allocationFields = allocationDefs.map(d=>d?.field).filter(Boolean)
+            const scopeRanges = resolveAllocationScopeRanges(table, cell, renderOptions.calcRange)
+            let rangeContainer
+            if( allocationFields.length ){
+                const deepestRangeItems = collectDeepestAllocationRangeItems(scopeRanges, allocationFields)
+                if( deepestRangeItems.length ){
+                    rangeContainer = {items: deepestRangeItems}
+                }else{
+                    rangeContainer = scopeRanges?.[allocationFields[0]]
+                }
+            }
+            const allocRange = computeAllocationRange(rangeContainer)
+            if( allocRange ){
+                resolvedRange = allocRange
+                scaleReferenceValue = resolveAllocationScaleValue(cell, allocationFields)
+            }
         }
-        scale = ((count / max) * 0.8) + 0.2
+        if( !resolvedRange && table.ranges ){
+            if( renderOptions.calcRange === "row"){
+                resolvedRange = table.ranges.rows?.order?.[cell.rIdx]
+            }else if( renderOptions.calcRange === "column"){
+                resolvedRange = table.ranges.columns?.order?.[cell.cIdx]
+            }else{
+                resolvedRange = table.ranges.table
+            }
+        }
+        if( resolvedRange ){
+            ({min, max} = resolvedRange)
+        }
+        const fallbackMax = resolvedRange?.max ?? count ?? 1
+        const safeMax = max && max !== 0 ? max : (fallbackMax !== 0 ? fallbackMax : 1)
+        scale = ((scaleReferenceValue / safeMax) * 0.8) + 0.2
     }
 
     
@@ -9612,7 +9784,7 @@ export function renderDatatable({id, primitive, data, stageOptions, renderOption
         
         if( !legendInfo ){
             const allocs = Object.values(data.allocations)
-            let valuesForLegend = allocs[0].items
+            let valuesForLegend = allocs.at(-1).items
             let palette = options.theme?.palette?.categoryColors ?? categoryColors
             colors = valuesForLegend.map((_,i)=>palette[i % palette.length])
 

@@ -547,6 +547,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
       isContainer: d.type === "page",
       pins,
       frameless,
+      ringless: d.type === "page",
       frameColor,
       title,
       titleAlwaysPresent,
@@ -584,6 +585,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
       case "plain_object":
         renderView = {
           ...baseRenderView,
+          frameless: true,
           canChangeSize: "plain",
           items: stageOptions => {
             const data = myState[d.id].object;
@@ -760,6 +762,7 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
         renderView = {
           ...baseRenderView,
           resizeForChildren: true,
+          ringless: true,
           routeInternal: true,
           canChangeSize: true,
           canvasMargin: [0, 0, 0, 0],
@@ -2658,18 +2661,21 @@ export default function BoardViewer({primitive,...props}){
         if( !position){
             position = findSpace()
         }
+        let updatePrimitive = primitive
         myState[d.id] = {id: d.id, primitive: d}
         if( d.type === "element"){
             myState[d.id].inPage = true
             myState[d.id].page = myState[d.origin.id]
             myState[d.id].parentRender = d.origin.id
+            updatePrimitive = d.origin.id
         }else if(d.flowElement){
             myState[d.id].parentRender = d.origin.id
+            updatePrimitive = d.origin.id
         }
         prepareBoard( d )
 
         if( position ){
-            primitive.setField(`frames.${d.id}`, {x: position.x, y: position.y, s: position.s})
+            updatePrimitive.setField(`frames.${d.id}`, {x: position.x, y: position.y, s: position.s})
             canvas.current.updateFramePosition( d.id,  {x: position.x, y: position.y, s: position.s})
         }
 
@@ -3090,6 +3096,15 @@ export default function BoardViewer({primitive,...props}){
 
 
         let [sceneX, sceneY] = canvas.current.convertClientCoords( {x: e.clientX, y: e.clientY})
+        
+        const addToFlow = (myState.activeBoard && myState.activeBoard.primitive?.type === "flow") ? myState.activeBoard.primitive : undefined
+        const addToPage = (myState.activeBoard && myState.activeBoard.primitive?.type === "page") ? myState.activeBoard.primitive : undefined
+
+        if( addToFlow || addToPage ){
+            const {l, t} = canvas.current.framePosition( myState.activeBoard.id )?.scene
+            sceneX -= l
+            sceneY -= t
+        }
 
         const cat = mainstore.category(categoryId)
         if(cat){
@@ -3098,7 +3113,9 @@ export default function BoardViewer({primitive,...props}){
                 type: cat.primitiveType,
                 categoryId: cat.id,
                 parent: primitive,
-                workspaceId: primitive.workspaceId
+                workspaceId: primitive.workspaceId,
+                ...(addToFlow ? {flowElement: true, parent: addToFlow} : {}),
+                ...(addToPage ? {parent: addToPage} : {}),
             })
             if(newPrim){
                 addBoardToCanvas(newPrim, {x: sceneX, y: sceneY, s:1})

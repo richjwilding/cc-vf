@@ -1119,8 +1119,9 @@ class CollectionUtils{
         }
 
          const allocations = viewFilters.map((d,i)=>d.treatment === "allocation" || (d.treatment === undefined && i === 0) ? ({field: `filterGroup${i}`, ...d}) : undefined).filter(Boolean)
-        
-        if( allocations.length > 0){
+        const hasAllocations = allocations.length > 0
+
+        if( hasAllocations ){
             defs.allocations = allocations
         }
         allocations.forEach(d=>{
@@ -1150,6 +1151,17 @@ class CollectionUtils{
             ids: Array.from(new Set(filtered.map(d=>d.primitive.id) ))
         }
 
+        if( hasAllocations ){
+            table.totals.rows.allocations = {idx: {}, order: []}
+            table.totals.columns.allocations = {idx: {}, order: []}
+            table.totals.allocations = {}
+            table.ranges.allocations = {
+                table: {},
+                rows: {idx: {}, order: []},
+                columns: {idx: {}, order: []}
+            }
+        }
+
         function orderAxis( axis, order, name){
             let orderMap
             let finalRows
@@ -1177,7 +1189,7 @@ class CollectionUtils{
                     const orth = name === "column" ? "rows" : "columns"
                     const thisIdx = name === "column" ? "columnIdx" : "rowIdx"
                     const orthIdx = name === "column" ? "rowIdx" : "columnIdx"
-                    let inScopeIdx = field.orthogonal
+                    let inScopeIdx = field?.orthogonal
 
                     const mapped = {}
 
@@ -1221,10 +1233,12 @@ class CollectionUtils{
         }
 
         // Apply limits
-        function applyLimits( set, {limit = 200, sort = "value_asc"}){
+        function applyLimits( set, {limit = 200, order, sort = "value_asc"}){
             if( limit !== undefined){
                 if( set.length > limit){
-                    if( set.sort ){
+                    if( order){
+                        orderAxis(set, order)
+                    }else if( sort ){
                         const [mode, dir] = sort.split("_")
                         orderAxis(set, {field: mode === "value" ? "value" : "_label", descend: dir === "desc"})
                     }
@@ -1248,7 +1262,7 @@ class CollectionUtils{
             }
             table.totals.timeseries = {table: 0, rows: {idx: {}, order: []}, columns: {idx: {}, order: []}}
         }                   
-        if( allocations?.length > 0 ){
+        if( hasAllocations ){
             table.allocations = {}
             allocations.forEach((d)=>{
                 table.allocations[d.field] = {
@@ -1256,6 +1270,167 @@ class CollectionUtils{
                     items: otherExtents[d.field].map(d=>({...d}))
                 }
             })
+        }
+
+        const allocationFields = hasAllocations ? allocations.map(d=>d.field) : []
+
+        function ensureAllocationTotalsContainer(target, level){
+            if( !hasAllocations ){return null}
+            const field = allocationFields[level]
+            if( !field ){return null}
+            if( !target[field] ){
+                target[field] = createAllocationTotalsContainer(level)
+            }
+            return target[field]
+        }
+
+        function createAllocationTotalsContainer(level){
+            if( !hasAllocations ){return null}
+            const field = allocationFields[level]
+            if( !field ){return null}
+            const baseItems = (table.allocations?.[field]?.items ?? []).map(item=>({
+                idx: item.idx,
+                label: item.label,
+                count: 0,
+                allocations: {}
+            }))
+            const container = {
+                items: baseItems,
+                order: baseItems.map(item=>item.idx),
+                idx: Object.fromEntries(baseItems.map(item=>[item.idx, item]))
+            }
+            const nextLevel = level + 1
+            if( allocationFields[nextLevel] ){
+                for(const baseItem of container.items){
+                    baseItem.allocations = {}
+                    ensureAllocationTotalsContainer(baseItem.allocations, nextLevel)
+                }
+            }
+            return container
+        }
+
+        function mergeAllocationTotals(target, source, level = 0){
+            if( !hasAllocations ){return}
+            const field = allocationFields[level]
+            if( !field ){return}
+            const sourceList = source?.[field] ?? []
+            const container = ensureAllocationTotalsContainer(target, level)
+            if( !sourceList.length ){
+                return
+            }
+            for( const entry of sourceList ){
+                const key = entry.idx
+                if( key === undefined ){
+                    continue
+                }
+                let node = container.idx[key]
+                if( !node ){
+                    node = {
+                        idx: key,
+                        label: entry.label,
+                        count: 0,
+                        allocations: {}
+                    }
+                    container.idx[key] = node
+                    container.items.push(node)
+                    container.order.push(key)
+                    if( allocationFields[level + 1] ){
+                        node.allocations = {}
+                        ensureAllocationTotalsContainer(node.allocations, level + 1)
+                    }
+                }else if( node.label === undefined && entry.label !== undefined ){
+                    node.label = entry.label
+                }
+                node.count += entry.count ?? 0
+                if( allocationFields[level + 1] && entry.allocations ){
+                    node.allocations ||= {}
+                    mergeAllocationTotals(node.allocations, entry.allocations, level + 1)
+                }
+            }
+        }
+
+        function ensureAllocationRangeContainer(target, level){
+            if( !hasAllocations ){return null}
+            const field = allocationFields[level]
+            if( !field ){return null}
+            if( !target[field] ){
+                const baseItems = (table.allocations?.[field]?.items ?? []).map(item=>({
+                    idx: item.idx,
+                    label: item.label,
+                    min: Infinity,
+                    max: -Infinity,
+                    allocations: {}
+                }))
+                const container = {
+                    items: baseItems,
+                    order: baseItems.map(item=>item.idx),
+                    idx: Object.fromEntries(baseItems.map(item=>[item.idx, item]))
+                }
+                target[field] = container
+                const nextLevel = level + 1
+                if( allocationFields[nextLevel] ){
+                    for(const baseItem of container.items){
+                        baseItem.allocations = {}
+                        ensureAllocationRangeContainer(baseItem.allocations, nextLevel)
+                    }
+                }
+            }
+            return target[field]
+        }
+
+        function mergeAllocationRanges(target, source, level = 0){
+            if( !hasAllocations ){return}
+            const field = allocationFields[level]
+            if( !field ){return}
+            const sourceList = source?.[field] ?? []
+            const container = ensureAllocationRangeContainer(target, level)
+            if( !container || sourceList.length === 0){
+                return
+            }
+            for( const entry of sourceList ){
+                const key = entry.idx
+                if( key === undefined ){
+                    continue
+                }
+                let node = container.idx[key]
+                if( !node ){
+                    node = {
+                        idx: key,
+                        label: entry.label,
+                        min: Infinity,
+                        max: -Infinity,
+                        allocations: {}
+                    }
+                    container.idx[key] = node
+                    container.items.push(node)
+                    container.order.push(key)
+                }else if( node.label === undefined && entry.label !== undefined ){
+                    node.label = entry.label
+                }
+                const value = entry?.count ?? 0
+                if( value < node.min ){node.min = value}
+                if( value > node.max ){node.max = value}
+                if( allocationFields[level + 1] && entry.allocations ){
+                    node.allocations ||= {}
+                    ensureAllocationRangeContainer(node.allocations, level + 1)
+                    mergeAllocationRanges(node.allocations, entry.allocations, level + 1)
+                }
+            }
+        }
+
+        function normalizeAllocationRangeContainer(target){
+            if( !target ){return}
+            for( const field of Object.keys(target) ){
+                const container = target[field]
+                if( !container ){continue}
+                for( const item of container.items ?? [] ){
+                    if( item.min === Infinity ){item.min = 0}
+                    if( item.max === -Infinity ){item.max = 0}
+                    if( item.allocations && Object.keys(item.allocations).length > 0 ){
+                        normalizeAllocationRangeContainer(item.allocations)
+                    }
+                }
+            }
         }
 
         const cellMap = {}
@@ -1303,7 +1478,7 @@ class CollectionUtils{
                     items: subList.map(d=>d.primitive),
                     count: count
                 }
-                if( allocations?.length > 0 ){
+                if( hasAllocations ){
                     cell.allocations = {}
                     const maxAllocationIdx = allocations.length - 1
                     function buildAllocations( target, idx, subList ){
@@ -1346,24 +1521,23 @@ class CollectionUtils{
 
                     }
                     buildAllocations( cell.allocations, 0, subList)
-                    /*console.log(cell._allocations)
-                    allocations.forEach((d)=>{
-                        if( otherExtents[d.field] ){
-                            cell.allocations[d.field] = otherExtents[d.field].map((c)=>({idx: c.idx, label: c.label, count: 0, items: []}))
-                            const pos = Object.fromEntries(cell.allocations[d.field].map((d,i)=>[d.idx, i]))
-                            for(const item of subList){
-                                const parts = [item[d.field]].flat()
-                                for( const part of parts){
-                                    if( cell.allocations[d.field][pos[part]] ){
-                                        cell.allocations[d.field][pos[part]].count++
-                                        cell.allocations[d.field][pos[part]].items.push( item.primitive)
-                                    }else{
-                                        console.warn(`Couldnt find ${part}`)
-                                    }
-                                }
-                            }
-                        }
-                    })*/
+                    mergeAllocationTotals(table.totals.allocations, cell.allocations)
+                    const rowAllocTotals = table.totals.rows.allocations.idx[row.idx] ||= {}
+                    ensureAllocationTotalsContainer(rowAllocTotals, 0)
+                    mergeAllocationTotals(rowAllocTotals, cell.allocations)
+                    const columnAllocTotals = table.totals.columns.allocations.idx[column.idx] ||= {}
+                    ensureAllocationTotalsContainer(columnAllocTotals, 0)
+                    mergeAllocationTotals(columnAllocTotals, cell.allocations)
+
+                    const tableAllocRange = table.ranges.allocations.table
+                    ensureAllocationRangeContainer(tableAllocRange, 0)
+                    mergeAllocationRanges(tableAllocRange, cell.allocations)
+                    const rowAllocRange = table.ranges.allocations.rows.idx[row.idx] ||= {}
+                    ensureAllocationRangeContainer(rowAllocRange, 0)
+                    mergeAllocationRanges(rowAllocRange, cell.allocations)
+                    const columnAllocRange = table.ranges.allocations.columns.idx[column.idx] ||= {}
+                    ensureAllocationRangeContainer(columnAllocRange, 0)
+                    mergeAllocationRanges(columnAllocRange, cell.allocations)
                 }
                 if( config.timeseries ){
                     const resScale = {
@@ -1515,7 +1689,22 @@ class CollectionUtils{
                 
                 table.totals.rows.order[rIdx] = table.totals.rows.idx[row.idx]
                 table.totals.columns.order[cIdx] = table.totals.columns.idx[column.idx]
-                
+                if( hasAllocations ){
+                    const rowAllocTotals = table.totals.rows.allocations.idx[row.idx] ||= {}
+                    ensureAllocationTotalsContainer(rowAllocTotals, 0)
+                    table.totals.rows.allocations.order[rIdx] = rowAllocTotals
+                    const columnAllocTotals = table.totals.columns.allocations.idx[column.idx] ||= {}
+                    ensureAllocationTotalsContainer(columnAllocTotals, 0)
+                    table.totals.columns.allocations.order[cIdx] = columnAllocTotals
+
+                    const rowAllocRange = table.ranges.allocations.rows.idx[row.idx] ||= {}
+                    ensureAllocationRangeContainer(rowAllocRange, 0)
+                    table.ranges.allocations.rows.order[rIdx] = rowAllocRange
+                    const columnAllocRange = table.ranges.allocations.columns.idx[column.idx] ||= {}
+                    ensureAllocationRangeContainer(columnAllocRange, 0)
+                    table.ranges.allocations.columns.order[cIdx] = columnAllocRange
+                }
+
                 table.ranges.rows.order[rIdx] ||= table.ranges.rows.idx[row.idx]
                 table.ranges.columns.order[cIdx] ||= table.ranges.columns.idx[column.idx]
                 if( config.timeseries ){
@@ -1576,6 +1765,19 @@ class CollectionUtils{
                 
             })
         })
+        if( hasAllocations ){
+            ensureAllocationTotalsContainer(table.totals.allocations, 0)
+            ensureAllocationRangeContainer(table.ranges.allocations.table, 0)
+            normalizeAllocationRangeContainer(table.ranges.allocations.table)
+            Object.values(table.ranges.allocations.rows.idx).forEach(range=>{
+                ensureAllocationRangeContainer(range, 0)
+                normalizeAllocationRangeContainer(range)
+            })
+            Object.values(table.ranges.allocations.columns.idx).forEach(range=>{
+                ensureAllocationRangeContainer(range, 0)
+                normalizeAllocationRangeContainer(range)
+            })
+        }
         return table
     }
     static mapCollectionByAxis(list, column, row, others, liveFilters, viewPivot){
