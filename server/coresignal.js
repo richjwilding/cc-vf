@@ -702,7 +702,7 @@ async function createProfiles(primitive, profiles, duplicateConfig) {
                     return;
                 }
 
-                const childIds = insertedDocs.map((doc) => doc._id);
+                const childIds = insertedDocs.map((doc) => doc._id.toString());
                 const updateOps = parentPaths.map((path) => ({
                     updateOne: {
                         filter: { _id: primitive.id },

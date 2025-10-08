@@ -194,23 +194,20 @@ class QueueManager {
                                     logger.info(message)
                                     throw `Dont have queue ${queue} to forward message to`
                                 }
+                                const parent = (parentJob.id && parentJob.queueName) ? {id: parentJob.id, queue: `bull:${parentJob.queueName}`} :  undefined
                                 const jobOptions = {
-                                    // Caller options first; we will ensure sane defaults for retries below
                                     ...options,
                                     removeOnComplete: { age: 180},
-                                    // Enable retries by default; caller can override via options.attempts
                                     attempts: (options && typeof options.attempts === 'number') ? options.attempts : 3,
                                     waitChildren: true,
                                     removeOnFail: true, 
-                                    parent: {id: parentJob.id, queue: `bull:${parentJob.queueName}`}
+                                    parent
                                 }
                                 {
                                     (async()=>{
                                        const childId =  await queue.addJob( message.workspaceId, jobData, jobOptions)
-                                       logger.info(`Child ID added ${childId} on ${jobOptions.parent.id} / ${jobOptions.parent.queue}`) 
+                                       logger.info(`Child ID added ${childId} on ${jobOptions.parent?.id} / ${jobOptions.parent?.queue}`) 
                                        logger.debug(`Set Redis parent job:${childId}:parent to ${JSON.stringify(parentJob)}`)
-                                        //await this.redis.set(`job:${childId}:parent`, JSON.stringify(parentJob));
-                                        //this.markChildWaiting( parentJob.queueName, parentJob.id)
                                         
                                         worker.postMessage({
                                             type: 'addJobResponse',

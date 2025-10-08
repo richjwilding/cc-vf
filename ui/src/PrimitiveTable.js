@@ -100,7 +100,7 @@ export function PrimitiveTable(props) {
                     r[c.field] = d.title                    
                 }else if( c.field === "referenceName"){
                     r[c.field] = d.metadata?.title
-                }else if( c.field === "id"){
+                }else if( c.field === "id" || c.field === "plainId"){
                     r[c.field] = d.plainId
                 }else{
 
