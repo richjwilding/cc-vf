@@ -1,7 +1,7 @@
 import QueueManager from './queue_manager'; 
 import Primitive from "./model/Primitive";
 import { addRelationship, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, executeConcurrently, fetchPrimitive, findResultSetForCategoryId, getConfig, getDataForProcessing, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParents, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
-import { findCompanyLIPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
+import { findLinkedinCompanyPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
 import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
 import Category from "./model/Category";
 import { fetchArticlesFromGdelt } from "./gdelt_helper";
@@ -579,7 +579,7 @@ export async function processQueue(job, cancelCheck, extendJob){
 
                                 let targetProfile = origin.referenceParameters.linkedIn
                                 if( !targetProfile ){
-                                    targetProfile = await findCompanyLIPage( origin )
+                                    targetProfile = await findLinkedinCompanyPage( origin )
                                     if( targetProfile ){
                                         await dispatchControlUpdate( origin.id, "referenceParameters.linkedIn", targetProfile)
                                     }
