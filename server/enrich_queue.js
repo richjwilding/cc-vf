@@ -2,7 +2,7 @@ import { SIO } from './socket';
 import Primitive from "./model/Primitive";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
 import { enrichCompanyFromLinkedIn, findLinkedinCompanyPage } from "./linkedin_helper";
-import { enrichFromCrunchbase, fetchCompanyDataFromCrunchbase, findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
+import { searchCompaniesWithBrightData } from "./crunchbase_helper";
 import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
@@ -72,9 +72,52 @@ class EnrichQueueClass extends BaseQueue{
             instance.addToQueue( primitive, "find_posts", "Find posts", options )
         }
     }
-    async searchCompanies(primitive, options ){
-        if( primitive.type === "activity"){
-            instance.addToQueue( primitive, "search_company", "Search companies", options )
+    async searchCompanies(primitive, options = {}){
+        if( primitive.type !== "activity"){
+            return 0;
+        }
+
+        const field = "processing.search_company";
+        const description = options.description ?? "Search companies";
+        dispatchControlUpdate(primitive.id, field , {status: "running"}, {track: primitive.id, text: description});
+
+        try {
+            const category = await Category.findOne({id: primitive.referenceId});
+            const resultSet = category?.resultCategories?.find(entry => entry.resultCategoryId === options.referenceId)?.id;
+            if (resultSet === undefined) {
+                await dispatchControlUpdate(primitive.id, field, {status: "complete", totalCount: 0}, {track: primitive.id});
+                return 0;
+            }
+
+            const creationCap = options.maxCreation ?? options.lookupCount ?? options.count ?? 25;
+            const keywords = options.keywords ?? "";
+            const created = await searchCompaniesWithBrightData(keywords, {
+                parent: primitive,
+                referenceId: options.referenceId,
+                lookupCount: options.lookupCount,
+                maxCreation: creationCap,
+                count: options.count ?? creationCap,
+                topics: primitive.referenceParameters?.topics,
+                paths: ["origin", `results.${resultSet}`],
+                requireDescription: false
+            });
+
+            await dispatchControlUpdate(
+                primitive.id,
+                field,
+                { status: "complete", totalCount: created },
+                { track: primitive.id }
+            );
+
+            return created;
+        } catch (error) {
+            await dispatchControlUpdate(
+                primitive.id,
+                field,
+                { status: "error", error: error.message ?? String(error) },
+                { track: primitive.id }
+            );
+            throw error;
         }
     }
     async enrichCompany(primitive, source, force){
@@ -800,8 +843,6 @@ export async function processQueue(job, cancelCheck){
                 throw "DEPRECATED!!"
             }else if( job.data.mode === "find_posts" ){
                 await fetchPostsFromSocialSeracher( primitive, job.data.options )
-            }else if( job.data.mode === "search_company" ){
-                await findOrganizationsFromCB( primitive, options )
             }else if( job.data.mode === "enrich" ){
                 console.log(`Processing enrichment for ${primitive.id}`)
                 if( job.data.options.target === "entity" ){
@@ -819,10 +860,6 @@ export async function processQueue(job, cancelCheck){
                     if( job.data.options.source === "owler" ){
                         const result = await enrichEntityFromOwler( primitive)
                         //SIO.notifyPrimitiveEvent( primitive, result)
-                    }
-                    if( job.data.options.source === "crunchbase" ){
-                        const result = await enrichFromCrunchbase( primitive, true)
-                        SIO.notifyPrimitiveEvent( primitive, result)
                     }
                     if( job.data.options.source === "url" ){
                         const domain = getRegisteredDomain(primitive.referenceParameters?.url )
@@ -869,13 +906,6 @@ export async function processQueue(job, cancelCheck){
                         //dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
                     }
                 }
-            }else if( job.data.mode === "pivot" ){
-                    console.log(`Processing pviot for ${primitive.id}`)
-                    if( job.data.options.target === "entity" ){
-                        if( job.data.source === "crunchbase" ){
-                            const newPrims = await pivotFromCrunchbase(primitive, job.data.action)
-                        }
-                    }
             }
             dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
 

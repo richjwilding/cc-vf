@@ -2,7 +2,7 @@ import QueueManager from './queue_manager';
 import Primitive from "./model/Primitive";
 import { addRelationship, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, executeConcurrently, fetchPrimitive, findResultSetForCategoryId, getConfig, getDataForProcessing, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParents, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findLinkedinCompanyPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
-import { queryCrunchbaseOrganizationArticles, queryCrunchbaseOrganizations } from "./crunchbase_helper";
+import { searchCompaniesWithBrightData } from "./crunchbase_helper";
 import Category from "./model/Category";
 import { fetchArticlesFromGdelt } from "./gdelt_helper";
 import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
@@ -603,24 +603,17 @@ export async function processQueue(job, cancelCheck, extendJob){
                             await queryCoresignalPersonSearch( primitive, terms, {...callopts, origin} )
                             collectionAsync = true
                         }
-                        if( source.platform === "crunchbase" ){
-                            if( source.type === "organization" ){
-
-                                const allTerms = {
-                                    keyword: terms,
-                                    searchTerms:{
-                                        ...config,
-                                        count: undefined,
-                                        phrase: callopts.quoteKeywords,
-                                        exact : undefined                                   
-                                    }
+                        if( source.platform === "brightdata_discover" ){
+                            const allTerms = {
+                                keyword: terms,
+                                searchTerms:{
+                                    ...config,
+                                    count: undefined,
+                                    phrase: callopts.quoteKeywords,
+                                    exact : undefined
                                 }
-                                await queryCrunchbaseOrganizations( allTerms, callopts ) 
                             }
-                            if( source.type === "article" ){
-                                callopts.primitive = await Primitive.findOne({_id: oId})
-                                await queryCrunchbaseOrganizationArticles( terms, callopts ) 
-                            }
+                            await searchCompaniesWithBrightData( allTerms, callopts )
                         }
                     }
                     await Primitive.updateOne({

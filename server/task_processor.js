@@ -3,7 +3,7 @@ import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
 import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { compareTwoStrings, findFilterMatches, modiftyEntries } from "./actions/SharedTransforms";
-import { lookupCompanyByName } from "./crunchbase_helper";
+import { lookupCompanyByName } from "./company_discovery";
 import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
 import { getLogger } from "./logger";
 import Category from "./model/Category"
@@ -1286,7 +1286,7 @@ export async function loopkupOrganization( value, referenceCategory, workspaceId
     if( item ){
         return item
     }
-    const remoteLookup = await lookupCompanyByName( value )
+    const remoteLookup = await lookupCompanyByName( value, { context: options.context })
     console.log(`Got ${remoteLookup.length} candidates from remote`)
     if( remoteLookup.length > 0){
         const urlsToCheck = remoteLookup.map(d=>d.website_url).filter(d=>d && d.length > 0)

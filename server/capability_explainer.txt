@@ -14,7 +14,7 @@ The data model for primitives is as follows:
         - Articles: a set of Articles about or referencing the organization
     - Discovery:
         - Search: a search can be performed by searching for companies with search terms in their description
-            - sources: crunchbase, linkedin, owler
+            - sources: Bright Data discover, linkedin, owler
         - Extract: companies can be extracted from text where they are mentioned 
             - sources: articles, social media
 - Article: An article from mainstream media or industry specific sources

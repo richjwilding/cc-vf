@@ -4,7 +4,7 @@ import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
 import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, searchPosts, liPostExtractor, updateFromProxyCurlData, fetchCompanyHeadcount, extractPostsFromProfile} from './linkedin_helper'
-import { enrichCompanyFunding, extractAcquisitionsFromCrunchbase, extractArticlesFromCrunchbase, lookupCompanyByName, pivotFromCrunchbase, resolveAndCreateCompaniesByName, resolveCompaniesByName, resolveCompanyByNames } from './crunchbase_helper';
+import { resolveAndCreateCompaniesByName, resolveCompaniesByName } from './company_discovery';
 import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk, generateImage} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
 import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLAsArticle, fetchURLAsTextAlternative, fetchURLPlainText, fetchURLScreenshot, getDocumentAsPlainText, getFaviconFromURL, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, getMetaImageFromURL, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
@@ -84,8 +84,8 @@ Parser.addExtractor(liPostExtractor)
 var ObjectId = require('mongoose').Types.ObjectId;
 
 const parser = PrimitiveParser()
-export const DONT_LOAD = {crunchbaseData: 0, linkedInData: 0, financialData: 0, action_tracker: 0, checkCache:0}
-export const DONT_LOAD_UI = {crunchbaseData: 0, linkedInData: 0, action_tracker: 0, checkCache:0}
+export const DONT_LOAD = {brightdataDiscovery: 0, crunchbaseData: 0, linkedInData: 0, financialData: 0, action_tracker: 0, checkCache:0}
+export const DONT_LOAD_UI = {brightdataDiscovery: 0, crunchbaseData: 0, linkedInData: 0, action_tracker: 0, checkCache:0}
 
 export function uniquePrimitives(list){
     let ids = {}
@@ -4481,10 +4481,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         result = await EnrichPrimitive().searchCompanies( primitive, {referenceId: action.referenceId, keywords: options.keywords} )
                         done = true
                 }
-                    if(command === "pivot_cb" ){
-                        result = EnrichPrimitive().pivotCompany(primitive, "crunchbase", action)
-                        done = true
-                    }
                     if(command === "build_view" ){
                         const path = options.path || action.path
                         const types = options.types || action.types
@@ -4950,13 +4946,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     result = EnrichPrimitive().enrichCompany( primitive, "owler", true )
                     done = true
                 }
-                if( command === "enrich_cb"){
-                    result = EnrichPrimitive().enrichCompany( primitive, "crunchbase", true )
-                    done = true
-                }
-                if( command === "enrich_investment"){
-                    const output = await enrichCompanyFunding(primitive)
-                }
                 if( command === "pivot"){
                     if(actionKey === "pivot_li" ){                        
                         result = [{
@@ -4965,15 +4954,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }]
                         done = true
                     }
-                    if(actionKey === "pivot_cb" ){
-                        result = EnrichPrimitive().pivotCompany(primitive, "crunchbase", action)
-                        done = true
-                    }
-                }
-                if( command === "fetch_acq") {
-                    const path = options.path || `results.${findResultPathFor(options.resultCategory  || action.resultCategory)}`
-                    await extractAcquisitionsFromCrunchbase(primitive, {path: path, type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
-                    done = true
                 }
                 if( command === "extract"){
                     const path = options.path || `results.${findResultPathFor(options.resultCategory  || action.resultCategory)}`
@@ -4988,61 +4968,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                                 }]
                                 done = true
                             }
-                        }else if( actionKey === "find_articles_crunchbase") {
-                            console.log(options)
-
-                            const set = await findResultSetForCategoryId(primitive, action.resultCategory)
-                            if( set !== undefined){
-                                if(Object.keys(primitive.primitives?.search?.[set] || {}).length > 0){
-                                    const list = await primitiveChildren( primitive, "search")
-                                    console.log(`Item ${primitive.id} already has an article search (${list.length})`)
-                                    for( const d of list){
-                                        const hasResults = false//Object.keys(d.primitives || {}).length > 0
-                                        if( hasResults ){
-                                            console.log(`Will not refresh for ${d.id} / ${d.plainId}`)
-                                        }else{
-                                            console.log(`Doing for empty ${d.id} / ${d.plainId}`)
-                                            await doPrimitiveAction( d, action.queryActionKey ?? "query")
-                                        }
-                                    }
-
-                                }else{
-                                    const category = await Category.findOne({id: primitive.referenceId})
-                                    if( category ){
-                                        const searchCategoryIds = category.resultCategories?.[set]?.searchCategoryIds
-                                        if( searchCategoryIds){
-                                            
-                                            console.log(`Found category - ${set} ${searchCategoryIds}`)
-                                            const selectedSearchCategoryId = searchCategoryIds[0]
-                                            
-                                            const newData = {
-                                                workspaceId: primitive.workspaceId,
-                                                paths: ['origin', `search.${set}`],
-                                                parent: primitive.id,
-                                                data:{
-                                                    title: options.keywords,
-                                                    type: "search",
-                                                    referenceId: selectedSearchCategoryId,
-                                                }
-                                            }
-                                            const newPrim = await createPrimitive( newData )
-                                            if( newPrim ){
-                                                console.log(`added ${newPrim.plainId}`)
-                                                await doPrimitiveAction( newPrim, action.queryActionKey ?? "query")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            /*const output = await extractArticlesFromCrunchbase(primitive, {path: path, type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
-                            if( output.error === undefined){
-                                result = [{
-                                    type: "new_primitives",
-                                    data: output
-                                }]
-                                done = true
-                            }*/
                         }
                     }
                 }
@@ -5059,7 +4984,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             
             if( done ){
                 primitive.set(`action_tracker.${action.key}`, true)
-                primitive.markModified("crunchbaseData")
                 await primitive.save()
             }
         }else{
