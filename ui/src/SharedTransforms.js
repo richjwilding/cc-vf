@@ -89,6 +89,21 @@ export function cleanURL(url){
 
    return cleanedUrl;
 }
+
+export function normaliseDomain(domain) {
+  if (!domain) {
+    return undefined;
+  }
+
+  try {
+    const cleaned = cleanURL(domain.trim());
+    const url = new URL(cleaned);
+    return getBaseDomain(url.hostname);
+  } catch (err) {
+    const stripped = domain.replace(/^(https?:\/\/)/i, '').split('/')[0];
+    return getBaseDomain(stripped);
+  }
+}
 export function expandStringLiterals(text, literals = {}){
   const matches = text.match(/\{([^}]+)\}/g).map(d=>d.slice(1,-1)).filter((d,i,a)=>a.indexOf(d)===i);
   for(const fm of matches){

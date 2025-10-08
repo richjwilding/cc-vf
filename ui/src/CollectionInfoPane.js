@@ -230,6 +230,43 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
             },
         })
     }
+    const renderDescendantPanels = (items, { newPrimitiveCallback: onNewPrimitive, newItemParent, actionAnchor, panelConfig, createNewView, filters } = {}) => {
+        if (!items?.length) {
+            return null
+        }
+        const descendants = mainstore.uniquePrimitives(items.flatMap(d => d.primitives?.directDescendants ?? []))
+        const descendantCategories = descendants
+            .map(d => d.referenceId)
+            .filter((d, i, a) => a.indexOf(d) === i)
+            .map(d => mainstore.category(d))
+            .filter(d => d && ["activity", "evidence", "entity", "result", "detail"].includes(d.primitiveType))
+
+        if (descendantCategories.length === 0) {
+            return null
+        }
+
+        return (
+            <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-500">Descendants of items</p>
+                <div className="border rounded-md p-2 space-y-2">
+                    {descendantCategories.map((d) => (
+                        <div key={d.id} className="p-2 bg-gray-50 text-sm border rounded-md ">
+                            <CategoryHeader
+                                itemCategory={d}
+                                newPrimitiveCallback={onNewPrimitive}
+                                newItemParent={newItemParent}
+                                createNewView={createNewView}
+                                panelConfig={panelConfig}
+                                actionAnchor={actionAnchor}
+                                items={descendants.filter(d2 => d2.referenceId === d.id)}
+                                filters={filters}
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )
+    }
     const [integrationProviders, setIntegrationProviders] = useState(null)
     const [loadingProviders, setLoadingProviders] = useState(false)
 
@@ -507,6 +544,14 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
             <div className="w-full border bg-gray-50 border-gray-200 rounded-lg mt-2 p-2">
                 <CategoryHeader itemCategory={searchResultCategory} items={searchResults} actionAnchor={frame} />
             </div>
+            {renderDescendantPanels(searchResults, {
+                newPrimitiveCallback,
+                newItemParent: frame.type === "query" ? frame : board,
+                actionAnchor: frame,
+                panelConfig: frame?.referenceParameters?.table,
+                createNewView: props.createNewView,
+                filters
+            })}
             <QueryPane.Info primitive={frame} />
             <div className="flex space-x-3 mt-3">
                 {(searchResults.length > 0) && <button
@@ -582,9 +627,6 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                 props.newPrimitiveCallback(frame, d)
             }
         }
-
-        let descendants = mainstore.uniquePrimitives(list.map(d => d.primitives.directDescendants).flat())
-        let descendantCategories = descendants.map(d => d.referenceId).filter((d, i, a) => a.indexOf(d) === i).map(d => mainstore.category(d)).filter(d => d && ["activity", "evidence", "entity", "result", "detail"].includes(d.primitiveType))
 
         function getAncestors() {
             let sourceList = list
@@ -1391,15 +1433,14 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
                 {itemCategory && <div className="px-3 py-2 bg-gray-50 border rounded-md">
                     <CategoryHeader newPrimitiveCallback={newPrimitiveCallback} itemCategory={itemCategory} items={list} newItemParent={newItemParent} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} filters={filters} />
                 </div>}
-                {descendantCategories.length > 0 && <div className="space-y-2">
-                    <p className="text-sm font-medium text-gray-500">Descendants of items</p>
-                    <div className="border rounded-md p-2 space-y-2">
-                        {descendantCategories.map((d, i) => (
-                            <div key={d.id} className="p-2 bg-gray-50 text-sm border rounded-md ">
-                                <CategoryHeader itemCategory={d} newPrimitiveCallback={newPrimitiveCallback} newItemParent={newItemParent} createNewView={props.createNewView} panelConfig={frame?.referenceParameters?.table} actionAnchor={frame} items={descendants.filter(d2 => d2.referenceId === d.id)} filters={filters} />
-                            </div>))}
-                    </div>
-                </div>}
+                {renderDescendantPanels(list, {
+                    newPrimitiveCallback,
+                    newItemParent,
+                    actionAnchor: frame,
+                    panelConfig: frame?.referenceParameters?.table,
+                    createNewView: props.createNewView,
+                    filters
+                })}
                 <div className="text-gray-500 text-sm">
                     <UIHelper.Panel narrow title="Ancestors">
                         {() => {

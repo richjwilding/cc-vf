@@ -7,7 +7,7 @@ import Primitive from "./model/Primitive";
 import Category from "./model/Category";
 import PrimitiveConfig from "./PrimitiveConfig";
 import { SIO } from "./socket";
-import { BrightDataQueue, dispatchControlUpdate, fetchPrimitives, flattenPath, getNextSequenceBlock, runPostCreateHooks } from "./SharedFunctions";
+import { BrightDataQueue, dispatchControlUpdate, fetchPrimitives, findResultSetForCategoryId, flattenPath, getNextSequenceBlock, runPostCreateHooks } from "./SharedFunctions";
 import { extractMarkdown } from "./google_helper";
 
 /*let schedule = async () => { throw new Error('scheduler not set'); };
@@ -45,10 +45,18 @@ export async function updateBrightDataWhitelist() {
   }
 }
 
-async function linkToPrimitiveViaSearchPath( primitive ){
+async function linkToPrimitiveViaSearchPath( primitive, targetReferenceId ){
     const [oId, candidatePaths] = Object.keys(primitive.parentPrimitives ?? {})?.map(d=>primitive.parentPrimitives[d].map(d2=>[d,d2])).flat()?.find(d=>d[1].indexOf("primitives.search.") === 0) ?? []
-    const addToOrigin = candidatePaths?.length > 0
-    const resultPath = addToOrigin ? candidatePaths.replace(".search.",".results.") : undefined
+    let resultPath
+    if( candidatePaths?.length > 0 ){
+        resultPath = candidatePaths.replace(".search.",".results.")
+    }else{
+        const resultSet = await findResultSetForCategoryId(primitive, targetReferenceId)
+        console.log(`--- link ${resultSet}`)
+        if( resultSet !== undefined ){
+            return {linkId: primitive.id, linkPath: `primitives.results.${resultSet}`}
+        }
+    }
     if(oId && resultPath){
         return {linkId: oId, linkPath: resultPath}
     }
@@ -229,7 +237,7 @@ const bdExtractors = {
             }
         }
     },
-    "linkedin_company_post":{
+    /*"linkedin_company_post":{
         datasetId: "gd_lyy3tktm25m4avu764",
         id: (data)=>data.id,
         excludeIds:async ()=>{},
@@ -262,7 +270,7 @@ const bdExtractors = {
                 }
             }
         }
-    },
+    },*/
     "linkedin_user_post":{
         datasetId: "gd_lyy3tktm25m4avu764",
         id: (data)=>data.id,
@@ -270,6 +278,38 @@ const bdExtractors = {
     //    limit: 100,
         linkConfig:linkToPrimitiveViaSearchPath,
         queryParams: "&type=discover_new&discover_by=profile_url",
+        data:  (data)=>{
+            const date_posted = moment(data.date_posted).format('DD MMM YY')
+
+            return {
+                title: data.title,
+                referenceId: 123,
+                referenceParameters:{
+                    url: data.url,
+                    id: data.id,
+                    api_source: "bd_linkedin_post",
+                    username: data.user_id,
+                    userProfile: data.user_url,
+                    overview: data.headline,
+                    imageUrl: data.images?.[0],
+                    likes: data.num_likes,
+                    source: "LinkedIn",
+                    date_posted,
+                    location: data.location,
+                    posts_count: data.user_posts,
+                    followers: data.user_followers,
+                    description: data.post_text,
+                    hashtags: data.hashtags,
+                    account_type: data.account_type
+                }
+            }
+        }
+    },
+    "linkedin_user_post_direct":{
+        datasetId: "gd_lyy3tktm25m4avu764",
+        id: (data)=>data.id,
+        excludeIds:async ()=>{},
+        linkConfig:linkToPrimitiveViaSearchPath,
         data:  (data)=>{
             const date_posted = moment(data.date_posted).format('DD MMM YY')
 
@@ -594,19 +634,7 @@ export async function queryLinkedInCompanyPostsBrightData( primitive, company_ur
 
     await triggerBrightDataCollection(input, "linkedin_post", primitive, terms,callopts)
 }
-export async function queryLinkedInCompanyProfilePostsBrightData( primitive, terms, callopts){
-    const input = terms.split(",").map(d=>d.trim()).filter(d=>d).map(d=>({        
-        url: d,
-    }))
-    console.log(input)
-    if( primitive.processing?.bd?.collectionId){
-        console.log(`Not redoing LI fetch`)
-        return 
-    }
-
-    await triggerBrightDataCollection(input, "linkedin_company_post", primitive, terms,callopts)
-}
-export async function queryLinkedInUserPostsBrightData( primitive, terms, callopts){
+/*export async function queryLinkedInUserPostsBrightData( primitive, terms, callopts){
     const input = terms.split(",").map(d=>d.trim()).filter(d=>d).map(d=>({        
         url: d,
     }))
@@ -617,7 +645,7 @@ export async function queryLinkedInUserPostsBrightData( primitive, terms, callop
     }
 
     await triggerBrightDataCollection(input, "linkedin_user_post", primitive, terms,callopts)
-}
+}*/
 export async function queryGlassdoorReviewWithBrightData( primitive, terms, callopts){
     const individualTerms = terms.split(",").map(d=>d.trim())
     
@@ -780,12 +808,12 @@ export async function triggerBrightDataCollection( input, api, primitive, terms,
     }
 }
 
-export async function restartCollection( primitive, {api} = {} ){
+export async function restartCollection( primitive, {api, provider} = {} ){
     if( !api ){
         throw "No API defined for collection"
     }
     const config = bdExtractors[api]
-        await BrightDataQueue().scheduleCollection( primitive, {api})
+        await BrightDataQueue().scheduleCollection( primitive, {api, provider})
     //await schedule( primitive, {api, callopts: {enrich: config.enrich}})
 
 }
@@ -852,7 +880,7 @@ export async function handleCollection(primitive, {api} = {}, doCreation = true)
         }
 
 
-        let linkData = config.linkConfig ? await config.linkConfig( primitive ) : undefined
+        let linkData = config.linkConfig ? await config.linkConfig( primitive, config.referenceId ?? config.data({}).referenceId ) : undefined
         console.log(linkData)
 
         if( doCreation ){
