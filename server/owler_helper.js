@@ -1,15 +1,7 @@
-function removeAccents(str) {
-    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, "");
-}
+import { findEntityResourceUrl } from "./entity_resource_capability";
 
-export async function resolveOwlerURLForEntity( primitive ){
-    if( primitive.type === "entity" && primitive.title && primitive.title !== "New Entity"){
-        return `https://www.owler.com/company/${removeAccents(primitive.title.toLowerCase().replaceAll(" ", ""))}`
-    }
-    return undefined
-}
 export async function enrichEntityFromOwler(primitive){
-    const url = await resolveOwlerURLForEntity(primitive)
+    const url = await findEntityResourceUrl("owler", { primitive })
     if( url ){
         enqueueBrightdataQuery( "owler", {url})
     }

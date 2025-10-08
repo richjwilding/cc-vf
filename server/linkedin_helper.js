@@ -1,11 +1,12 @@
 import Primitive from "./model/Primitive";
 import {createPrimitive, flattenPath, doPrimitiveAction, findResultSetForCategoryId, executeConcurrently, dispatchControlUpdate} from './SharedFunctions'
 import moment from 'moment';
-import { fetchLinksFromWebQuery, fetchURLPlainText, queryGoogleSERP, replicateURLtoStorage, writeTextToFile } from './google_helper';
+import { fetchLinksFromWebQuery, replicateURLtoStorage, writeTextToFile } from './google_helper';
 import { htmlToText } from "html-to-text";
 import Category from "./model/Category";
 import Parser from '@postlight/parser';
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
+import { findEntityResourceUrl } from "./entity_resource_capability";
 
 export const liPostExtractor = {
     domain: 'www.linkedin.com',
@@ -589,25 +590,16 @@ export async function fetchLinkedInProfile( linkedin_profile_url, use_cache = "i
     return await response.json()
 }
 
-export async function findCompanyLIPage( primitive ){
-    if( primitive.referenceParameters?.url ){
-        return await findCompanyLIPageWithGoogle(primitive.title, primitive.referenceParameters?.url)
+export async function findLinkedinCompanyPage(primitive, options = {}) {
+    try {
+        const url = await findEntityResourceUrl("linkedin", { primitive, options });
+        if (url && /linkedin\.com\/company\//i.test(url)) {
+            return url;
+        }
+    } catch (error) {
+        console.log(error);
     }
-}
-export async function findCompanyLIPageWithGoogle( title, url ){
-    const result = await fetchLinksFromWebQuery(`site:linkedin.com/company ${url}`, {count:5, timeFrame: ""})
-    if( result.links ){
-        const parts = (title ?? "").toLowerCase().split(" ")  
-        const matchOrder = new Array(parts.length).fill(0).map((d,i)=>parts.slice(0, i + 1).join(" ")).reverse()
-        for(const pass of matchOrder ){
-            console.log(`Checking ${pass}`)
-            let match = result.links.filter(d=>d.url.match(/.+\.linkedin\..*\/company\//) && (d.title.toLowerCase().match(pass) || d.snippet.toLowerCase().match(pass)))?.[0]
-            if( match){
-                let id = match.url.match(/(.+\.linkedin\..*\/company\/[^\/]+)/)?.[1]
-                return id
-            }
-        }            
-    }
+    return undefined;
 }
 
 export async function updateFromProxyCurlData( primitive ){
@@ -691,7 +683,7 @@ export async function fetchCompanyHeadcount( primitive ){
         let targetProfile = primitive.referenceParameters.linkedIn?.trim()
 
         if( targetProfile === undefined || targetProfile === ""){
-            targetProfile = await findCompanyLIPage( primitive )
+            targetProfile = await findLinkedinCompanyPage( primitive )
             if( targetProfile ){
                 await dispatchControlUpdate( primitive.id, "referenceParameters.linkedIn", targetProfile)
             }

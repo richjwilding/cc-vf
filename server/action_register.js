@@ -13,3 +13,4 @@ registerAction("integration_sync", undefined, async (primitive, action, options,
     await q.enqueueSync( primitive )
 
 })
+import "./actions/entity_resource_actions"
