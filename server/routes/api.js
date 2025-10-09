@@ -21,7 +21,7 @@ import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
 import axios from 'axios';
 import { pack } from 'msgpackr';
-import { findCompanyURLByNameLogoDev } from '../task_processor';
+import { findCompanyURL } from '../company_discovery';
 import { compareTwoStrings } from '../actions/SharedTransforms';
 import { replicateWorkflow } from '../workflow';
 import Organization from '../model/Organization';
@@ -66,7 +66,7 @@ router.get('/companyDetails', async (req, res) => {
   
     try {
         if( name ){
-            const data = await findCompanyURLByNameLogoDev( name, {withDescriptions: true} )
+            const data = await findCompanyURL( name, {withDescriptions: true} )
             res.json( data )
         }else{
             res.json( {} )
@@ -227,7 +227,7 @@ router.get('/templates', async function(req, res, next) {
                                 ]
                             }
     try {
-        const results = await Primitive.find(publicWorkflowQuery,{crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0})
+        const results = await Primitive.find(publicWorkflowQuery,{brightdataDiscovery: 0, crunchbaseData: 0, linkedInData: 0, checkCache:0, financialData: 0, action_tracker: 0})
         res.json(results)
       } catch (err) {
         res.json({error: err})
@@ -438,7 +438,7 @@ router.get('/primitives', async function(req, res, next) {
     const loadFromOtherWorkspaces = workspaceId !== undefined;
     const projection = workspaceId !== undefined
       ? DONT_LOAD_UI
-      : { crunchbaseData: 0, linkedInData: 0, checkCache: 0, financialData: 0, action_tracker: 0 };
+      : { brightdataDiscovery: 0, crunchbaseData: 0, linkedInData: 0, checkCache: 0, financialData: 0, action_tracker: 0 };
 
     const batchSize = Math.max(1, Math.min(parseInt(req.query.batchSize, 10) || 500, 2000));
 

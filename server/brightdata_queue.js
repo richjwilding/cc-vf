@@ -3,6 +3,7 @@ import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpda
 import Category from "./model/Category.js";
 import { setBrightdataScheduler, handleCollection as handleBrightDataCollection } from './brightdata.js';
 import { handleCollection as handleCoresignalCollection } from './coresignal.js';
+import { handleBrightDataCollector } from "./brightdata_collectors.js";
 import BaseQueue from "./base_queue.js";
 
 
@@ -17,7 +18,14 @@ export async function processQueue(job, cancelCheck){
                 console.log(`Check...`)
                 dispatchControlUpdate(primitiveId, field , {status: "Checking for results"}, {...data, track: primitiveId})
                 const provider = data.provider ?? "brightdata"
-                const handler = provider === "coresignal" ? handleCoresignalCollection : handleBrightDataCollection
+                let handler
+                if( provider === "coresignal" ){
+                    handler = handleCoresignalCollection
+                }else if( provider === "brightdata_collector" ){
+                    handler = handleBrightDataCollector
+                }else{
+                    handler = handleBrightDataCollection
+                }
                 const result = await handler( primitive, data )
                 if( result?.reschedule ){
                     return result

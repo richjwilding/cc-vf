@@ -1,7 +1,6 @@
 import parseFullName from 'parse-full-name';
 import Fuse from 'fuse.js';
 import { parse } from 'dotenv';
-import { queryCBPersonRelatedOrganizations } from './crunchbase_helper';
 
 // List of names
 const _names = [
@@ -124,7 +123,7 @@ export async function loopkupOrganizationsForAcademic( primitive ){
     }
   }).filter(d=>d)
   for(const name of names){
-    const organizations = await queryCBPersonRelatedOrganizations( name.first, name.last, {contains: institution})
+    console.log(`BrightData person-to-organization lookup not implemented for ${name.first} ${name.last}`)
   }
 
 }

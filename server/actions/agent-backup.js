@@ -10,7 +10,8 @@ import { parser } from "stream-json/Parser";
 import { PassThrough } from "stream";
 import Assembler from "stream-json/Assembler";
 import { get, set } from "lodash";
-import { extractFlatNodes, findCompanyURLByNameLogoDev, getFragmentsForQuery, oneShotQuery } from "../task_processor";
+import { extractFlatNodes, getFragmentsForQuery, oneShotQuery } from "../task_processor";
+import { findCompanyURL } from "../company_discovery";
 import { modiftyEntries, pickAtRandom } from "./SharedTransforms";
 import { registerAction, runAction } from "../action_helper";
 import { getLogger } from '../logger.js';
@@ -338,7 +339,7 @@ function categoryDetailsForAgent(category){
 const functionMap = {
     company_search: async (params, scope, notify)=>{
         notify(`Looking for ${params.company_name ?? ""}...`,true)
-        let data = await findCompanyURLByNameLogoDev(params.company_name, {withDescriptions: true})
+        let data = await findCompanyURL(params.company_name, {withDescriptions: true})
 
         if( data.length > 0){
             data = data.map(d=>({

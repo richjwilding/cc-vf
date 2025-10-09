@@ -2,14 +2,15 @@ import { SIO } from './socket';
 import Primitive from "./model/Primitive";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
 import { enrichCompanyFromLinkedIn, findLinkedinCompanyPage } from "./linkedin_helper";
-import { enrichFromCrunchbase, fetchCompanyDataFromCrunchbase, findOrganizationsFromCB, pivotFromCrunchbase } from "./crunchbase_helper";
+import { searchCompaniesWithBrightData } from "./company_discovery";
 import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL, queryGoogleSERP, replicateURLtoStorage } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
-import { findCompanyURLByName, getCompanyInfoFromDomain } from "./task_processor";
+import { getCompanyInfoFromDomain } from "./task_processor";
+import { findCompanyURL } from "./company_discovery";
 import { enrichEntityFromOwler } from "./owler_helper";
 import BaseQueue from "./base_queue";
 import { getBaseDomain, getRegisteredDomain } from "./actions/SharedTransforms";
@@ -70,11 +71,6 @@ class EnrichQueueClass extends BaseQueue{
     async findPosts(primitive, options ){
         if( primitive.type === "activity"){
             instance.addToQueue( primitive, "find_posts", "Find posts", options )
-        }
-    }
-    async searchCompanies(primitive, options ){
-        if( primitive.type === "activity"){
-            instance.addToQueue( primitive, "search_company", "Search companies", options )
         }
     }
     async enrichCompany(primitive, source, force){
@@ -800,8 +796,6 @@ export async function processQueue(job, cancelCheck){
                 throw "DEPRECATED!!"
             }else if( job.data.mode === "find_posts" ){
                 await fetchPostsFromSocialSeracher( primitive, job.data.options )
-            }else if( job.data.mode === "search_company" ){
-                await findOrganizationsFromCB( primitive, options )
             }else if( job.data.mode === "enrich" ){
                 console.log(`Processing enrichment for ${primitive.id}`)
                 if( job.data.options.target === "entity" ){
@@ -819,10 +813,6 @@ export async function processQueue(job, cancelCheck){
                     if( job.data.options.source === "owler" ){
                         const result = await enrichEntityFromOwler( primitive)
                         //SIO.notifyPrimitiveEvent( primitive, result)
-                    }
-                    if( job.data.options.source === "crunchbase" ){
-                        const result = await enrichFromCrunchbase( primitive, true)
-                        SIO.notifyPrimitiveEvent( primitive, result)
                     }
                     if( job.data.options.source === "url" ){
                         const domain = getRegisteredDomain(primitive.referenceParameters?.url )
@@ -861,7 +851,7 @@ export async function processQueue(job, cancelCheck){
                     }
                     if( job.data.options.source === "name" ){
                         const task = await primitiveTask( primitive )
-                        const url = await findCompanyURLByName( primitive.referenceParameters.search_name, {topics: task?.referenceParameters?.topics} )
+                        const url = await findCompanyURL( primitive.referenceParameters.search_name, {topics: task?.referenceParameters?.topics} )
                         console.log(url)
                         if( url ){
                             updateFieldWithCallbacks( primitive.id, "referenceParameters.url", url )
@@ -869,13 +859,6 @@ export async function processQueue(job, cancelCheck){
                         //dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
                     }
                 }
-            }else if( job.data.mode === "pivot" ){
-                    console.log(`Processing pviot for ${primitive.id}`)
-                    if( job.data.options.target === "entity" ){
-                        if( job.data.source === "crunchbase" ){
-                            const newPrims = await pivotFromCrunchbase(primitive, job.data.action)
-                        }
-                    }
             }
             dispatchControlUpdate(primitive.id, job.data.field , null, {track: primitive.id})
 

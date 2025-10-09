@@ -2,6 +2,7 @@ import { getLogger } from "../../logger.js";
 import { createPrimitive, dispatchControlUpdate } from "../../SharedFunctions.js";
 import Primitive from "../../model/Primitive.js";
 import { implementation as getDataSourcesImplementation, definition as getDataSourcesDefinition } from "./get_data_sources.js";
+import { implementation as companySearchImplementation, definition as companySearchDefinition } from "./company_search.js";
 import { mapSearchConfigForPlatform } from "../utils.js";
 
 const logger = getLogger("agent_module_search", "debug", 0);
@@ -184,6 +185,10 @@ const termArray = {
 };
 
 const searchTools = [
+  {
+    definition: companySearchDefinition,
+    implementation: companySearchImplementation,
+  },
   {
     definition: {
       ...getDataSourcesDefinition,
