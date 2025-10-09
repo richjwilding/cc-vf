@@ -445,6 +445,21 @@ export async function syncExternalPrimitive(primitive, options = {}) {
       }
     }
 
+    if (typeof provider.processRecord === 'function') {
+      try {
+        await provider.processRecord({
+          record,
+          recordPrimitive,
+          parentPrimitive: primitive,
+          account,
+          sourceConfig,
+          fetchOptions,
+        });
+      } catch (error) {
+        logger.error(`Post-processing failed for record ${key}`, error);
+      }
+    }
+
     if (record.updatedAt) {
       const ts = new Date(record.updatedAt).getTime();
       if (Number.isFinite(ts)) {
@@ -484,3 +499,4 @@ export async function syncExternalPrimitive(primitive, options = {}) {
 
 // auto-register bundled providers
 import './providers/airtable.js';
+import './providers/google_docs.js';

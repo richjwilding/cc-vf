@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Modal, ModalBody, ModalContent, ModalHeader } from '@heroui/react';
 import toast from 'react-hot-toast';
 import AirtableConfigurator from './AirtableConfigurator.jsx';
+import GoogleDocsConfigurator from './GoogleDocsConfigurator.jsx';
 
 export default function IntegrationConfigModal({
   isOpen,
@@ -67,6 +68,15 @@ export default function IntegrationConfigModal({
       case 'airtable':
         return (
           <AirtableConfigurator
+            account={account}
+            saving={saving}
+            onSubmit={handleSave}
+            onCancel={handleClose}
+          />
+        );
+      case 'google-docs':
+        return (
+          <GoogleDocsConfigurator
             account={account}
             saving={saving}
             onSubmit={handleSave}
