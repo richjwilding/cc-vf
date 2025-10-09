@@ -1,11 +1,11 @@
-import { findCompanyURLByNameLogoDev } from "../../task_processor"
+import { findCompanyURL } from "../../company_discovery"
 import { getLogger } from "../../logger";
 
 const logger = getLogger('agent_module_company_search', "debug", 2); // Debug level for moduleA
 
 export async function implementation(params, scope, notify){
     notify(`Looking for ${params.company_name ?? ""}...`,true)
-    let data = await findCompanyURLByNameLogoDev(params.company_name, {withDescriptions: true})
+    let data = await findCompanyURL(params.company_name, {withDescriptions: true})
 
     if( data.length > 0){
         data = data.map(d=>({

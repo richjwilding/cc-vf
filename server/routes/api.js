@@ -21,7 +21,7 @@ import QueueDocument from '../document_queue';
 import Embedding from '../model/Embedding';
 import axios from 'axios';
 import { pack } from 'msgpackr';
-import { findCompanyURLByNameLogoDev } from '../task_processor';
+import { findCompanyURL } from '../company_discovery';
 import { compareTwoStrings } from '../actions/SharedTransforms';
 import { replicateWorkflow } from '../workflow';
 import Organization from '../model/Organization';
@@ -66,7 +66,7 @@ router.get('/companyDetails', async (req, res) => {
   
     try {
         if( name ){
-            const data = await findCompanyURLByNameLogoDev( name, {withDescriptions: true} )
+            const data = await findCompanyURL( name, {withDescriptions: true} )
             res.json( data )
         }else{
             res.json( {} )

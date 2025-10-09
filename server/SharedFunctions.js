@@ -4477,10 +4477,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     result = await EnrichPrimitive().findPosts( primitive, {resultCategory: action.resultCategory, keywords: options.keywords} )
                     done = true
                 }
-                if( command === "search"){
-                        result = await EnrichPrimitive().searchCompanies( primitive, {referenceId: action.referenceId, keywords: options.keywords} )
-                        done = true
-                }
                     if(command === "build_view" ){
                         const path = options.path || action.path
                         const types = options.types || action.types

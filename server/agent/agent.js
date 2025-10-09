@@ -6,7 +6,7 @@ import Primitive from "../model/Primitive.js";
 import { buildCategories, categorize, processAsSingleChunk, processPromptOnText, summarizeMultiple } from "../openai_helper.js";
 import { reviseUserRequest } from "../prompt_helper.js";
 import PrimitiveConfig, { flattenStructuredResponse } from "../PrimitiveConfig.js";
-import { extractFlatNodes, findCompanyURLByNameLogoDev, getFragmentsForQuery, oneShotQuery } from "../task_processor.js";
+import { extractFlatNodes, getFragmentsForQuery, oneShotQuery } from "../task_processor.js";
 import { modiftyEntries, pickAtRandom } from "../actions/SharedTransforms.js";
 import { registerAction, runAction } from "../action_helper.js";
 import { getLogger } from '../logger.js';
@@ -563,18 +563,21 @@ export async function handleChat(primitive, options, req, res) {
 
                 activeToolNames = new Set(["company_search", "update_working_state"])
                 const uws = activeFunctions?.find(d=>d.name === "update_working_state")
-                uws.parameters.properties.inputs.type = "object"
-                uws.parameters.properties.inputs.properties = Object.fromEntries(inputEntries.map(([k,v])=>{
+                if( uws ){
+
+                  uws.parameters.properties.inputs.type = "object"
+                  uws.parameters.properties.inputs.properties = Object.fromEntries(inputEntries.map(([k,v])=>{
                     const newV = {
-                        description: `${v.name}: ${v.description ?? ""}`,
-                        type: v.types?.[0] ?? "string"
+                      description: `${v.name}: ${v.description ?? ""}`,
+                      type: v.types?.[0] ?? "string"
                     }
                     if( newV.type === "string_list"){
-                        newV.type = "array"
-                        newV.items = {"type": "string"}
+                      newV.type = "array"
+                      newV.items = {"type": "string"}
                     }
                     return [k,newV]
-                }))
+                  }))
+                }
                 if( hasConfig ){
                     uws.parameters.properties.configuration.type = "object"
                     uws.parameters.properties.configuration.properties = Object.fromEntries(configEntries.map(([k,v])=>{

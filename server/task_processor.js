@@ -3,8 +3,8 @@ import PrimitiveConfig, {flattenStructuredResponse} from "./PrimitiveConfig"
 import PrimitiveParser from "./PrimitivesParser";
 import { addRelationship, addRelationshipToMultiple, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParentForTerm, getDataForImport, getDataForProcessing, getFilterName, getPrimitiveInputs, multiPrimitiveAtOrginLevel, primitiveChildren, primitiveDescendents, primitiveListOrigin, primitiveOrigin, primitiveParents, primitiveParentsOfType, primitiveTask, removePrimitiveById, uniquePrimitives } from "./SharedFunctions"
 import { compareTwoStrings, findFilterMatches, modiftyEntries } from "./actions/SharedTransforms";
-import { lookupCompanyByName } from "./company_discovery";
-import { decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, getMetaDescriptionFromURL, googleKnowledgeForQuery, googleKnowledgeForQueryScaleSERP, queryGoogleSERP } from "./google_helper";
+import { lookupCompanyByName, findCompanyURL } from "./company_discovery";
+import { decodeBase64ImageToStorage, googleKnowledgeForQuery } from "./google_helper";
 import { getLogger } from "./logger";
 import Category from "./model/Category"
 import Primitive from "./model/Primitive";
@@ -1309,7 +1309,7 @@ export async function loopkupOrganization( value, referenceCategory, workspaceId
     }
     if( !item ){
         console.log(`--- Looking to resolve ${value} via websearch`)
-        const url = await findCompanyURLByName( value, options.context  )
+        const url = await findCompanyURL( value, options.context  )
         
         if( url ){
             const candidates = await Primitive.findOne({
@@ -1378,176 +1378,6 @@ export async function getCompanyInfoFromDomain( domain ){
         }
     });
     return data
-}
-export async function findCompanyURLByNameLogoDev( name, context = {}){
-    try{
-        const { data } = await axios.get('https://api.logo.dev/search', {
-                params: { q: name },
-                headers: {
-                    'Authorization': `Bearer ${process.env.LOGODEV_KEY}`
-            }
-        });
-        if( context.withDescriptions){
-            const withDescriptions = await executeConcurrently(data, async (d)=>{
-                try{
-                    return await getCompanyInfoFromDomain(d.domain)
-
-                    }catch(e){
-                        logger.error(`Error in findCompanyURLByNameLogoDev`, name, context, e)
-                        return undefined                        
-                    }
-                })
-                if( withDescriptions.results){
-                    return  withDescriptions.results
-                }
-        }
-        return data.filter(d=>d).map(d=>({...d, url: `https://${d.domain}`}))
-    }catch(e){
-        logger.error(`Error in findCompanyURLByNameLogoDev`, name, context, e)
-        return []
-    }
-}
-export async function findCompanyURLByName( name, context = {}){
-    console.log(`>>>> SHOULD USE LOGO.DEV`)
-    let results = await Promise.all([
-        findCompanyURLByNameByApollo(name, context),
-        findCompanyURLByNameByZoominfo(name, context),
-        findCompanyURLByKnowledgeGraph(name, context),
-        findCompanyURLByNameByAboutUs(name, context)
-    ]);
-    results = results.flat().filter((d,i,a)=>d && a.indexOf(d)===i).map(d=>({hostname: d}))
-
-    console.log(results)
-    if( context.topics ){
-        await executeConcurrently(results, async (d, i)=>{
-            results[i].meta = await getMetaDescriptionFromURL(d.hostname)
-        })
-        const toProcess = Object.values(results).filter(d=>d.meta)
-        const pass = []
-        
-        if( toProcess.length > 0){
-            const result = await analyzeListAgainstTopics(toProcess, context.topics, {asScore: true,prefix: "Organization", type: "organization"})
-            if( result?.success && result.output){
-                for(const d of result.output){
-                    console.log(d)
-                    if( d.s >= 2){
-                        pass.push({...toProcess[d.i], s:d.s})
-                    }
-                }
-            }
-            console.log(`Passed `)
-            console.log(pass)
-            return pass.sort((a,b)=>b.s - a.s)[0]?.hostname
-        }
-    }
-    return results[0]?.hostname
-
-    return undefined
-}
-export async function findCompanyURLByNameByApollo( name, context ){
-    const result = await fetchLinksFromWebQuery(`\"${name}\" site:apollo.io`, {timeFrame: ""})
-    if( result.links ){
-        const regex = new RegExp(`View ${name} \\((https?:\\/\\/[^\\)]+)\\)`,'i')
-        
-        let matched
-        
-        for(const d of result.links){
-            const m = d.snippet?.match(regex)
-            if( m){
-                matched = m[1]
-                break
-            }
-        }
-        if( matched ){
-            console.log(`Got URL ${matched}`)
-        }
-        return matched
-    }
-
-}
-export async function findCompanyURLByNameByZoominfo( name, context ){
-    const result = await fetchLinksFromWebQuery(`\"${name}\" site:zoominfo.com`, {timeFrame: ""})
-    if( result.links ){
-        const regex = new RegExp(`View ${name} \\((https?:\\/\\/[^\\)]+)\\)`,'i')
-        
-        let matched
-        
-        for(const d of result.links){
-            const m = d.snippet?.match(regex)
-            if( m){
-                matched = m[1]
-                break
-            }
-        }
-        return matched
-    }
-}
-export async function findCompanyURLByNameByAboutUs( name, context = {}){
-    const result = await fetchLinksFromWebQuery(`\"${name}\" "about"`, {timeFrame: ""})
-    if( result.links ){
-        const regex = new RegExp(name,'i')
-        
-        const domains = {}
-
-        const ignoreDomains = [
-            'www.globaldata.com',
-            'www.bloomberg.com',
-            'www.statista.com',
-            'linkedin.com',
-            'finance.yahoo.com',
-            'uk.marketscreener.com',
-            'www.dnb.com',
-            '.instagram.com',
-            '.indeed.com',
-            'www.zoominfo.com',
-            'www.apollo.io',
-            'rocketreach.co'
-        ]
-        
-        for(const d of result.links){
-            if( d.snippet?.match(regex) || d.title?.match(regex) ){
-                const url = new URL(d.url)
-                const hostname = url.hostname
-                if( hostname.toLowerCase().indexOf(name.toLowerCase()) > -1){
-                    return d.url
-                }else if( hostname.toLowerCase().indexOf(name.toLowerCase().replaceAll(" ", "")) > -1){
-                    return d.url
-                }else if( hostname === "en.wikipedia.org"){
-                    console.log(`Got wiki -examining`)
-                    return await extractMainURLFromWikipedia( d.url )
-                }else if(ignoreDomains.filter(d=>hostname.toLowerCase().indexOf(d) > -1).length > 0){
-                    continue
-                }
-                domains[hostname] = domains[hostname] ?? {snippet: d.snippet, url: url.origin, hostname: hostname}
-                domains[hostname].count = (domains[hostname].count || 0) + 1
-            }
-        }
-        console.log(domains)
-        let candidates = Object.keys(domains).filter(d=>domains[d].count > 1).sort((a,b)=>domains[b].count - domains[a].count)
-        return candidates
-
-    }
-}
-async function extractMainURLFromWikipedia( url ){
-        const urls = await extractURLsFromPage( url )
-        for(const d of urls){
-            if(d.text.match(/official website/i)){
-                return d.url
-            }
-        }
-}
-export async function findCompanyURLByKnowledgeGraph( name, context ){
-    const result = await googleKnowledgeForQuery(`\"${name}\"`, {timeFrame: ""})
-    if( result ){
-        if( result.type?.match(/company/i) || result.type?.match(/manufacturer/i) || result.source?.name === "Summarized from the website"){
-            if( result.website?.match(/wikipedia/i) ){
-                console.log(`Got wiki -examining`)
-                return await extractMainURLFromWikipedia( result.website )
-            }
-            return result.website
-        }
-        return undefined
-    }
 }
 export async function queryByAxis( parent, primitive, options = {}){
 

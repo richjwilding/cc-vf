@@ -2,7 +2,6 @@ import QueueManager from './queue_manager';
 import Primitive from "./model/Primitive";
 import { addRelationship, cosineSimilarity, createPrimitive, decodePath, dispatchControlUpdate, executeConcurrently, fetchPrimitive, findResultSetForCategoryId, getConfig, getDataForProcessing, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveParents, primitiveParentsOfType, primitiveRelationship, primitiveTask } from "./SharedFunctions";
 import { findLinkedinCompanyPage, queryPosts, searchLinkedInJobs } from "./linkedin_helper";
-import { searchCompaniesWithBrightData } from "./crunchbase_helper";
 import Category from "./model/Category";
 import { fetchArticlesFromGdelt } from "./gdelt_helper";
 import { analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
@@ -17,6 +16,7 @@ import { cleanURL, getBaseDomain } from './actions/SharedTransforms';
 import { findTrustPilotURLFromDetails } from './actions/trustpilot_helper';
 import { getLogger } from './logger';
 import { queryMoneySavingExpertForums } from './scrapers/moneysavingexpert';
+import { searchCompaniesWithBrightData, searchCompaniesWithTheCompaniesAPI } from './company_discovery.js';
 
 const logger = getLogger('query_queue', "debug"); // Debug level for moduleA
 
@@ -451,6 +451,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                             countPerTerm: config.countPerTerm,
                             timeFrame: config.timeFrame,
                             count: config.count ?? 50,
+                            resultCategoryId: source.resultCategoryId,
                             progressUpdate,
                             existingCheck,
                             filterPre: mapFilter(source.filterPre),
@@ -613,7 +614,29 @@ export async function processQueue(job, cancelCheck, extendJob){
                                     exact : undefined
                                 }
                             }
-                            await searchCompaniesWithBrightData( allTerms, callopts )
+                            collectionAsync = true
+                            await searchCompaniesWithBrightData( primitive, allTerms, callopts )
+                        }
+                        if( source.platform === "thecompaniesapi" ){
+                            const allTerms = {
+                                keyword: terms,
+                                searchTerms: {
+                                    ...config,
+                                    count: undefined,
+                                    phrase: callopts.quoteKeywords,
+                                    exact : undefined
+                                }
+                            }
+                            await searchCompaniesWithTheCompaniesAPI(
+                                primitive,
+                                allTerms,
+                                {
+                                    ...callopts,
+                                    filters: source.filters,
+                                    maxPageSize: source.maxPageSize,
+                                    startCursor: source.startCursor
+                                }
+                            )
                         }
                     }
                     await Primitive.updateOne({

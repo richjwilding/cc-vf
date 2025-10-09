@@ -2,14 +2,15 @@ import { SIO } from './socket';
 import Primitive from "./model/Primitive";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
 import { enrichCompanyFromLinkedIn, findLinkedinCompanyPage } from "./linkedin_helper";
-import { searchCompaniesWithBrightData } from "./crunchbase_helper";
+import { searchCompaniesWithBrightData } from "./company_discovery";
 import Category from "./model/Category";
 //import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
 import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL, queryGoogleSERP, replicateURLtoStorage } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
-import { findCompanyURLByName, getCompanyInfoFromDomain } from "./task_processor";
+import { getCompanyInfoFromDomain } from "./task_processor";
+import { findCompanyURL } from "./company_discovery";
 import { enrichEntityFromOwler } from "./owler_helper";
 import BaseQueue from "./base_queue";
 import { getBaseDomain, getRegisteredDomain } from "./actions/SharedTransforms";
@@ -70,54 +71,6 @@ class EnrichQueueClass extends BaseQueue{
     async findPosts(primitive, options ){
         if( primitive.type === "activity"){
             instance.addToQueue( primitive, "find_posts", "Find posts", options )
-        }
-    }
-    async searchCompanies(primitive, options = {}){
-        if( primitive.type !== "activity"){
-            return 0;
-        }
-
-        const field = "processing.search_company";
-        const description = options.description ?? "Search companies";
-        dispatchControlUpdate(primitive.id, field , {status: "running"}, {track: primitive.id, text: description});
-
-        try {
-            const category = await Category.findOne({id: primitive.referenceId});
-            const resultSet = category?.resultCategories?.find(entry => entry.resultCategoryId === options.referenceId)?.id;
-            if (resultSet === undefined) {
-                await dispatchControlUpdate(primitive.id, field, {status: "complete", totalCount: 0}, {track: primitive.id});
-                return 0;
-            }
-
-            const creationCap = options.maxCreation ?? options.lookupCount ?? options.count ?? 25;
-            const keywords = options.keywords ?? "";
-            const created = await searchCompaniesWithBrightData(keywords, {
-                parent: primitive,
-                referenceId: options.referenceId,
-                lookupCount: options.lookupCount,
-                maxCreation: creationCap,
-                count: options.count ?? creationCap,
-                topics: primitive.referenceParameters?.topics,
-                paths: ["origin", `results.${resultSet}`],
-                requireDescription: false
-            });
-
-            await dispatchControlUpdate(
-                primitive.id,
-                field,
-                { status: "complete", totalCount: created },
-                { track: primitive.id }
-            );
-
-            return created;
-        } catch (error) {
-            await dispatchControlUpdate(
-                primitive.id,
-                field,
-                { status: "error", error: error.message ?? String(error) },
-                { track: primitive.id }
-            );
-            throw error;
         }
     }
     async enrichCompany(primitive, source, force){
@@ -898,7 +851,7 @@ export async function processQueue(job, cancelCheck){
                     }
                     if( job.data.options.source === "name" ){
                         const task = await primitiveTask( primitive )
-                        const url = await findCompanyURLByName( primitive.referenceParameters.search_name, {topics: task?.referenceParameters?.topics} )
+                        const url = await findCompanyURL( primitive.referenceParameters.search_name, {topics: task?.referenceParameters?.topics} )
                         console.log(url)
                         if( url ){
                             updateFieldWithCallbacks( primitive.id, "referenceParameters.url", url )

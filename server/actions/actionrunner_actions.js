@@ -8,7 +8,8 @@ import Workspace from "../model/Workspace";
 import { categorize, generateImage, processPromptOnText } from "../openai_helper";
 import QueryQueue from "../query_queue";
 import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
-import { aggregateItems, checkAndGenerateSegments, compareItems, findCompanyURLByNameLogoDev, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
+import { aggregateItems, checkAndGenerateSegments, compareItems, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
+import { findCompanyURL } from "../company_discovery";
 import { replicateWorkflow } from "../workflow";
 import { flattenStructuredResponse } from "../PrimitiveConfig";
 import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
@@ -66,7 +67,7 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
                     }
                     const newPrim = await createPrimitive( newData )
                 }else if( config.source_type === "Name"){
-                    let data = await findCompanyURLByNameLogoDev(toLookup, {withDescriptions: false})
+                    let data = await findCompanyURL(toLookup, {returnCandidates: true})
                     if( data.length > 0){
                         const item = data[0]
                         console.log(`Got ${item.name} ${item.domain}`)
@@ -93,7 +94,7 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
                 if( config.source_type === "URL"){
                     cleaned = toLookup.trim()
                 }else if( config.source_type === "Name"){
-                    let data = await findCompanyURLByNameLogoDev(toLookup, {withDescriptions: false})
+                    let data = await findCompanyURL(toLookup, {returnCandidates: true})
                     if( data.length > 0){
                         const item = data[0]
                         name = item.name
