@@ -32,6 +32,53 @@ let mongoose, getRedisBase, asyncLocalStorage;
 let redisClient, queueObject;
 const queueWorkers = {};
 let isTerminating = false;
+const DEFAULT_LOCK_DURATION_MS = 5 * 60 * 1000;
+let workersPausedForMongo = false;
+let isMongoConnected = false;
+
+async function changeWorkerMongoState(shouldPause) {
+    const workers = Object.values(queueWorkers);
+    if (workersPausedForMongo === shouldPause && workers.length > 0) {
+        return;
+    }
+    if (workers.length === 0) {
+        workersPausedForMongo = shouldPause;
+        return;
+    }
+    await Promise.all(workers.map(async (worker) => {
+        try {
+            if (shouldPause) {
+                await worker.pause(true);
+            } else {
+                await worker.resume();
+            }
+        } catch (err) {
+            const message = err?.message || String(err);
+            if (!message.toLowerCase().includes('already') && !message.toLowerCase().includes('not running')) {
+                logger.warn(`Failed to ${shouldPause ? 'pause' : 'resume'} worker ${worker.name ?? ''} for Mongo state change`, err);
+            }
+        }
+    }));
+    workersPausedForMongo = shouldPause;
+}
+
+const handleMongoDisconnect = () => {
+    isMongoConnected = false;
+    logger.error('[Worker] MongoDB connection lost — pausing queue consumption', { type: workerData.type });
+    queueMicrotask(() => {
+        changeWorkerMongoState(true).catch((err) => logger.error('Failed to pause workers after Mongo disconnect', err));
+    });
+};
+
+const handleMongoReconnect = () => {
+    if (!isMongoConnected) {
+        logger.info('[Worker] MongoDB connection restored — resuming queue consumption', { type: workerData.type });
+    }
+    isMongoConnected = true;
+    queueMicrotask(() => {
+        changeWorkerMongoState(false).catch((err) => logger.error('Failed to resume workers after Mongo reconnect', err));
+    });
+};
 
 const messageHandler = {}
 
@@ -161,6 +208,7 @@ async function getQueueObject(type) {
     const { getLogger } = await import('./logger.js');    
     ({ Worker, WaitingChildrenError, Queue } = await import('bullmq'));
     mongoose = (await import('mongoose')).default;
+    mongoose.set('bufferCommands', false);
     ({ getRedisBase } = await import('./redis.js'));
 
     ({ default: asyncLocalStorage } = await import('./asyncLocalStorage.js'));
@@ -171,15 +219,29 @@ async function getQueueObject(type) {
     try{
 
         mongoose.set('strictQuery', false);
-        
+
         mongoose.connection.on('connecting', () => logger.info('mongo connecting'));
-        mongoose.connection.on('connected', () => logger.info('mongo connected'));
-        mongoose.connection.on('error', err => logger.error('mongo error', err));
+        mongoose.connection.on('connected', () => {
+            logger.info('mongo connected');
+            handleMongoReconnect();
+        });
+        mongoose.connection.on('reconnected', () => {
+            logger.info('mongo reconnected');
+            handleMongoReconnect();
+        });
+        mongoose.connection.on('disconnected', handleMongoDisconnect);
+        mongoose.connection.on('close', handleMongoDisconnect);
+        mongoose.connection.on('error', err => {
+            logger.error('mongo error', err);
+        });
 
         connection = await mongoose.connect(process.env.MONGOOSE_URL,{
-            maxPoolSize: 10
+            maxPoolSize: 10,
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000
         })
         logger.info(`[Worker] ${workerData.type} connected to MongoDB`, {type: workerData.type });
+        handleMongoReconnect();
     }catch(e){
         logger.info(`Couldnt connection mongo`, {  type: workerData.type });
         logger.info(e, { type: workerData.type });
@@ -203,6 +265,11 @@ async function getQueueObject(type) {
             parentPort.postMessage({ result: 'cancelled', queueName, jobId: job.id });
             return;
         }
+        if (!isMongoConnected) {
+            const unavailable = new Error('MongoDB connection is not available');
+            unavailable.code = 'MONGO_UNAVAILABLE';
+            throw unavailable;
+        }
         try {
             logger.info(`\n\nThread running for ${workerData.queueName}`, {  type: workerData.type, attemptsMade: job.attemptsMade, token });
             // If this job previously moved to waiting-children and is now resuming, finalize without redoing work
@@ -214,17 +281,40 @@ async function getQueueObject(type) {
             }
             parentPort.postMessage({ type: "startJob", queueName, jobId: job.id, token: token });
 
-            const extendLockInterval = 5000; 
+            const extendLockInterval = 5000;
+            const lockDuration = DEFAULT_LOCK_DURATION_MS;
             let resetErrors = 0
+            let lostLockError = null;
+            const isMissingLockError = (errMessage = "") => {
+                const normalized = errMessage.toLowerCase();
+                return normalized.includes('missing lock') || normalized.includes('missing key for job') || normalized.includes('lock is already released') || normalized.includes('lock is not owned');
+            };
+
             const lockExtension = setInterval(async () => {
+                if (lostLockError || isTerminating) {
+                    return;
+                }
                 try{
-                    await job.updateProgress(1); 
+                    await job.extendLock(token, lockDuration);
+                    resetErrors = 0;
                 }catch(e){
+                    const message = e?.message || String(e);
                     logger.info(`ERROR EXTENDING LOCK FOR JOB ${job.id}`, {  type: workerData.type });
                     logger.info(e)
                     resetErrors++
+                    if (isMissingLockError(message)) {
+                        lostLockError = new Error(`Lost lock while processing job ${job.id}`);
+                        lostLockError.originalError = e;
+                        logger.error(`Detected lost lock for job ${job.id}; aborting job to avoid duplicate processing`, { type: workerData.type });
+                        clearInterval(lockExtension);
+                        return;
+                    }
                     if( resetErrors > 10){
-                        logger.info(`Temrinating lock refresh for ${job.id} after ${resetErrors}`, {  type: workerData.type });
+                        if (!lostLockError) {
+                            lostLockError = new Error(`Unable to extend lock for job ${job.id} after ${resetErrors} attempts`);
+                            lostLockError.originalError = e;
+                        }
+                        logger.info(`Terminating lock refresh for ${job.id} after ${resetErrors}`, {  type: workerData.type });
                         clearInterval(lockExtension);
 
                     }
@@ -242,11 +332,38 @@ async function getQueueObject(type) {
     
                 let result, success
                 try {
-                    result = await processQueue(job, () => redisClient.get(`job:${job.id}:cancel`) === 'true', ()=>{logger.info("!!! extend job in thread"); job.updateProgress(1)});
+                    result = await processQueue(
+                        job,
+                        () => redisClient.get(`job:${job.id}:cancel`) === 'true',
+                        async () => {
+                            if (lostLockError) {
+                                throw lostLockError;
+                            }
+                            logger.info("!!! extend job in thread");
+                            try {
+                                await job.extendLock(token, lockDuration);
+                            } catch (extendErr) {
+                                const message = extendErr?.message || String(extendErr);
+                                if (isMissingLockError(message)) {
+                                    lostLockError = new Error(`Lost lock while processing job ${job.id}`);
+                                    lostLockError.originalError = extendErr;
+                                    logger.error(`Detected lost lock for job ${job.id} from inline extender`, { type: workerData.type });
+                                }
+                                throw extendErr;
+                            }
+                        }
+                    );
                     logger.debug(`Workload for ${job.id} completed`)
                     success = true
                 } catch (e) {
+                    if (lostLockError) {
+                        e = lostLockError;
+                    }
+                    const originalError = e?.originalError;
                     logger.debug(`Error in ${workerData.type} queue during job processing: ${e.stack}`, { type: workerData.type });
+                    if (originalError && originalError !== e) {
+                        logger.debug(originalError.stack || originalError);
+                    }
                     logger.debug(e.stack)
                     await queueObject.default().endJob({ result, success: false, error: e, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token, parent: parentMeta })
                     throw e;
@@ -254,6 +371,11 @@ async function getQueueObject(type) {
                     clearInterval(lockExtension);
                 }
                 clearInterval(lockExtension); // <— stop keepalive BEFORE moving state
+
+                if (lostLockError) {
+                    logger.error(`Job ${job.id} lost its lock; aborting completion flow`, { type: workerData.type });
+                    throw lostLockError;
+                }
 
                 // Ask BullMQ to park if there are outstanding deps.
                 // v4.2 returns a boolean: true => parent was moved to waiting-children.
@@ -310,11 +432,18 @@ async function getQueueObject(type) {
                 maxStalledCount: 1,
                 concurrency: 5,
                 removeOnFail: true,
-                waitChildren: true, 
-                removeOnComplete: false, 
+                waitChildren: true,
+                removeOnComplete: false,
                 stalledInterval: 1 * 60 * 1000,
-                lockDuration: 5 * 60 * 1000, // Set lock duration to 10 minutes
+                lockDuration: DEFAULT_LOCK_DURATION_MS, // Keep lock aligned with manual extensions
             });
+        if (workersPausedForMongo) {
+            try {
+                await worker.pause(true);
+            } catch (err) {
+                logger.warn(`Failed to pause newly created worker ${queueName} after Mongo disconnect`, err);
+            }
+        }
         // Add visibility into BullMQ worker lifecycle for this queue
         worker.on('waiting', (jobIdOrJob) => {
             const id = jobIdOrJob?.id ?? jobIdOrJob;
