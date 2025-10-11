@@ -1,5 +1,5 @@
 import { encode } from "gpt-3-encoder";
-import { getDocumentAsPlainText } from "./google_helper";
+import { getPrimitiveContentPlainText } from "./google_helper";
 import Category from "./model/Category";
 import ContentEmbedding from "./model/ContentEmbedding";
 import { buildEmbeddings } from "./openai_helper";
@@ -56,7 +56,7 @@ export async function indexDocument( primitive, {force, fetch} = {}, req){
         }
         
         if( !text ){
-            text = (await getDocumentAsPlainText( primitive.id, req, undefined, false, fetch ))?.plain
+            text = (await getPrimitiveContentPlainText( primitive.id, { req, forceRefresh: fetch }))?.plain
             //text = (await getDocumentAsPlainText( primitive.id, req ))?.plain
         }
         if( !text || text.length === 0){
