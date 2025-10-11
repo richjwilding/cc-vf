@@ -35,7 +35,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                         throw `Cant find category ${primitive.referenceId} for ${primitive.id}`
                     }
 
-                    const asTitle = !primitive.referenceParameters?.useTerms && !primitive?.referenceParameters.hasOwnProperty("terms") && primitive.title
+                    const asTitle = !primitive.referenceParameters?.useTerms && !primitive?.referenceParameters?.hasOwnProperty("terms") && primitive.title
                     let config = await getConfig( primitive )
                     let baseTerms = asTitle ? primitive.title : config.terms
 
