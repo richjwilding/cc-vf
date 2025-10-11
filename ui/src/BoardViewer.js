@@ -979,14 +979,15 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                             let changed = false
                             do{
                                 changed = false
-                                inputs = uniquePrimitives( inputs.map(d=>{
+                                function getSources(d){
                                     if( d.referenceId === 82 || d.type == "summary" || d.type === "query"){
                                         changed = true
-                                        return [d.primitives.source.allItems,d.primitives.link.allItems].flat()
+                                        return [d.primitives.source.allItems,d.primitives.link.allItems].flat().map(d=>getSources(d))
                                     }else{
                                         return d
                                     }
-                                }).flat(Infinity))
+                                }
+                                inputs = uniquePrimitives( inputs.map(d=>getSources(d)).flat(Infinity))
                             }while(changed)
 
                         }

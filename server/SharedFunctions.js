@@ -1974,7 +1974,7 @@ export async function legacyGetDataForImport( source, cache = {imports: {}, cate
     const sourceConfig = await getConfig(source)
 
     let requesterInFlow
-    //if((source.type === "query" || source.type === "summary" || source.type === "search" || source.type === "actionrunner" || source.type === "action") && forceImport !== true){
+    const forceImportsFoRelay = sourceConfig.relayImports
     if(((source.type === "query" || source.type === "summary" || source.type === "search") && forceImport !== true) || ((source.type === "actionrunner" || source.type === "action") && !Object.keys(source.primitives ?? {}).includes("imports") && forceImport !== true) ){
         if( cache.imports[source.id]){
             console.log(`>>> returning import local cache`)
@@ -2138,7 +2138,7 @@ export async function legacyGetDataForImport( source, cache = {imports: {}, cate
                 list = cache.imports[imp.id]
                 console.log(`>>> reuse import cache ${imp.id}`)
             }else{
-                list = list.concat( await getDataForImport( imp, {...cache, depth: cache.depth+1, needsFullDocument: requiresFullDocument}, undefined, false ))
+                list = list.concat( await getDataForImport( imp, {...cache, depth: cache.depth+1, needsFullDocument: requiresFullDocument}, {forceImport: forceImportsFoRelay}, false ))
                 cache.imports[imp.id] = list
             }
         }else{

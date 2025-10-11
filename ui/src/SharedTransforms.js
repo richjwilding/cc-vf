@@ -192,6 +192,21 @@ export function markdownToSlate(markdownContent = "") {
   const flushLists = () => {
     listStack.length = 0;
   };
+  const hasMeaningfulInlineContent = (nodes = []) => {
+    for (const node of nodes) {
+      if (!node) continue;
+      if (typeof node.text === "string" && node.text.trim()) {
+        return true;
+      }
+      if (node.type === "badge") {
+        return true;
+      }
+      if (node.children && hasMeaningfulInlineContent(node.children)) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   const appendTop = (node) => {
     if (listStack.length) {
@@ -353,6 +368,9 @@ export function markdownToSlate(markdownContent = "") {
       const isOrdered   = !!mOrdered;
       const listType    = isOrdered ? "ordered-list" : "unordered-list";
       const itemContent = parseInlineWithBadges(rest);
+      if (!hasMeaningfulInlineContent(itemContent)) {
+        continue;
+      }
       const wrappedItem = {
         type: "list-item",
         children: [

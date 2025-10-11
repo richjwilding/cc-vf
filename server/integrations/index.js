@@ -304,6 +304,8 @@ async function buildOrUpdateChildPrimitive(recordPrim, record, mapping) {
   return {
     mappingKey,
     primitiveId: childPrimitive._id?.toString?.() ?? childPrimitive.id,
+    primitive: childPrimitive,
+    mappingConfig: mapping,
   };
 }
 
@@ -437,11 +439,32 @@ export async function syncExternalPrimitive(primitive, options = {}) {
     await dispatchControlUpdate(recordPrimitive._id?.toString?.() ?? recordPrimitive.id, 'referenceParameters', referenceParameters);
     recordPrimitive.referenceParameters = referenceParameters;
 
+    const childPrimitiveResults = [];
     for (const mapping of mappings) {
       try {
-        await buildOrUpdateChildPrimitive(recordPrimitive, record, mapping);
+        const result = await buildOrUpdateChildPrimitive(recordPrimitive, record, mapping);
+        if (result) {
+          childPrimitiveResults.push(result);
+        }
       } catch (error) {
         logger.error(`Failed to process mapping for record ${key}`, error);
+      }
+    }
+
+    if (typeof provider.processRecord === 'function') {
+      try {
+        await provider.processRecord({
+          record,
+          recordPrimitive,
+          parentPrimitive: primitive,
+          childPrimitives: childPrimitiveResults,
+          mappings,
+          account,
+          sourceConfig,
+          fetchOptions,
+        });
+      } catch (error) {
+        logger.error(`Post-processing failed for record ${key}`, error);
       }
     }
 
@@ -484,3 +507,4 @@ export async function syncExternalPrimitive(primitive, options = {}) {
 
 // auto-register bundled providers
 import './providers/airtable.js';
+import './providers/google_docs.js';

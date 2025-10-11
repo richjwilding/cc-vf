@@ -77,7 +77,7 @@ export default function IntegrationConfigModal({
         return (
           <div className="space-y-3">
             <p className="text-sm text-default-500">
-              Configuration for this integration is not yet supported.
+              This integration does not require additional configuration.
             </p>
           </div>
         );

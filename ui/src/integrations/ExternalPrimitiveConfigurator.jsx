@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AirtablePrimitiveConfigurator from './AirtablePrimitiveConfigurator.jsx';
+import GoogleDocsPrimitiveConfigurator from './GoogleDocsPrimitiveConfigurator.jsx';
 import ExternalPrimitiveMappingsEditor from './ExternalPrimitiveMappingsEditor.jsx';
 
 export default function ExternalPrimitiveConfigurator({ primitive, provider, loadingProviders }) {
@@ -33,10 +34,38 @@ export default function ExternalPrimitiveConfigurator({ primitive, provider, loa
   }, []);
 
   const [availableFields, setAvailableFields] = useState(() => deriveAvailableFields(primitive));
+  const deriveAvailableAttachments = useCallback((targetPrimitive) => {
+    const sources = new Set();
+    const direct = targetPrimitive?.referenceParameters?.availableAttachmentSources;
+    if (Array.isArray(direct)) {
+      direct.forEach((entry) => {
+        if (!entry) return;
+        sources.add(String(entry));
+      });
+    }
+    const sampleAttachments = targetPrimitive?.referenceParameters?.sampleRecord?.attachments;
+    if (sampleAttachments && typeof sampleAttachments === 'object') {
+      Object.keys(sampleAttachments).forEach((key) => sources.add(String(key)));
+    }
+    const integrationAttachments = targetPrimitive?.referenceParameters?.integrationAttachments?.attachments;
+    if (integrationAttachments && typeof integrationAttachments === 'object') {
+      Object.keys(integrationAttachments).forEach((key) => sources.add(String(key)));
+    }
+    const googleDocsMeta = targetPrimitive?.referenceParameters?.googleDocs;
+    if (googleDocsMeta && googleDocsMeta.fileName) {
+      ['textContent', 'pdfBuffer', 'fileBuffer', 'fileContentType'].forEach((key) => sources.add(key));
+    }
+    return Array.from(sources);
+  }, []);
+
+  const [availableAttachmentSources, setAvailableAttachmentSources] = useState(
+    () => deriveAvailableAttachments(primitive),
+  );
 
   useEffect(() => {
     setAvailableFields(deriveAvailableFields(primitive));
-  }, [deriveAvailableFields, primitive?.referenceParameters]);
+    setAvailableAttachmentSources(deriveAvailableAttachments(primitive));
+  }, [deriveAvailableAttachments, deriveAvailableFields, primitive?.referenceParameters]);
 
   const handleFieldsPreview = useCallback((fields) => {
     setAvailableFields(Array.isArray(fields) ? fields : []);
@@ -54,6 +83,13 @@ export default function ExternalPrimitiveConfigurator({ primitive, provider, loa
             primitive={primitive}
             accountId={accountId}
             onFieldsPreview={handleFieldsPreview}
+          />
+        );
+      case 'google-docs':
+        return (
+          <GoogleDocsPrimitiveConfigurator
+            primitive={primitive}
+            accountId={accountId}
           />
         );
       default:
@@ -124,6 +160,7 @@ export default function ExternalPrimitiveConfigurator({ primitive, provider, loa
       <ExternalPrimitiveMappingsEditor
         primitive={primitive}
         availableFields={availableFields}
+        availableAttachmentSources={availableAttachmentSources}
       />
     </div>
   );

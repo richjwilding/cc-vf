@@ -2303,6 +2303,118 @@ registerRenderer( {type: "default",  configs: "overview"}, (primitive, options =
 
 
 })
+registerRenderer( {type: "categoryId", id: [58], configs: "default"}, (primitive, options = {})=>{
+    const config = {
+        ...options,
+        width: options?.width ?? 600,
+        height: options?.height ?? 80,
+        padding: options?.padding ?? [2, 2, 2, 2],
+        fontSize: options?.fontSize ?? 16
+    };
+    if (options.getConfig) {
+        return config
+    }
+
+    const g = new Konva.Group({
+        x: (options.x ?? 0),
+        y: (options.y ?? 0),
+        width: config.width,
+        height: config.height,
+        name:"inf_track primitive",
+        id: primitive.id
+    })
+    const r = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: config.width,
+        height: config.height,
+        fill: 'white',
+        name:"background"
+    })
+    g.add(r)
+
+    let ox =  config.padding[3]
+    let oy =  config.padding[0]
+
+    
+
+    const logo = imageHelper( primitive.referenceParameters?.imageUrl, {
+        x: ox,
+        y: oy,
+        size: config.height - config.padding[0] - config.padding[2],
+        center: true,
+        imageCallback: options.imageCallback,
+        placeholder: options.placeholder !== false,
+        maxScale: 1,
+        scaleRatio: 2
+    })
+    g.add( logo )
+
+
+    const roleInCompany = primitive.referenceParameters.experience?.filter(d=>d.company_name === primitive.referenceParameters.company).sort((a,b)=>b.date_from_year - a.date_from_year).at(0)?.position_title
+    const titleText = primitive.title + (roleInCompany ? ` - ${roleInCompany}` : "")
+    const headline = primitive.referenceParameters?.headline
+
+    let tx = ox + logo.width() + config.padding[1] + config.padding[3]
+    let y = oy + config.padding[0] + (config.fontSize / 2)
+    const title = new CustomText({
+        fontSize: config.fontSize,
+        fontStyle:"bold",
+        text: titleText,
+        y,
+        x: tx,
+        linkUrl: primitive.referenceParameters?.url,
+        width: config.width - tx - config.padding[1],
+        height: config.fontSize,
+        wrap: false,
+        ellipsis: true,
+        refreshCallback: options.imageCallback
+    })
+    g.add(title);
+    y += title.height() * 1.2
+    if( headline ){
+        const sub = new CustomText({
+            fontSize: config.fontSize - 2,
+            fontStyle:"bold",
+            text: headline,
+            y,
+            x: tx,
+            withMarkdown: true,
+            width: config.width - tx - config.padding[1],
+            url: primitive.referenceParameters?.url,
+            linkUrl: primitive.referenceParameters?.url,
+            height: config.fontSize,
+            wrap: false,
+            ellipsis: true,
+            refreshCallback: options.imageCallback
+        })
+        g.add(sub);
+        y += sub.height()
+    }
+    const remaining = config.height - y
+    if( remaining > 0){
+
+        const sub = new CustomText({
+            fontSize: config.fontSize - 2,
+            fontStyle:"light",
+            withMarkdown: true,
+            text: primitive.referenceParameters?.summary,
+            y: y,
+            x: tx,
+            width: config.width - tx - config.padding[1],
+            url: primitive.referenceParameters?.url,
+            linkUrl: primitive.referenceParameters?.url,
+            height: remaining,
+            wrap: true,
+            ellipsis: true,
+            refreshCallback: options.imageCallback
+        })
+        g.add(sub);
+    }
+
+    return g
+
+})
 registerRenderer( {type: "categoryId", id: [34, 78], configs: "overview"}, (primitive, options = {})=>{
     const config = {
         ...options,
@@ -2357,6 +2469,7 @@ registerRenderer( {type: "categoryId", id: [34, 78], configs: "overview"}, (prim
         text: primitive.title,
         y: oy + config.padding[0] + (config.fontSize / 2),
         x: tx,
+        linkUrl: primitive.referenceParameters?.url,
         width: config.width - tx - config.padding[1],
         height: config.fontSize,
         wrap: false,
@@ -2371,6 +2484,7 @@ registerRenderer( {type: "categoryId", id: [34, 78], configs: "overview"}, (prim
         x: tx,
         width: config.width - tx - config.padding[1],
         url: primitive.referenceParameters?.url,
+        linkUrl: primitive.referenceParameters?.url,
         height: config.fontSize,
         wrap: false,
         ellipsis: true,
@@ -6008,7 +6122,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
         name:"inf_track primitive inf_keep"
     })
     if( g ){
-        let showName = false
+        let showName = true//false
 
         const logo = imageHelper( `/api/image/${primitive.id}${primitive.imageCount ? `?${primitive.imageCount}` : ""}`, {
             x: 0,
@@ -6019,6 +6133,7 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
             center: true,
             alt: primitive.title,
             imageCallback: options.imageCallback,
+            linkUrl: primitive.referenceParameters?.url,
             colorKey: options.renderOptions?.colorKey,
             clearImg: options.renderOptions?.clearImg,
             placeholder: options.placeholder !== false
@@ -6032,12 +6147,13 @@ registerRenderer( {type: "categoryId", id: 29, configs: "default"}, (primitive, 
                     fill: "white"
                 })
                 const text = new CustomText({
-                    fontSize: 5,
+                    fontSize: 8,
                     text: primitive.title,
                     align:"center",
                     wrap: false,
                     ellipsis: true,
                     verticalAlign:"middle",
+                    linkUrl: primitive.referenceParameters?.url,
                     bgFill:"#f3f4f6",
                     x: 0,
                     y: config.height - 6,
@@ -7695,7 +7811,7 @@ registerRenderer( {type: "default", configs: "dial"}, (primitive, options = {})=
             ]
 
             let aligned = 0, total = 0
-            for(const score of options.data){
+            for(const score of options.data ?? []){
                 if( score.label === "clearly" || score.label === "likely"){
                     aligned+=score.count
                 }
@@ -7806,7 +7922,7 @@ registerRenderer( {type: "default", configs: "chart"}, (primitive, options = {})
     })
     let style = config.style
     
-    const sg = renderSubCategoryChart("NAME", options.data, {
+    const sg = renderSubCategoryChart("NAME", options.data ?? [], {
         x: x, 
         y: y, 
         itemSize: usableWidth, 

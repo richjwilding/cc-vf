@@ -94,6 +94,63 @@ const buildCategoryFieldOptions = (category) => {
   return options;
 };
 
+const ATTACHMENT_KIND_FALLBACK = ['file', 'text', 'pdf'];
+const AUTO_MANAGED_ATTACHMENT_KINDS = new Set(['mimeType', 'wordCount']);
+
+const buildAttachmentDefinitions = (category) => {
+  if (!category || typeof category !== 'object') {
+    return [];
+  }
+  const attachments = category.parameters?.attachments;
+  if (!attachments) {
+    return [];
+  }
+
+  const normalizeEntry = (key, entry) => {
+    if (!key) return null;
+    const meta = entry && typeof entry === 'object' ? entry : {};
+    const label = meta.title ?? meta.label ?? key;
+    const candidateKinds = Array.isArray(meta.kinds)
+      ? meta.kinds
+      : Array.isArray(meta.supports)
+        ? meta.supports
+        : Array.isArray(meta.types)
+          ? meta.types
+          : ATTACHMENT_KIND_FALLBACK;
+    const kinds = candidateKinds.length > 0 ? candidateKinds : ATTACHMENT_KIND_FALLBACK;
+    const explicitKind = typeof meta.kind === 'string' ? meta.kind : null;
+    const normalizedKind = explicitKind ?? kinds.find((kind) => !AUTO_MANAGED_ATTACHMENT_KINDS.has(kind)) ?? kinds[0] ?? null;
+    return {
+      key,
+      label,
+      kinds,
+      kind: normalizedKind ?? ATTACHMENT_KIND_FALLBACK[0],
+      description: meta.description,
+    };
+  };
+
+  const results = [];
+  if (Array.isArray(attachments)) {
+    attachments.forEach((entry) => {
+      if (!entry) return;
+      const key = entry.key ?? entry.id ?? entry.name;
+      const normalized = normalizeEntry(key, entry);
+      if (normalized) {
+        results.push(normalized);
+      }
+    });
+  } else if (typeof attachments === 'object') {
+    Object.entries(attachments).forEach(([key, entry]) => {
+      const normalized = normalizeEntry(key, entry);
+      if (normalized) {
+        results.push(normalized);
+      }
+    });
+  }
+
+  return results;
+};
+
 function createId(prefix = 'id') {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -117,6 +174,104 @@ function normalizeMappings(raw) {
           value: typeof value === 'string' ? value : JSON.stringify(value),
         }))
       : [];
+    const attachments = mapping.attachmentMap && typeof mapping.attachmentMap === 'object'
+      ? Object.entries(mapping.attachmentMap).flatMap(([attachmentKey, rawConfig]) => {
+          if (!attachmentKey) {
+            return [];
+          }
+
+          const makeRow = (data) => ({
+            id: createId(`attachment-${index}`),
+            attachmentKey,
+            ...data,
+          });
+
+          if (typeof rawConfig === 'string') {
+            return [
+              makeRow({
+                kind: 'file',
+                dataType: 'file',
+                source: rawConfig,
+                hidden: false,
+              }),
+            ];
+          }
+
+          if (!rawConfig || typeof rawConfig !== 'object') {
+            return [];
+          }
+
+          const config = rawConfig;
+          const explicitKind = typeof config.kind === 'string' ? config.kind : null;
+          const explicitSource = typeof config.source === 'string' ? config.source : null;
+
+          const rows = [];
+          let hasVisibleRow = false;
+          let explicitRow = null;
+
+          if (explicitKind || explicitSource) {
+            explicitRow = makeRow({
+              kind: explicitKind ?? '',
+              dataType: explicitKind ?? '',
+              source: explicitSource ?? '',
+              hidden: false,
+            });
+            rows.push(explicitRow);
+            hasVisibleRow = true;
+          }
+
+          const additionalVisibleRows = [];
+          const hiddenRows = [];
+
+          Object.entries(config).forEach(([key, value]) => {
+            if (key === 'kind' || key === 'source') {
+              return;
+            }
+            if (typeof value !== 'string') {
+              return;
+            }
+            const normalizedKey = String(key).trim();
+            if (!normalizedKey) {
+              return;
+            }
+            const valueString = value.trim();
+
+            if (explicitRow && normalizedKey === (explicitKind ?? explicitRow.kind ?? explicitRow.dataType)) {
+              if (!explicitRow.kind) {
+                explicitRow.kind = normalizedKey;
+              }
+              if (!explicitRow.dataType) {
+                explicitRow.dataType = normalizedKey;
+              }
+              if (!explicitRow.source && valueString) {
+                explicitRow.source = valueString;
+              }
+              return;
+            }
+
+            const row = makeRow({
+              kind: normalizedKey,
+              dataType: normalizedKey,
+              source: valueString,
+              hidden: AUTO_MANAGED_ATTACHMENT_KINDS.has(normalizedKey),
+            });
+
+            if (row.hidden) {
+              hiddenRows.push(row);
+            } else if (!hasVisibleRow) {
+              rows.push({ ...row, hidden: false });
+              hasVisibleRow = true;
+            } else {
+              additionalVisibleRows.push(row);
+            }
+          });
+
+          rows.push(...additionalVisibleRows);
+          rows.push(...hiddenRows);
+
+          return rows;
+        })
+      : [];
 
     const referenceId = mapping.referenceId ?? null;
 
@@ -127,6 +282,7 @@ function normalizeMappings(raw) {
       titleField: mapping.titleField ?? '',
       fieldMap,
       staticFields,
+      attachments,
       computedType: getTypeForCategory(referenceId),
     };
   });
@@ -174,11 +330,77 @@ function serializeMappings(list) {
       result.staticFields = staticFields;
     }
 
+    const groupedAttachments = new Map();
+
+    (mapping.attachments ?? []).forEach((row) => {
+      const attachmentKey = String(row.attachmentKey || '').trim();
+      if (!attachmentKey) {
+        return;
+      }
+      if (!groupedAttachments.has(attachmentKey)) {
+        groupedAttachments.set(attachmentKey, []);
+      }
+      groupedAttachments.get(attachmentKey).push({
+        kind: String(row.kind ?? row.dataType ?? '').trim(),
+        dataType: String(row.dataType ?? row.kind ?? '').trim(),
+        source: row.source !== undefined && row.source !== null ? String(row.source).trim() : '',
+        hidden: Boolean(row.hidden),
+      });
+    });
+
+    const attachmentMap = {};
+
+    groupedAttachments.forEach((rows, attachmentKey) => {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return;
+      }
+
+      const config = {};
+      const visibleRow = rows.find((row) => !row.hidden && row.source);
+      const fallbackVisibleRow = rows.find((row) => !row.hidden) ?? null;
+      const effectiveRow = visibleRow ?? fallbackVisibleRow ?? null;
+
+      if (effectiveRow) {
+        const kind = effectiveRow.kind || effectiveRow.dataType;
+        if (kind) {
+          config.kind = kind;
+        }
+        if (effectiveRow.source) {
+          config.source = effectiveRow.source;
+        }
+        if (kind && effectiveRow.source) {
+          config[kind] = effectiveRow.source;
+        }
+      }
+
+      rows.forEach((row) => {
+        if (!row) return;
+        const key = row.dataType || row.kind;
+        if (!key) {
+          return;
+        }
+        if (!row.source) {
+          return;
+        }
+        if (row.hidden || AUTO_MANAGED_ATTACHMENT_KINDS.has(key)) {
+          config[key] = row.source;
+        }
+      });
+
+      if (Object.keys(config).length > 0) {
+        attachmentMap[attachmentKey] = config;
+      }
+    });
+
+    if (Object.keys(attachmentMap).length > 0) {
+      result.attachmentMap = attachmentMap;
+    }
+
     return result;
   });
 }
 
-export default function ExternalPrimitiveMappingsEditor({ primitive, availableFields = [] }) {
+export default function ExternalPrimitiveMappingsEditor({ primitive, availableFields = [], availableAttachmentSources = [] }) {
   const [mappings, setMappings] = useState(() => normalizeMappings(primitive?.referenceParameters?.mappings));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -239,6 +461,47 @@ export default function ExternalPrimitiveMappingsEditor({ primitive, availableFi
     return map;
   }, [mappings]);
 
+  const attachmentDefinitions = useMemo(() => {
+    const categoryId = primitive?.referenceId;
+    const category = categoryId ? mainstore.category(categoryId) : null;
+    let definitions = buildAttachmentDefinitions(category);
+
+    if (!definitions || definitions.length === 0) {
+      const fallbackAttachments = primitive?.referenceParameters?.attachmentDefinitions
+        ?? primitive?.referenceParameters?.attachmentsDefinition
+        ?? primitive?.referenceParameters?.attachments;
+      if (fallbackAttachments) {
+        definitions = buildAttachmentDefinitions({ parameters: { attachments: fallbackAttachments } });
+      }
+    }
+
+    if (definitions.length > 1) {
+      definitions.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    }
+    return definitions;
+  }, [primitive?.referenceId, primitive?.referenceParameters]);
+
+  const attachmentDefinitionByKey = useMemo(() => {
+    const map = new Map();
+    attachmentDefinitions.forEach((definition) => {
+      if (!definition || definition.key === undefined || definition.key === null) {
+        return;
+      }
+      const key = String(definition.key);
+      map.set(key, definition);
+    });
+    return map;
+  }, [attachmentDefinitions]);
+
+  const attachmentSourceSuggestions = useMemo(() => {
+    const set = new Set();
+    (availableAttachmentSources ?? []).forEach((entry) => {
+      if (!entry) return;
+      set.add(String(entry));
+    });
+    return Array.from(set);
+  }, [availableAttachmentSources]);
+
   const updateMapping = (index, updater) => {
     setMappings((current) =>
       current.map((mapping, idx) => {
@@ -298,6 +561,7 @@ export default function ExternalPrimitiveMappingsEditor({ primitive, availableFi
         titleField: '',
         fieldMap: [],
         staticFields: [],
+        attachments: [],
         computedType: undefined,
       },
     ]);
@@ -356,6 +620,114 @@ export default function ExternalPrimitiveMappingsEditor({ primitive, availableFi
         }
         const next = (mapping.staticFields ?? []).filter((row) => row.id !== rowId);
         return { ...mapping, staticFields: next };
+      }),
+    );
+    setDirty(true);
+  };
+
+  const addAttachmentRow = (mappingIndex) => {
+    setMappings((current) =>
+      current.map((mapping, idx) => {
+        if (idx !== mappingIndex) {
+          return mapping;
+        }
+        const defaultAttachmentKey = attachmentDefinitions[0]?.key ?? '';
+        const availableKinds = attachmentDefinitions[0]?.kinds?.filter((kind) => !AUTO_MANAGED_ATTACHMENT_KINDS.has(kind))
+          ?? ATTACHMENT_KIND_FALLBACK;
+        const defaultKind = attachmentDefinitions[0]?.kind
+          ?? availableKinds[0]
+          ?? ATTACHMENT_KIND_FALLBACK[0];
+        const defaultSource = attachmentSourceSuggestions[0] ?? '';
+        const next = [
+          ...(mapping.attachments ?? []),
+          {
+            id: createId('attachment'),
+            attachmentKey: defaultAttachmentKey,
+            kind: defaultKind,
+            dataType: defaultKind,
+            source: defaultSource,
+            hidden: false,
+          },
+        ];
+        return { ...mapping, attachments: next };
+      }),
+    );
+    setDirty(true);
+  };
+
+  const updateAttachmentRow = (mappingIndex, rowId, updates) => {
+    setMappings((current) =>
+      current.map((mapping, idx) => {
+        if (idx !== mappingIndex) {
+          return mapping;
+        }
+        const next = (mapping.attachments ?? []).map((row) => {
+          if (row.id !== rowId) {
+            return row;
+          }
+          let nextRow = { ...row, ...updates };
+
+          if (Object.prototype.hasOwnProperty.call(updates ?? {}, 'attachmentKey')) {
+            const nextKey = updates?.attachmentKey ?? nextRow.attachmentKey;
+            const definition = nextKey ? attachmentDefinitionByKey.get(String(nextKey)) : null;
+            if (definition) {
+              const availableKinds = Array.isArray(definition.kinds)
+                ? definition.kinds.filter((kind) => !AUTO_MANAGED_ATTACHMENT_KINDS.has(kind))
+                : [];
+              const resolvedKind = definition.kind
+                ?? availableKinds[0]
+                ?? nextRow.kind
+                ?? nextRow.dataType
+                ?? ATTACHMENT_KIND_FALLBACK[0];
+              nextRow = {
+                ...nextRow,
+                kind: resolvedKind,
+                dataType: resolvedKind,
+                hidden: Boolean(nextRow.hidden) && AUTO_MANAGED_ATTACHMENT_KINDS.has(resolvedKind)
+                  ? nextRow.hidden
+                  : false,
+              };
+            }
+          }
+
+          if (Object.prototype.hasOwnProperty.call(updates ?? {}, 'kind') && !Object.prototype.hasOwnProperty.call(updates ?? {}, 'dataType')) {
+            const resolvedKind = typeof updates?.kind === 'string' ? updates.kind : nextRow.kind;
+            if (resolvedKind) {
+              nextRow.dataType = resolvedKind;
+            }
+          }
+
+          if (!nextRow.kind && nextRow.dataType) {
+            nextRow.kind = nextRow.dataType;
+          }
+
+          return nextRow;
+        });
+        return { ...mapping, attachments: next };
+      }),
+    );
+    setDirty(true);
+  };
+
+  const removeAttachmentRow = (mappingIndex, rowId) => {
+    setMappings((current) =>
+      current.map((mapping, idx) => {
+        if (idx !== mappingIndex) {
+          return mapping;
+        }
+        let deletedKey;
+        const next = (mapping.attachments ?? []).filter((row) => {
+          if (row.id === rowId) {
+            deletedKey = row.attachmentKey;
+            return false;
+          }
+          const rowKind = row.kind ?? row.dataType;
+          if (deletedKey && row.attachmentKey === deletedKey && (row.hidden || AUTO_MANAGED_ATTACHMENT_KINDS.has(rowKind))) {
+            return false;
+          }
+          return true;
+        });
+        return { ...mapping, attachments: next };
       }),
     );
     setDirty(true);
@@ -424,7 +796,13 @@ export default function ExternalPrimitiveMappingsEditor({ primitive, availableFi
           No mappings defined yet.
         </div>
       ) : (
-        mappings.map((mapping, index) => (
+        mappings.map((mapping, index) => {
+          const attachmentsDisabled = attachmentDefinitions.length === 0;
+          const attachmentsHelpText = attachmentsDisabled
+            ? 'This integration does not define attachment slots.'
+            : null;
+
+          return (
           <Card key={mapping.id} shadow="sm" className="border border-default-200">
             <CardHeader className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5">
               <div>
@@ -632,6 +1010,135 @@ export default function ExternalPrimitiveMappingsEditor({ primitive, availableFi
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-default-600">Attachments</p>
+                  <Button
+                    size="sm"
+                    variant="bordered"
+                    onPress={() => addAttachmentRow(index)}
+                    isDisabled={attachmentsDisabled}
+                  >
+                    Add attachment
+                  </Button>
+                </div>
+                {attachmentsHelpText ? (
+                  <p className="text-xs text-default-500">{attachmentsHelpText}</p>
+                ) : (mapping.attachments ?? []).length === 0 ? (
+                  <p className="text-xs text-default-500">No attachments mapped yet.</p>
+                ) : (
+                  <Table
+                    removeWrapper
+                    aria-label="Attachment mappings"
+                    shadow="none"
+                    classNames={compactTableClassNames}
+                  >
+                    <TableHeader>
+                      <TableColumn>Attachment</TableColumn>
+                      <TableColumn>Record attachment</TableColumn>
+                      <TableColumn align="end">Actions</TableColumn>
+                    </TableHeader>
+                    <TableBody>
+                      {(mapping.attachments ?? [])
+                        .filter((row) => {
+                          const rowKind = row.kind ?? row.dataType;
+                          return !row.hidden && !AUTO_MANAGED_ATTACHMENT_KINDS.has(rowKind);
+                        })
+                        .map((row) => {
+                          const selectedAttachmentKey = String(row.attachmentKey || '');
+                          const availableSourceOptions = attachmentSourceSuggestions.map((option) => ({
+                            key: option,
+                            label: option,
+                          }));
+                          const selectedSourceKey = row.source && availableSourceOptions.some((option) => option.key === row.source)
+                            ? row.source
+                            : row.source
+                              ? row.source
+                              : '';
+                          const selectPlaceholder = availableSourceOptions.length === 0
+                            ? 'No attachments available'
+                            : 'Select attachment source';
+
+                          return (
+                            <TableRow key={row.id}>
+                              <TableCell>
+                                <Select
+                                  variant="bordered"
+                                  selectedKeys={selectedAttachmentKey ? [selectedAttachmentKey] : []}
+                                  onChange={(event) =>
+                                    updateAttachmentRow(index, row.id, { attachmentKey: event.target.value })
+                                  }
+                                  placeholder="Select attachment slot"
+                                  size="sm"
+                                  isDisabled={attachmentDefinitions.length === 0}
+                                  classNames={compactSelectClassNames}
+                                  menuTrigger="focus"
+                                  popoverProps={{
+                                    classNames: {
+                                      base: 'min-w-[14rem]',
+                                    },
+                                  }}
+                                >
+                                  {attachmentDefinitions.map((option) => (
+                                    <SelectItem
+                                      key={option.key}
+                                      description={option.description}
+                                    >
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  variant="bordered"
+                                  selectedKeys={selectedSourceKey ? [selectedSourceKey] : []}
+                                  onChange={(event) =>
+                                    updateAttachmentRow(index, row.id, { source: event.target.value })
+                                  }
+                                  placeholder={selectPlaceholder}
+                                  size="sm"
+                                  isDisabled={availableSourceOptions.length === 0}
+                                  classNames={compactSelectClassNames}
+                                  menuTrigger="focus"
+                                  popoverProps={{
+                                    classNames: {
+                                      base: 'min-w-[14rem]',
+                                    },
+                                  }}
+                                >
+                                  {availableSourceOptions.map((option) => (
+                                    <SelectItem key={option.key}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                  {row.source && !availableSourceOptions.some((option) => option.key === row.source) ? (
+                                    <SelectItem key={row.source}>{row.source}</SelectItem>
+                                  ) : null}
+                                </Select>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex justify-end">
+                                  <Button
+                                    size="sm"
+                                    variant="light"
+                                    color="danger"
+                                    onPress={() => removeAttachmentRow(index, row.id)}
+                                  >
+                                    Remove
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+
+              <Divider />
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-default-600">Static fields</p>
                   <Button size="sm" variant="bordered" onPress={() => addStaticFieldRow(index)}>
                     Add static field
@@ -678,7 +1185,8 @@ export default function ExternalPrimitiveMappingsEditor({ primitive, availableFi
               </div>
             </CardBody>
           </Card>
-        ))
+          )
+        })
       )}
 
       <div className="flex items-center justify-end gap-2">

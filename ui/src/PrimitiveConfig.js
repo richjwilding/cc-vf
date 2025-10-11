@@ -1517,7 +1517,10 @@ const PrimitiveConfig = {
                                         }else if(d.type === "action"){
                                             sf = "result"
                                         }else if(d.type === "result"){
-                                            sf = "description"
+                                            if( d.referenceParameters?.description){
+                                                sf = "description" 
+                                            }
+                                            return d.title
                                         }else{
                                             return d.title
                                         }
