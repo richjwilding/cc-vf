@@ -304,6 +304,8 @@ async function buildOrUpdateChildPrimitive(recordPrim, record, mapping) {
   return {
     mappingKey,
     primitiveId: childPrimitive._id?.toString?.() ?? childPrimitive.id,
+    primitive: childPrimitive,
+    mappingConfig: mapping,
   };
 }
 
@@ -437,9 +439,13 @@ export async function syncExternalPrimitive(primitive, options = {}) {
     await dispatchControlUpdate(recordPrimitive._id?.toString?.() ?? recordPrimitive.id, 'referenceParameters', referenceParameters);
     recordPrimitive.referenceParameters = referenceParameters;
 
+    const childPrimitiveResults = [];
     for (const mapping of mappings) {
       try {
-        await buildOrUpdateChildPrimitive(recordPrimitive, record, mapping);
+        const result = await buildOrUpdateChildPrimitive(recordPrimitive, record, mapping);
+        if (result) {
+          childPrimitiveResults.push(result);
+        }
       } catch (error) {
         logger.error(`Failed to process mapping for record ${key}`, error);
       }
@@ -451,6 +457,8 @@ export async function syncExternalPrimitive(primitive, options = {}) {
           record,
           recordPrimitive,
           parentPrimitive: primitive,
+          childPrimitives: childPrimitiveResults,
+          mappings,
           account,
           sourceConfig,
           fetchOptions,

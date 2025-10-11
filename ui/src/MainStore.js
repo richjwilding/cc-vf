@@ -545,9 +545,18 @@ const actions = {
             }
             const excludedTypes = new Set(["segment", "category", "query", "report", "reportinstance"]);
 
+            const forceImportsFoRelay = receiver.referenceParameters?.relayImports
             if( Object.keys(receiver.primitives).includes("imports") && (options.forceImports || (receiver.type !== "query" && receiver.type !== "summary" && receiver.type !== "search"))){
                 let fullList = []
                 let loops = 0 
+                /*if( receiver.referenceParameters?.relayImports){
+                    const relayedImports = receiver.primitives.imports.allItems.flatMap(d=>d.primitives.imports.allItems)
+                    let relayedList = []
+                    for(const d of relayedImports){
+                        relayedList = relayedList.concat(d.itemsForProcessingWithOptions(undefined, {cache:options.cache}) )
+                    }
+                    return relayedList
+                }*/
                 for( const source of receiver.primitives.imports.allItems){
                     if( id && source.id !== id){
                         continue
@@ -594,7 +603,7 @@ const actions = {
                         if( test ){
                             list = test
                         }else{
-                            list = list.concat(source.itemsForProcessingWithOptions(undefined, {cache:options.cache}) )
+                            list = list.concat(source.itemsForProcessingWithOptions(undefined, {forceImports: forceImportsFoRelay, cache:options.cache}) )
                             options.cache[source.id] = list
                         }
                     }else{
@@ -663,7 +672,6 @@ const actions = {
                         list = list.filter(d=>d.type == "entity" || d.type == "result" || d.type == "evidence") 
                     }
                     let config
-                    
                     config = receiver.referenceParameters?.importConfig?.filter(d=>d.id === source.id)
                     if( config && config.length > 0){
                         let filterOut

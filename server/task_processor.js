@@ -328,6 +328,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
     }else{
         let targetSegmentConfig
         const nullItem = []
+        let segmentShouldRelay = false
         if( (config?.by_axis === false) && (!options.by_axis)){
             if( options.legacySegments){
                 targetSegmentConfig = [
@@ -337,7 +338,17 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                 ]
 
             }else{
-                targetSegmentConfig = (primitive.primitives?.imports ?? []).map(d=>({id: d}))
+                if( primitive.type === "query" ){                    
+                    segmentShouldRelay = true
+                    targetSegmentConfig = [
+                        {
+                            id: primitive.id
+                        }
+                    ]
+                }else{
+                    targetSegmentConfig = (primitive.primitives?.imports ?? []).map(d=>({id: d}))
+                }
+
             }
         }else{
             if( options.legacySegments || options.local){
@@ -406,6 +417,9 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                         ...existing.referenceParameters.importConfig,
                         ...toAdd
                     ]
+                    if( segmentShouldRelay !== existing.referenceParameters?.relayImports){
+                        await dispatchControlUpdate(existing.id, "referenceParameters.relayImports", segmentShouldRelay)
+                    }
                     await dispatchControlUpdate(existing.id, "referenceParameters.importConfig", newSet)
                     for(const d of toAdd){
                         await addRelationship(existing.id, d.id, "imports")
@@ -421,6 +435,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                         type: "segment",
                         title: "New segment",
                         referenceParameters:{
+                            relayImports: segmentShouldRelay,
                             importConfig: nullConfigs
                         }
                     }
@@ -446,6 +461,9 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                 existing = undefined
             }
             if( existing ){
+                if( segmentShouldRelay !== existing.referenceParameters?.relayImports){
+                    await dispatchControlUpdate(existing.id, "referenceParameters.relayImports", segmentShouldRelay)
+                }
                 logger.debug(`++ Got segments for ${JSON.stringify(importConfig)} = ${existing.plainId}`)
             }
             if( !existing ){
@@ -457,6 +475,7 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                         type: "segment",
                         title: "New segment",
                         referenceParameters:{
+                            relayImports: segmentShouldRelay,
                             //target:"items",
                             importConfig:[pc]
                         }

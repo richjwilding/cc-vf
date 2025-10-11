@@ -339,13 +339,13 @@ export async function exportKonvaToPptx( stage, pptx, options = {} ){
                             valign:             hasIndents ? "top"     : konvaNode.verticalAlign(),
                         });
                         
-                        if( konvaNode.attrs?.url){
+                        if( konvaNode.attrs?.url ?? konvaNode.attrs?.linkUrl){
                             slide.addShape(pptx.shapes.RECTANGLE, {
                                 x: rx,
                                 y: ry,
                                 w: rw,
                                 h: rh,
-                                hyperlink: {url: konvaNode.attrs.url}
+                                hyperlink: {url: konvaNode.attrs.url ?? konvaNode.attrs?.linkUrl}
                             })
                         }
                     }

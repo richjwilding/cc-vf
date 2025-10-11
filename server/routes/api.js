@@ -102,7 +102,7 @@ router.get('/companyLogo', async (req, res) => {
             const winner = sorted[0][0]
             if( winner?.domain  ){                
                 domain = winner.domain
-                key = process.env.LOGODEV_KEY
+                key = process.env.LOGODEV_KEY_PK
             }else{
                 return res.status(400).send('Couldnt find a match');
             }

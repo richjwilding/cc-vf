@@ -1307,7 +1307,7 @@ export async function processQueue(job){
                                         title = filterName
                                     }
                                 }
-                                if( title !== primitive.title ){
+                                if( title && title !== primitive.title ){
                                     dispatchControlUpdate( primitive.id, "title", title)
                                 }
                                 dispatchControlUpdate( primitive.id, "referenceParameters.structured_summary", result.structured)

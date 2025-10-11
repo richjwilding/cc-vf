@@ -91,7 +91,7 @@ export function PrimitivePage({primitive, ...props}) {
     const hasCategories = false //(task && task.metadata.sections?.categories) || (primitive && primitive.metadata.sections?.categories)
 
     useEffect(()=>{
-      console.log(`re run effect ${primitive.id}`)
+      console.log(`re run effect ${primitive.id} ${hasDocumentViewer}`)
       if( hasDocumentViewer ){
         setShowWorkingPane(true )
 

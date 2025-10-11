@@ -943,7 +943,11 @@ export async function handleCollection(primitive, {api} = {}, doCreation = true)
                     doc.parentPrimitives[primitive.id] = parentPaths
 
                     if( linkInfo ){
-                        doc.parentPrimitives[linkInfo.linkId] = [linkInfo.linkPath]
+                        if( linkInfo.linkId === primitive.id){
+                            doc.parentPrimitives[primitive.id] = [...parentPaths,linkInfo.linkPath]
+                        }else{
+                            doc.parentPrimitives[linkInfo.linkId] = [linkInfo.linkPath]
+                        }
                     }
 
                     const typeConfig = PrimitiveConfig.typeConfig[doc.type] ?? {}

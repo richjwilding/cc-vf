@@ -184,6 +184,7 @@ function mapProfileToPrimitive(profile) {
         activity: source.activity,
         location: source.location_name || currentExperience?.location_name,
         profile: profileUrl,
+        imageUrl: source.picture_url,
         company: currentExperience?.company_name,
         company_domain: currentExperience?.company_website?.domain_only,
         company_id: currentExperience?.company_id,

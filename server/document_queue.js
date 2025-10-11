@@ -1317,7 +1317,7 @@ class DocumentQueueClass extends BaseQueue{
             }
             const data = {
                 mode: "discovery", 
-                req: {user: {accessToken: req.user.accessToken, refreshToken: req.user.refreshToken}}
+                req: {user: {accessToken: req.user?.accessToken, refreshToken: req.user?.refreshToken}}
             }
             await  this.addJob(workspaceId, {id: primitive.id, ...data, field: field})
             dispatchControlUpdate(primitive.id, field, {state: "active", started: new Date(), targetFields: fieldList}, {user: req?.user?.id, track: primitive.id, text:"Parsing document"})
@@ -1507,3 +1507,4 @@ export function findQuoteLocation(originalText, quote) {
   }
 
 registerAction("traffic_report", {categoryId: 34}, async (...args)=>{await QueueDocument().trafficReport(...args)})
+registerAction("discovery", {categoryId: [9,22]},async (primitive, options)=>{await QueueDocument().documentDiscovery(primitive, {})})

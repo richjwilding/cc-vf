@@ -1714,6 +1714,7 @@ export async function searchCompaniesWithTheCompaniesAPI(...args) {
     const results = [];
     const seenDomains = new Set();
     const recordsForCreation = [];
+    const maxPages = 20
     let totalCount = 0;
     let totalScanned = 0;
 
@@ -1824,6 +1825,9 @@ export async function searchCompaniesWithTheCompaniesAPI(...args) {
             if (response.nextPage) {
                 const nextPage = response.nextPage === page ? page + 1 : response.nextPage;
                 page = nextPage;
+                if( page >= maxPages){
+                    continuePaging = false
+                }
             } else {
                 continuePaging = false;
             }
