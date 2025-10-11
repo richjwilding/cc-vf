@@ -633,9 +633,10 @@ export async function streamlineWithPeers( parent, primitive, options = {}){
             if( structured ){
                 final = d.content.map(d=>d.content)
             }else{
-                const keywords = extractSentencesAndKeywords(d.content.replace(/[\s\t\n]+/g, ' '));
-                const groupedSentences = groupNeighboringSentences(keywords);
-                final = combineGroupsToChunks(groupedSentences).filter(d=>d && d.length > 0)
+                const keywords = await extractSentencesAndKeywords(d.content.replace(/[\s\t\n]+/g, ' '));
+                const groupedSentences = await groupNeighboringSentences(keywords);
+                const groupedChunks = await combineGroupsToChunks(groupedSentences);
+                final = groupedChunks.filter(d=>d && d.length > 0)
             }
             
             logger.debug(`For ${d.title} have ${final.length} groups (${structured ? "Structured" : "Text"})`)
