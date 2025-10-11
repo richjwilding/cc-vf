@@ -9,6 +9,14 @@ import { dispatchControlUpdate, executeConcurrently, fetchPrimitives } from "./S
 import { getLogger } from "./logger";
 const logger = getLogger('document_search', "info"); // Debug level for moduleA
 
+const YIELD_CHUNK_SIZE = 25;
+async function yieldToEventLoop(){
+    if( typeof setImmediate === "function" ){
+        return new Promise(resolve => setImmediate(resolve));
+    }
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 
 export async function retrieveDocumentFromSearchCache( primitiveId){
     const fragments = await ContentEmbedding.find({foreignId: primitiveId },{foreignId:1, part:1, text: 1})
@@ -70,9 +78,12 @@ export async function buildDocumentTextEmbeddings( text, limit ){
     if( !text || text.length === 0){
         return
     }
-    const keywords = extractSentencesAndKeywords(text.replace(/[\s\t\n]+/g, ' '));
-    const groupedSentences = groupNeighboringSentences(keywords);
-    let final = combineGroupsToChunks(groupedSentences)
+    const keywords = await extractSentencesAndKeywords(text.replace(/[\s\t\n]+/g, ' '));
+    if( !keywords?.length ){
+        return []
+    }
+    const groupedSentences = await groupNeighboringSentences(keywords);
+    let final = await combineGroupsToChunks(groupedSentences)
     let truncating = false
 
     if( limit && limit < final.length){
@@ -145,28 +156,28 @@ function splitLongGroup(group, maxWords) {
 
     return chunks;
 }*/
-export function combineGroupsToChunks(groups, maxWords = 120) {
+export async function combineGroupsToChunks(groups, maxWords = 120) {
+  if( !groups?.length ){
+    return []
+  }
   const chunks = [];
   let currentChunk = [];
   let currentWordCount = 0;
 
-  groups.forEach(group => {
-    // 1. Compute word count of this group
+  for( let groupIndex = 0; groupIndex < groups.length; groupIndex++ ){
+    const group = groups[groupIndex];
     const groupText = group.join(' ');
     const groupWords = groupText.split(/\s+/).length;
 
-    // 2. If it’s too big, split it into sub-chunks; otherwise wrap it in an array
     const subChunks = groupWords > maxWords
       ? splitLongGroup(group, maxWords)
       : [groupText];
 
-    // 3. Now treat each sub-chunk like a “mini-group”
-    subChunks.forEach(textPiece => {
+    for( let subIndex = 0; subIndex < subChunks.length; subIndex++ ){
+      const textPiece = subChunks[subIndex];
       const pieceWordCount = textPiece.split(/\s+/).length;
 
-      // does it fit in the current chunk?
       if (currentWordCount + pieceWordCount > maxWords) {
-        // flush current chunk
         if (currentChunk.length) {
           chunks.push(currentChunk.join(' '));
         }
@@ -174,13 +185,19 @@ export function combineGroupsToChunks(groups, maxWords = 120) {
         currentWordCount = 0;
       }
 
-      // add this piece
       currentChunk.push(textPiece);
       currentWordCount += pieceWordCount;
-    });
-  });
 
-  // push the last one
+      if( (subIndex + 1) % YIELD_CHUNK_SIZE === 0 ){
+        await yieldToEventLoop();
+      }
+    }
+
+    if( (groupIndex + 1) % YIELD_CHUNK_SIZE === 0 ){
+      await yieldToEventLoop();
+    }
+  }
+
   if (currentChunk.length) {
     chunks.push(currentChunk.join(' '));
   }
@@ -210,29 +227,35 @@ function __extractSentencesAndKeywords(text) {
     return keywords;
 }
 
-export function extractSentencesAndKeywords(text) {
-    const processChunk = (chunk) => {
-        //console.log(`doing chunk ${chunk.length} / ${chunk.slice(0,50)}..`)
+export async function extractSentencesAndKeywords(text) {
+    if( !text ){
+        return []
+    }
+    const processChunk = async (chunk) => {
         let doc = nlp(chunk);
         let sentences = doc.sentences().out('array');
-        let keywords = sentences.map(sentence => {
-        let tempDoc = nlp(sentence);
-        return {
-            sentence: sentence,
-            nouns: tempDoc.nouns().out('array').map(noun => {
-            noun = noun.toLowerCase();
-            const cleaned = noun
-                .replace(/^\s*(\d+\.)+\s*(?=\w)/g, '')
-                .replace(/\b(the|a|an)\b\s*/gi, '');
-            return [cleaned, noun, PorterStemmer.stem(noun), PorterStemmer.stem(cleaned)];
-            }).flat(),
-            verbs: tempDoc.verbs().out('array').map(verb => [verb.toLowerCase(), PorterStemmer.stem(verb.toLowerCase())]).flat()
-        };
-        });
+        let keywords = [];
+        for( let i = 0; i < sentences.length; i++ ){
+            const sentence = sentences[i];
+            let tempDoc = nlp(sentence);
+            keywords.push({
+                sentence: sentence,
+                nouns: tempDoc.nouns().out('array').map(noun => {
+                    noun = noun.toLowerCase();
+                    const cleaned = noun
+                        .replace(/^\s*(\d+\.)+\s*(?=\w)/g, '')
+                        .replace(/\b(the|a|an)\b\s*/gi, '');
+                    return [cleaned, noun, PorterStemmer.stem(noun), PorterStemmer.stem(cleaned)];
+                }).flat(),
+                verbs: tempDoc.verbs().out('array').map(verb => [verb.toLowerCase(), PorterStemmer.stem(verb.toLowerCase())]).flat()
+            });
+            if( (i + 1) % YIELD_CHUNK_SIZE === 0 ){
+                await yieldToEventLoop();
+            }
+        }
         return keywords;
     };
-    
-    // Function to split the text into smaller chunks
+
     const chunkText = (text, chunkSize = 10000) => {
         let chunks = [];
         for (let i = 0; i < text.length; i += chunkSize) {
@@ -240,25 +263,29 @@ export function extractSentencesAndKeywords(text) {
         }
         return chunks;
     };
-  
-  // Main function to extract sentences and keywords from large text
+
     let chunks = chunkText(text);
     let results = [];
-    chunks.forEach(chunk => {
-      let chunkResult = processChunk(chunk);
-      results = results.concat(chunkResult);
-    });
+    for( let idx = 0; idx < chunks.length; idx++ ){
+        if( idx % YIELD_CHUNK_SIZE === 0 ){
+            await yieldToEventLoop();
+        }
+        let chunkResult = await processChunk(chunks[idx]);
+        results = results.concat(chunkResult);
+    }
     return results;
-  }
-export function groupNeighboringSentences(keywords) {
+}
+export async function groupNeighboringSentences(keywords) {
+    if( !keywords?.length ){
+        return []
+    }
     let groups = [];
     let currentGroup = [keywords[0]];
 
     for (let i = 1; i < keywords.length; i++) {
         const current = keywords[i];
-        let matched = false;  // Flag to check if current sentence matches with any in the group
+        let matched = false;
 
-        // Compare current sentence with all in the current group for common nouns or verbs
         for (let j = 0; j < currentGroup.length; j++) {
             const groupItem = currentGroup[j];
             const commonNouns = current.nouns.filter(noun => groupItem.nouns.includes(noun));
@@ -266,18 +293,23 @@ export function groupNeighboringSentences(keywords) {
             if (commonNouns.length > 0 || commonVerbs.length > 0) {
                 currentGroup.push(current);
                 matched = true;
-                break;  // No need to check further if already matched
+                break;
+            }
+            if( (j + 1) % YIELD_CHUNK_SIZE === 0 ){
+                await yieldToEventLoop();
             }
         }
 
-        // If no match found, start a new group
         if (!matched) {
-            groups.push(currentGroup.map(item => item.sentence));  // Save the current group
-            currentGroup = [current];  // Start a new group
+            groups.push(currentGroup.map(item => item.sentence));
+            currentGroup = [current];
+        }
+
+        if( (i + 1) % YIELD_CHUNK_SIZE === 0 ){
+            await yieldToEventLoop();
         }
     }
 
-    // Don't forget to add the last group
     if (currentGroup.length > 0) {
         groups.push(currentGroup.map(item => item.sentence));
     }
