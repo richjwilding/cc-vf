@@ -262,7 +262,26 @@ async function getQueueObject(type) {
 
         const isCancelled = await redisClient.get(`job:${job.id}:cancel`);
         if (isCancelled === 'true') {
-            parentPort.postMessage({ result: 'cancelled', queueName, jobId: job.id });
+            logger.info(`[Worker] Detected pre-start cancellation for ${job.id} on ${queueName}`, { type: workerData.type });
+            try {
+                await queueObject.default().endJob({
+                    success: false,
+                    result: { cancelled: true, reason: 'cancelled-before-start' },
+                    queueType: workerData.type,
+                    queueName,
+                    jobId: job.id,
+                    notify: job.data.notify,
+                    token,
+                    parent: parentMeta,
+                });
+            } catch (notifyErr) {
+                logger.error(`[Worker] Error notifying cancel for ${job.id} before start`, notifyErr);
+            }
+            try {
+                await job.moveToFailed({ message: 'Cancelled before start' }, token);
+            } catch (moveErr) {
+                logger.error(`[Worker] Error moving cancelled job ${job.id} to failed`, moveErr);
+            }
             return;
         }
         if (!isMongoConnected) {

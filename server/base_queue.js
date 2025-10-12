@@ -51,6 +51,9 @@ export default class BaseQueue {
     async resetChildWaiting(...args) {
         return await this._queue.resetChildWaiting(...args);
     }
+    async cancelJobTree(...args) {
+        return await this._queue.cancelJobTree(...args);
+    }
     async sendNotification(...args){
         await this._queue.sendNotification(...args)
     }
@@ -66,15 +69,21 @@ export default class BaseQueue {
         try{
             let status , error
             let notifyResponse, timeField
-            if( result.started){
+            if( result?.cancelled ){
+                status = "cancelled"
+                timeField = "completed"
+            }else if( result?.cancelling ){
+                status = "cancelling"
+                timeField = "running"
+            }else if( result?.started){
                 status = "running"
                 timeField = "running"
-            }else if(result.error ){
+            }else if(result?.error ){
                 status = "error"
-                error = result.error
+                error = result?.error
                 timeField = "completed"
 
-            }else if(result.success === true){
+            }else if(result?.success === true){
                 status = "complete"
                 timeField = "completed"
             }
@@ -86,10 +95,21 @@ export default class BaseQueue {
                     ...(prim.processing?.[job.mode] ?? {}),
                     status, 
                     error,
-                    [timeField]: new Date().toISOString(), 
                     track: job.id
                 }
-                if( result.error){
+                if( timeField ){
+                    update[timeField] = new Date().toISOString()
+                }
+                if( result?.reason ){
+                    update.reason = result.reason
+                }
+                if( result?.cancelled ){
+                    update.cancelledAt = new Date().toISOString()
+                    update.cancellationReason = result.reason
+                }else if( result?.cancelling ){
+                    update.cancellationReason = result.reason
+                }
+                if( result?.error){
 
                 }
                 await dispatchControlUpdate(job.id, `processing.${job.mode}`, update);

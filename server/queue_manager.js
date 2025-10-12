@@ -1089,6 +1089,254 @@ class QueueManager {
         return { childResponse };
     }
 
+    getQueueTypeFromName(queueName) {
+        if (!queueName || typeof queueName !== 'string') {
+            return null;
+        }
+        const lastHyphen = queueName.lastIndexOf('-');
+        if (lastHyphen === -1) {
+            return null;
+        }
+        return queueName.slice(lastHyphen + 1);
+    }
+
+    async collectDependencyKeys(job, opts = {}) {
+        const limit = Math.max(1, Number(opts.limit || 1000));
+        const keys = [];
+        let cursor = 0;
+        let iterations = 0;
+        const maxIterations = 200;
+
+        while (iterations < maxIterations && keys.length < limit) {
+            let deps;
+            try {
+                deps = await job.getDependencies({
+                    unprocessed: { cursor, count: Math.min(100, limit - keys.length) },
+                });
+            } catch (err) {
+                logger.error(`[${this.type}] Error retrieving dependencies for ${job?.id}`, err);
+                break;
+            }
+            const unprocessed = deps?.unprocessed || [];
+            for (const key of unprocessed) {
+                if (key) {
+                    keys.push(key);
+                    if (keys.length >= limit) {
+                        break;
+                    }
+                }
+            }
+            cursor = deps?.nextUnprocessedCursor ?? 0;
+            if (!cursor || cursor === 0) {
+                break;
+            }
+            iterations += 1;
+        }
+        return keys;
+    }
+
+    async requestActiveJobCancellation(queueName, job, opts = {}) {
+        const reason = opts.reason || 'user-request';
+        try {
+            await this.cancelJob(job.name);
+        } catch (err) {
+            logger.error(`[${this.type}] Error flagging job ${job?.id} for cancellation`, err);
+        }
+
+        try {
+            const updatedData = {
+                ...(job.data || {}),
+                cancellationRequested: true,
+                cancellationReason: reason,
+                cancellationRequestedAt: Date.now(),
+            };
+            await job.updateData(updatedData);
+        } catch (err) {
+            logger.error(`[${this.type}] Error updating data for cancelling job ${job?.id}`, err);
+        }
+
+        const parentJob = job?.parent ? { id: job.parent.id, queueName: job.parent.queueKey.slice(5) } : null;
+        try {
+            await this.sendNotification(
+                job.id,
+                { cancelling: true, reason, success: false },
+                { parentJob }
+            );
+        } catch (notifyError) {
+            logger.error(`[${this.type}] Error notifying cancellation request for ${job?.id}`, notifyError);
+        }
+    }
+
+    async cancelQueuedJob(queueName, job, opts = {}) {
+        const reason = opts.reason || 'user-request';
+        const parentJob = job?.parent ? { id: job.parent.id, queueName: job.parent.queueKey.slice(5) } : null;
+        try {
+            await this.finalizeJobLifecycle({
+                queueName,
+                jobId: job.id,
+                parentJob,
+                payload: {
+                    result: { cancelled: true, reason },
+                    error: null,
+                    success: false,
+                },
+                reason: `cancelled:${reason}`,
+            });
+        } catch (err) {
+            logger.error(`[${this.type}] Error finalizing queued job ${job?.id} during cancellation`, err);
+        }
+
+        try {
+            await job.remove();
+        } catch (err) {
+            logger.error(`[${this.type}] Error removing queued job ${job?.id} during cancellation`, err);
+        }
+    }
+
+    async cancelWaitingChildrenJob(queueName, job, opts = {}) {
+        const reason = opts.reason || 'user-request';
+        const pendingDependencies = typeof opts.dependencyCount === 'number' ? opts.dependencyCount : undefined;
+        try {
+            await this.finalizeWaitingChildrenJob(queueName, job, {
+                reason: `cancelled:${reason}`,
+                pendingDependencies,
+                payload: {
+                    result: { cancelled: true, reason },
+                    error: null,
+                    success: false,
+                },
+            });
+        } catch (err) {
+            logger.error(`[${this.type}] Error cancelling waiting-children job ${job?.id}`, err);
+        }
+    }
+
+    async cancelJobTree({ queueName, jobId, reason = 'user-request', visited, depth = 0, initiator } = {}) {
+        if (!queueName || !jobId) {
+            return { error: 'invalid-target', queueName, jobId };
+        }
+
+        const queueType = this.getQueueTypeFromName(queueName);
+        if (!queueType) {
+            return { error: 'invalid-queue-name', queueName, jobId };
+        }
+
+        if (!visited) {
+            visited = new Set();
+        }
+
+        if (queueType !== this.type) {
+            const queueObject = this.getQueueObject(queueType);
+            if (!queueObject?._queue) {
+                return { error: 'unknown-queue-type', queueName, jobId, queueType };
+            }
+            return await queueObject._queue.cancelJobTree({
+                queueName,
+                jobId,
+                reason,
+                visited,
+                depth,
+                initiator,
+            });
+        }
+
+        const identifier = `${queueName}:${jobId}`;
+        if (visited.has(identifier)) {
+            return { queueName, jobId, skipped: true, reason: 'already-visited' };
+        }
+        visited.add(identifier);
+
+        let queueRef = this.queues[queueName];
+        let createdTemporaryQueue = false;
+        if (!queueRef) {
+            try {
+                queueRef = new Queue(queueName, { connection: this.connection });
+                createdTemporaryQueue = true;
+            } catch (err) {
+                visited.delete(identifier);
+                logger.error(`[${this.type}] Error opening queue ${queueName} for cancellation`, err);
+                return { queueName, jobId, error: 'queue-open-failed', reason: err?.message };
+            }
+        }
+
+        try {
+            const job = await queueRef.getJob(jobId);
+            if (!job) {
+                return { queueName, jobId, missing: true };
+            }
+
+            let state;
+            try {
+                state = await job.getState();
+            } catch (err) {
+                logger.error(`[${this.type}] Error retrieving state for job ${job?.id} on ${queueName}`, err);
+                state = 'unknown';
+            }
+
+            const dependencyKeys = await this.collectDependencyKeys(job);
+            const children = [];
+            for (const key of dependencyKeys) {
+                const parsed = this.parseDependencyKey(key);
+                if (!parsed) {
+                    children.push({ key, error: 'unparseable-key' });
+                    continue;
+                }
+                const childResult = await this.cancelJobTree({
+                    queueName: parsed.queueName,
+                    jobId: parsed.jobId,
+                    reason,
+                    visited,
+                    depth: depth + 1,
+                    initiator,
+                });
+                children.push(childResult);
+            }
+
+            if (state === 'active') {
+                await this.requestActiveJobCancellation(queueName, job, { reason, initiator });
+                return {
+                    queueName,
+                    jobId,
+                    state,
+                    cancellationRequested: true,
+                    children,
+                };
+            }
+
+            if (state === 'waiting' || state === 'delayed' || state === 'paused') {
+                await this.cancelQueuedJob(queueName, job, { reason, initiator });
+                return { queueName, jobId, state, cancelled: true, children };
+            }
+
+            if (state === 'waiting-children') {
+                await this.cancelWaitingChildrenJob(queueName, job, {
+                    reason,
+                    initiator,
+                    dependencyCount: dependencyKeys.length,
+                });
+                return { queueName, jobId, state, cancelled: true, children };
+            }
+
+            if (state === 'failed' || state === 'completed') {
+                return { queueName, jobId, state, alreadyFinished: true, children };
+            }
+
+            return { queueName, jobId, state, children };
+        } catch (err) {
+            logger.error(`[${this.type}] Error cancelling job ${jobId} on ${queueName}`, err);
+            return { queueName, jobId, error: 'cancel-error', reason: err?.message };
+        } finally {
+            if (createdTemporaryQueue) {
+                try {
+                    await queueRef.close();
+                } catch (closeErr) {
+                    logger.error(`[${this.type}] Error closing temporary queue ${queueName}`, closeErr);
+                }
+            }
+            visited.delete(identifier);
+        }
+    }
+
     async sweepWaitingChildrenQueues(opts = {}) {
         if (this.sweepingWaitingChildren) {
             logger.debug(`[${this.type}] Skipping waiting-children sweep because another sweep is in progress`);
@@ -1597,7 +1845,9 @@ class QueueManager {
                         children: await job.getChildrenValues(),
                         data: job.data,
                         attemptsMade: job.attemptsMade,
-                        failedReason: job.failedReason
+                        failedReason: job.failedReason,
+                        queueName,
+                        queueType: this.type,
                     })
                 }
 
@@ -1605,6 +1855,8 @@ class QueueManager {
 
                 aggregateList.push({
                     queue: queueName,
+                    queueType: this.type,
+                    workspaceId: queueName?.includes('-') ? queueName.slice(0, queueName.lastIndexOf('-')) : undefined,
                     jobs: mappedJobs,
                     activeCount,
                     lastActivity,

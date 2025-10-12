@@ -193,6 +193,7 @@ function App() {
                 <Route path="/account" element={<AccountScreen/>}/>
                 <Route path="/integrations" element={<IntegrationsScreen />}/>
                 <Route path="/queue/:id?" element={<QueuePage />}/>
+                <Route path="/queues/:workspaceId" element={<QueuePage />}/>
                 <Route path="/workflows/:id?" element={<WorkflowDashboard/>} />
                 <Route
                   path="/item/:id"

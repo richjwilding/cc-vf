@@ -124,18 +124,40 @@ export async function queueReset(){
         console.log(`Error resetting queue`)
     }
 }
-export async function queueStatus(){
+export async function queueStatus(options){
 
     try{
+        let opts = options;
+        if (typeof options === 'string') {
+            opts = { workspaceId: options };
+        }
+        const workspaceId = opts?.workspaceId ? String(opts.workspaceId) : undefined;
 
-        return [
+        let result = [
             ...(await QueryQueue().pending()),
             ...(await BrightDataQueue().pending()),
             ...(await QueueDocument().pending()),
             ...(await QueueAI().pending()),
             ...(await EnrichPrimitive().pending()),
             ...(await FlowQueue().pending())
-        ]
+        ];
+
+        if (workspaceId) {
+            result = result.filter(entry => {
+                if (!entry) {
+                    return false;
+                }
+                if (entry.workspaceId) {
+                    return entry.workspaceId === workspaceId;
+                }
+                if (typeof entry.queue === 'string') {
+                    return entry.queue.startsWith(`${workspaceId}-`);
+                }
+                return false;
+            });
+        }
+
+        return result;
     }catch(error){
         console.log(`Error fetching queue status`)
         console.log(error)
