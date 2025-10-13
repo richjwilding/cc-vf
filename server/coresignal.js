@@ -10,6 +10,9 @@ import { normaliseDomain } from './actions/SharedTransforms.js';
 const CORESIGNAL_BASE_URL = 'https://api.coresignal.com';
 const CORESIGNAL_BULK_ES_DSL_URL = `${CORESIGNAL_BASE_URL}/cdapi/v2/data_requests/employee_multi_source/es_dsl`;
 const CORESIGNAL_DATA_REQUEST_BASE_URL = `${CORESIGNAL_BASE_URL}/cdapi/v2/data_requests`;
+const CORESIGNAL_COMPANY_MULTI_SOURCE_URL =
+    process.env.CORESIGNAL_COMPANY_MULTI_SOURCE_URL
+    ?? `${CORESIGNAL_BASE_URL}/cdapi/v2/company_multi_source/enrich`;
 
 const DEFAULT_RESULT_CATEGORY = 58;
 const DEFAULT_API = 'person_search';
@@ -39,6 +42,20 @@ function coerceArray(value) {
         .split(',')
         .map((item) => item.trim())
         .filter(Boolean);
+}
+
+function ensureAbsoluteUrl(raw) {
+    if (!raw || typeof raw !== 'string') {
+        return undefined;
+    }
+    const trimmed = raw.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    if (/^https?:\/\//i.test(trimmed)) {
+        return trimmed;
+    }
+    return `https://${trimmed.replace(/^\/+/, '')}`;
 }
 
 function buildSearchQuery({ domain, terms, titles = [], locations = [], seniorities = [], functions = [] }) {
@@ -202,6 +219,409 @@ function mapProfileToPrimitive(profile) {
         title,
         referenceParameters
     };
+}
+
+export async function fetchCoresignalCompanyProfile(identifiers = {}, options = {}) {
+    const {
+        website,
+        url,
+        domain
+    } = identifiers ?? {};
+
+    const normalizedDomain = normaliseDomain(domain);
+    const normalizedWebsite =
+        ensureAbsoluteUrl(website)
+        ?? ensureAbsoluteUrl(url)
+        ?? (normalizedDomain ? ensureAbsoluteUrl(normalizedDomain) : undefined);
+
+    if (!normalizedWebsite) {
+        throw new Error('Coresignal company profile enrichment requires a company website URL');
+    }
+
+    const params = {
+        website: normalizedWebsite,
+        ...(options.params ?? {})
+    };
+
+    if (options.includeRaw === true) {
+        params.include_raw = 'true';
+    }
+
+    const endpoint = options.endpoint ?? CORESIGNAL_COMPANY_MULTI_SOURCE_URL;
+    const headers = getCoresignalHeaders();
+
+    let response;
+    try {
+        response = await axios.get(endpoint, {
+            headers,
+            params,
+            validateStatus: (status) => status < 500
+        });
+    } catch (error) {
+        console.error('Failed to request Coresignal company profile', error?.response?.data ?? error);
+        throw error;
+    }
+
+    if (response.status === 404 || response.status === 204) {
+        return null;
+    }
+
+    if (response.status >= 400) {
+        const message = response.data?.message || response.statusText || 'Unknown error';
+        throw new Error(`Coresignal company profile request failed (${response.status}): ${message}`);
+    }
+
+    return response.data ?? null;
+}
+
+function toISODate(value) {
+    if (!value) {
+        return null;
+    }
+    const trimmed = typeof value === 'string' ? value.trim() : value;
+    if (!trimmed) {
+        return null;
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+    }
+    const fallback = new Date(`${trimmed}T00:00:00Z`);
+    return Number.isNaN(fallback.getTime()) ? null : fallback.toISOString();
+}
+
+function normalizeCurrencyCode(value) {
+    if (!value || typeof value !== 'string') {
+        return null;
+    }
+    if( value === "$"){
+        return "USD"
+    }
+    const code = value.trim().toUpperCase();
+    return /^[A-Z]{3}$/.test(code) ? code : null;
+}
+
+function normalizeAmount(value) {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) {
+        return null;
+    }
+    return num;
+}
+
+function normalizeRoundType(value) {
+    if (!value || typeof value !== 'string') {
+        return null;
+    }
+    const base = value.trim().toLowerCase();
+    if (!base) {
+        return null;
+    }
+    const replacements = {
+        'seed round': 'seed',
+        'seed': 'seed',
+        'pre seed': 'pre_seed',
+        'pre-seed': 'pre_seed',
+        'series a': 'series_a',
+        'series b': 'series_b',
+        'series c': 'series_c',
+        'series d': 'series_d',
+        'series e': 'series_e',
+        'series f': 'series_f',
+        'series g': 'series_g',
+        'series h': 'series_h',
+        'series i': 'series_i',
+        'series j': 'series_j',
+        'angel': 'angel',
+        'convertible note': 'convertible_note',
+        'debt financing': 'debt_financing',
+        'equity crowdfunding': 'equity_crowdfunding',
+        'grant': 'grant',
+        'initial coin offering': 'ico',
+        'post-ipo debt': 'post_ipo_debt',
+        'post-ipo equity': 'post_ipo_equity',
+        'post-ipo secondary': 'post_ipo_secondary',
+        'private equity': 'private_equity',
+        'corporate round': 'corporate_round',
+        'secondary market': 'secondary_market',
+        'product crowdfunding': 'product_crowdfunding',
+        'venture - series unknown': 'venture_round',
+        'venture round': 'venture_round',
+        'ipo': 'ipo',
+        'grant round': 'grant'
+    };
+    if (replacements[base]) {
+        return replacements[base];
+    }
+    return base
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\s/g, '_') || null;
+}
+
+function toMonthIsoDate(value) {
+    if (!value) {
+        return null;
+    }
+    const trimmed = `${value}`.trim();
+    if (!trimmed) {
+        return null;
+    }
+    if (/^\d{4}-\d{2}$/.test(trimmed)) {
+        return `${trimmed}-01T00:00:00.000Z`;
+    }
+    if (/^\d{6}$/.test(trimmed)) {
+        const year = trimmed.slice(0, 4);
+        const month = trimmed.slice(4, 6);
+        return `${year}-${month}-01T00:00:00.000Z`;
+    }
+    return toISODate(trimmed);
+}
+
+function mapCoresignalInvestorList(rawList, { lead = false } = {}) {
+    if (!Array.isArray(rawList)) {
+        return [];
+    }
+    return rawList
+        .map((item) => {
+            if (!item) {
+                return null;
+            }
+            if (typeof item === 'string') {
+                const trimmed = item.trim();
+                if (!trimmed) {
+                    return null;
+                }
+                return {
+                    id: null,
+                    name: trimmed,
+                    type: null,
+                    lead: lead ? true : null,
+                    permalink: null,
+                    image_id: null
+                };
+            }
+            if (typeof item === 'object') {
+                const id = item.id ?? item.investor_id ?? null;
+                const rawName = item.name ?? item.value ?? item.company_name ?? null;
+                const name = typeof rawName === 'string' ? rawName.trim() : rawName;
+                const permalink = item.permalink ?? item.url ?? null;
+                const type = item.type ?? null;
+                const leadFlag = lead || item.lead === true || item.lead_investor === true;
+                return {
+                    id: id ?? null,
+                    name: name ?? null,
+                    type: type ?? null,
+                    lead: leadFlag ? true : (item.lead === false || item.lead_investor === false ? false : null),
+                    permalink: permalink ?? null,
+                    image_id: item.image_id ?? null
+                };
+            }
+            return null;
+        })
+        .filter((entry) => entry?.name);
+}
+
+function mapCoresignalFundingRounds(rawList) {
+    if (!Array.isArray(rawList)) {
+        return [];
+    }
+    return rawList
+        .map((raw) => {
+            if (!raw) {
+                return null;
+            }
+            const amountValue = normalizeAmount(raw.amount_raised ?? raw.amount ?? raw.value);
+            const amountUsd = normalizeAmount(raw.amount_raised_usd ?? raw.amount_raised_value_usd ?? raw.value_usd);
+            const currency = normalizeCurrencyCode(raw.amount_raised_currency ?? raw.currency);
+            const leadInvestors = mapCoresignalInvestorList(raw.lead_investors, { lead: true });
+            const investors = (() => {
+                const list = mapCoresignalInvestorList(raw.investors, { lead: false });
+                if (list.length) {
+                    return list;
+                }
+                return leadInvestors.map((item) => ({ ...item, lead: item.lead ?? true }));
+            })();
+            return {
+                round_id: raw.id ?? raw.round_id ?? null,
+                round_uuid: raw.uuid ?? null,
+                title: raw.name ?? raw.round_name ?? null,
+                type: normalizeRoundType(raw.type ?? raw.round_type ?? raw.name),
+                announced_on: toISODate(raw.announced_date ?? raw.announced_on ?? raw.date),
+                money_raised: {
+                    value: amountValue,
+                    currency,
+                    value_usd: amountUsd ?? (currency === 'USD' ? amountValue : null)
+                },
+                investors,
+                lead_investors: leadInvestors,
+                artifacts: {
+                    image_id: raw.image_id ?? null,
+                    transaction_name: raw.transaction_name ?? raw.name ?? null
+                }
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => {
+            const timeA = a.announced_on ? Date.parse(a.announced_on) : Number.NEGATIVE_INFINITY;
+            const timeB = b.announced_on ? Date.parse(b.announced_on) : Number.NEGATIVE_INFINITY;
+            if (timeA === timeB) {
+                return 0;
+            }
+            return timeB - timeA;
+        });
+}
+
+function aggregateTotalsByCurrency(rounds) {
+    const totals = new Map();
+    for (const round of rounds) {
+        const currency = round?.money_raised?.currency;
+        const value = round?.money_raised?.value;
+        if (!currency || value === null || value === undefined) {
+            continue;
+        }
+        const normalizedCurrency = currency.toUpperCase();
+        const prev = totals.get(normalizedCurrency) ?? 0;
+        totals.set(normalizedCurrency, prev + value);
+    }
+    return totals;
+}
+
+function mapCoresignalMonthlySeries(rawList, valueKeys = [], dateKeys = []) {
+    if (!Array.isArray(rawList)) {
+        return [];
+    }
+    return rawList
+        .map((item) => {
+            if (!item) {
+                return null;
+            }
+            const dateValue = dateKeys
+                .map((key) => (key && item[key] !== undefined ? item[key] : undefined))
+                .find((value) => value !== undefined && value !== null);
+            const normalizedDate = toMonthIsoDate(dateValue ?? item.date);
+            if (!normalizedDate) {
+                return null;
+            }
+            const rawValue = valueKeys
+                .map((key) => (key && item[key] !== undefined ? item[key] : undefined))
+                .find((value) => value !== undefined && value !== null);
+            const numericValue = normalizeAmount(rawValue ?? item.value ?? item.count ?? item.total_website_visits);
+            if (numericValue === null) {
+                return null;
+            }
+            return {
+                date: normalizedDate,
+                value: numericValue,
+                count: numericValue
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+}
+
+export function buildCoresignalCompanySignals(record = {}, options = {}) {
+    const fetchedAt = new Date().toISOString();
+    const provenance = {
+        source: 'coresignal.company_multi_source',
+        fetched_at: fetchedAt
+    };
+
+    const rounds = mapCoresignalFundingRounds(record?.funding_rounds);
+    const totalsByCurrency = aggregateTotalsByCurrency(rounds);
+    const numFundingRounds = normalizeAmount(record?.num_funding_rounds);
+    const lastRoundAmount = normalizeAmount(record?.last_funding_round_amount_raised);
+    const lastRoundCurrency = normalizeCurrencyCode(record?.last_funding_round_amount_raised_currency);
+    const lastRoundDate = toISODate(record?.last_funding_round_announced_date);
+    const lastRoundType = normalizeRoundType(record?.last_funding_round_type);
+    const lastRoundInvestors = mapCoresignalInvestorList(record?.last_funding_round_lead_investors, { lead: true });
+    const totalUsd = totalsByCurrency.has('USD') ? totalsByCurrency.get('USD') : null;
+
+    const fundingSummary = {
+        round_count: Number.isFinite(numFundingRounds) ? numFundingRounds : rounds.length,
+        total_raised_usd: totalUsd,
+        last_round_date: lastRoundDate ?? null,
+        last_round_type: lastRoundType ?? null,
+        last_round_name: record?.last_funding_round_name ?? null,
+        last_round_amount: lastRoundAmount !== null
+            ? {
+                value: lastRoundAmount,
+                currency: lastRoundCurrency ?? null
+            }
+            : null,
+        last_round_lead_investors: lastRoundInvestors,
+        total: rounds.reduce((a,d)=>a + (d.money_raised?.value_usd ?? 0), 0)
+    };
+
+    if (totalsByCurrency.size) {
+        fundingSummary.total_raised_by_currency = Array.from(totalsByCurrency.entries())
+            .map(([currency, value]) => ({ currency, value }));
+    }
+
+    const funding = {
+        summary: fundingSummary,
+        rounds,
+        provenance
+    };
+
+    const employeesSeries = mapCoresignalMonthlySeries(
+        record?.employees_count_by_month,
+        ['employees_count', 'employee_count', 'count', 'value'],
+        ['date']
+    );
+    const employeesCurrent =
+        normalizeAmount(record?.employees_count_change?.current) ??
+        normalizeAmount(record?.employees_count) ??
+        (employeesSeries.length ? employeesSeries[employeesSeries.length - 1].count : null);
+    const employeesChange = record?.employees_count_change
+        ? { ...record.employees_count_change }
+        : null;
+
+    const followersSeries = mapCoresignalMonthlySeries(
+        record?.professional_network_followers_count_by_month ?? record?.linkedin_followers_count_by_month,
+        ['follower_count', 'followers_count', 'value', 'count'],
+        ['date']
+    );
+    const followersCurrent =
+        normalizeAmount(record?.professional_network_followers_count_change?.current) ??
+        normalizeAmount(record?.followers_count_professional_network) ??
+        (followersSeries.length ? followersSeries[followersSeries.length - 1].count : null);
+    const followersChange = record?.professional_network_followers_count_change
+        ? { ...record.professional_network_followers_count_change }
+        : record?.linkedin_followers_count_change
+            ? { ...record.linkedin_followers_count_change }
+            : null;
+
+    const companySignals = {
+        funding,
+        employees: {
+            current: employeesCurrent ?? null,
+            by_month: employeesSeries,
+            change: employeesChange
+        },
+        linkedin_followers: {
+            current: followersCurrent ?? null,
+            by_month: followersSeries,
+            change: followersChange
+        },
+        provenance
+    };
+
+    const result = {
+        companySignals,
+        investment: funding,
+        provenance
+    };
+
+    if (options.includeRaw) {
+        result.raw = record;
+    }
+
+    return result;
 }
 
 export async function queryCoresignalPersonSearch(primitive, terms, {origin,...callopts} = {}) {
@@ -880,5 +1300,7 @@ export async function handleCollection(primitive, options = {}) {
 
 export default {
     queryCoresignalPersonSearch,
-    handleCollection
+    handleCollection,
+    fetchCoresignalCompanyProfile,
+    buildCoresignalCompanySignals
 };

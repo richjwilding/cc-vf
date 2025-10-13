@@ -131,7 +131,7 @@ const FlowInstanceOutput = forwardRef(function FlowInstanceOutput({primitive, in
     }        
     
     //return  <div className="flex h-full w-full relative border rounded-lg border-gray-200 overflow-hidden mb-2 bg-white">
-    return  <div className="@container flex h-full w-full relative overflow-hidden bg-white">
+    return  <div className="@container flex h-full w-full flex-1 min-h-0 relative overflow-hidden bg-white">
                 <InfiniteCanvas
                     initialZoom="width"
                     primitive={primitive}

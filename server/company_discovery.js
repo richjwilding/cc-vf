@@ -12,6 +12,7 @@ import { getCompanyInfoFromDomain } from "./task_processor";
 import { findEntityResourceUrl } from "./entity_resource_capability";
 import "./entity_resources/crunchbase";
 import { getLogger } from "./logger";
+import { fetchCoresignalCompanyProfile, buildCoresignalCompanySignals } from "./coresignal";
 
 const logger = getLogger("company_discovery", "info");
 
@@ -2184,21 +2185,14 @@ export async function searchCompaniesWithTheCompaniesAPI(...args) {
     return results;
 }
 
-export async function enrichOrganizationInvestment(primitive, options = {}) {
-    if (!primitive) {
-        throw new Error("Primitive is required for investment enrichment");
-    }
-    if (primitive.type !== "entity" || primitive.referenceId !== 29) {
-        throw new Error("Investment enrichment is only supported for organization entities (referenceId 29)");
-    }
+async function scheduleBrightdataInvestmentEnrichment(primitive, options = {}) {
     if (!INVESTMENT_DATASET_ID) {
         throw new Error("BRIGHTDATA_CRUNCHBASE_INVESTMENT_DATASET_ID is not configured");
     }
 
     const reference = primitive.referenceParameters ?? {};
     const domain = reference.domain ?? normalizeDomain(reference.url);
-    const url = ensureAbsoluteUrl(reference.url ?? reference.domain);
-    let crunchbaseUrl = ensureAbsoluteUrl(reference.crunchbase)
+    let crunchbaseUrl = ensureAbsoluteUrl(reference.crunchbase ?? options.crunchbaseUrl ?? options.crunchbase);
 
     if (!crunchbaseUrl) {
         try {
@@ -2221,7 +2215,7 @@ export async function enrichOrganizationInvestment(primitive, options = {}) {
     }
 
     if (!crunchbaseUrl) {
-        throw new Error("Crunchbase URL is required to enrich investment data");
+        throw new Error("Crunchbase URL is required to enrich investment data via BrightData");
     }
 
     const payload = {
@@ -2241,6 +2235,87 @@ export async function enrichOrganizationInvestment(primitive, options = {}) {
     });
 
     return { scheduled: true, ...result };
+}
+
+async function enrichWithCoresignalSignals(primitive, options = {}) {
+    const reference = primitive.referenceParameters ?? {};
+    const domain = normalizeDomain(options.domain ?? reference.domain ?? reference.url);
+    const primaryWebsite = ensureAbsoluteUrl(
+        options.website ??
+        reference.url ??
+        (domain ? `https://${domain}` : undefined)
+    );
+    if (!primaryWebsite && !domain) {
+        throw new Error("Coresignal enrichment requires a company website or domain");
+    }
+
+    const record = await fetchCoresignalCompanyProfile({
+        website: primaryWebsite,
+        url: primaryWebsite ?? reference.url,
+        domain
+    }, {
+        includeRaw: options.includeRaw,
+        ...(options.coresignal ?? {})
+    });
+
+    if (!record) {
+        throw new Error("Coresignal company profile was not found with the provided identifiers");
+    }
+
+    const { companySignals, investment, provenance, raw } = buildCoresignalCompanySignals(record, {
+        includeRaw: options.includeRaw
+    });
+
+    await dispatchControlUpdate(primitive.id, "referenceParameters.company_signals", companySignals);
+
+    if (investment) {
+        await dispatchControlUpdate(primitive.id, "referenceParameters.investment", investment);
+    }
+
+    if (provenance) {
+        await dispatchControlUpdate(primitive.id, "referenceParameters.investment_source", {
+            provider: provenance.source,
+            fetched_at: provenance.fetched_at
+        });
+    }
+
+    if (options.includeRaw) {
+        await dispatchControlUpdate(primitive.id, "referenceParameters.company_signals_raw", raw);
+    }
+
+    return {
+        provider: "coresignal",
+        company_signals: companySignals,
+        investment,
+        provenance
+    };
+}
+
+export async function enrichOrganizationSignals(primitive, options = {}) {
+    if (!primitive) {
+        throw new Error("Primitive is required for company signals enrichment");
+    }
+    if (primitive.type !== "entity" || primitive.referenceId !== 29) {
+        throw new Error("Company signals enrichment is only supported for organization entities (referenceId 29)");
+    }
+
+    const preferred = (options.provider ?? process.env.DEFAULT_COMPANY_SIGNAL_PROVIDER ?? "coresignal").toLowerCase();
+
+    if (preferred === "brightdata" || preferred === "bright_data") {
+        return await scheduleBrightdataInvestmentEnrichment(primitive, options);
+    }
+
+    if (preferred !== "coresignal") {
+        logger.warn?.("Unknown company signals provider requested; falling back to Coresignal", {
+            requested: preferred
+        });
+    }
+
+    return await enrichWithCoresignalSignals(primitive, options);
+}
+
+export async function enrichOrganizationInvestment(primitive, options = {}) {
+    return scheduleBrightdataInvestmentEnrichment(primitive, options);
 }
 
 export async function searchCompaniesWithBrightData(...args) {
@@ -2399,6 +2474,7 @@ export async function resolveAndCreateCompaniesByName(list, target, resultCatego
 
 export default {
     lookupCompanyByName,
+    enrichOrganizationSignals,
     enrichOrganizationInvestment,
     searchCompaniesWithBrightData,
     searchCompaniesWithTheCompaniesAPI,

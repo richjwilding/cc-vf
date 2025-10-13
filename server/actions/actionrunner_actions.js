@@ -9,7 +9,7 @@ import { categorize, generateImage, processPromptOnText } from "../openai_helper
 import QueryQueue from "../query_queue";
 import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
 import { aggregateItems, checkAndGenerateSegments, compareItems, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
-import { findCompanyURL, enrichOrganizationInvestment } from "../company_discovery";
+import { findCompanyURL, enrichOrganizationSignals } from "../company_discovery";
 import { replicateWorkflow } from "../workflow";
 import { flattenStructuredResponse } from "../PrimitiveConfig";
 import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
@@ -124,8 +124,15 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
     }
 })
 
+const enrichCompanySignalsAction = async (primitive, action, options = {}) => {
+    return await enrichOrganizationSignals(primitive, options);
+};
+
+registerAction("enrich_company_signals", { type: "categoryId", id: 29 }, enrichCompanySignalsAction);
+
 registerAction("enrich_investment", { type: "categoryId", id: 29 }, async (primitive, action, options = {}) => {
-    return await enrichOrganizationInvestment(primitive, options);
+    const provider = options.provider ?? "brightdata";
+    return await enrichOrganizationSignals(primitive, { ...options, provider });
 });
 registerAction("run_prompt", undefined, async (primitive, action, options, req)=>{
     await QueueAI().runPromptOnPrimitive( primitive, options)
