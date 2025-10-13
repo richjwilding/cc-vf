@@ -11,6 +11,7 @@ import {
     buildAgentDebugPayload,
     buildCompanyInfo,
     safeHostname,
+    createStatusReporter,
 } from "../entity_resource_capability";
 
 const trustpilotLogger = getLogger("entity_resource_trustpilot", "debug");
@@ -30,14 +31,15 @@ registerEntityResourceTarget("trustpilot", {
         maxIterations: clampInteger(options?.maxIterations, TRUSTPILOT_MAX_ITERATIONS, 3, 12),
         debug: options?.debug === true || options?.debug === "true"
     }),
-    async execute({ metadata = {}, companyContext = {}, options = {} }) {
+    async execute({ metadata = {}, companyContext = {}, options = {}, statusCallback }) {
         return executeTrustpilotAgent({
             ...metadata,
             ...companyContext,
             candidateLimit: options.candidateLimit,
             searchLimit: options.searchLimit,
             maxIterations: options.maxIterations,
-            debug: options.debug
+            debug: options.debug,
+            statusCallback
         });
     }
 });
@@ -52,7 +54,8 @@ async function executeTrustpilotAgent({
     candidateLimit,
     searchLimit,
     maxIterations,
-    debug
+    debug,
+    statusCallback
 }) {
     const context = {
         companyName,
@@ -64,6 +67,12 @@ async function executeTrustpilotAgent({
         candidateLimit,
         searchLimit
     };
+
+    const reportStatus = createStatusReporter(statusCallback, trustpilotLogger);
+    await reportStatus("Starting Trustpilot lookup", {
+        candidateLimit,
+        searchLimit
+    });
 
     const toolMap = {
         search_trustpilot: async ({ query, limit }) => {
@@ -82,8 +91,13 @@ async function executeTrustpilotAgent({
             }
             trustpilotLogger.debug("trustpilot search", { query: searchQuery });
             try {
+                await reportStatus("Searching Trustpilot", { query: searchQuery });
                 const result = await fetchLinksFromWebQuery(searchQuery, { timeFrame: "" });
                 const mapped = mapSearchResults(result?.links, effectiveLimit, "trustpilot.com");
+                await reportStatus("Trustpilot search results processed", {
+                    query: searchQuery,
+                    results: mapped.length
+                });
                 return { query: searchQuery, results: mapped, total: mapped.length };
             } catch (error) {
                 trustpilotLogger.error("trustpilot search error", { error: error?.message });
@@ -97,8 +111,13 @@ async function executeTrustpilotAgent({
             const effectiveLimit = clampInteger(limit, searchLimit, 1, 10);
             const searchQuery = query.trim();
             try {
+                await reportStatus("Searching web for Trustpilot references", { query: searchQuery });
                 const result = await fetchLinksFromWebQuery(searchQuery, { timeFrame: "" });
                 const mapped = mapSearchResults(result?.links, effectiveLimit);
+                await reportStatus("Web search results processed", {
+                    query: searchQuery,
+                    results: mapped.length
+                });
                 return { query: searchQuery, results: mapped, total: mapped.length };
             } catch (error) {
                 trustpilotLogger.error("general search error", { error: error?.message });
@@ -111,10 +130,12 @@ async function executeTrustpilotAgent({
                 return { success: false, error: "Invalid URL" };
             }
             try {
+                await reportStatus("Inspecting Trustpilot page", { url: normalized });
                 const fetched = await fetchURLPlainText(normalized, false, true);
                 const rawText = typeof fetched?.fullText === "string" && fetched.fullText.length > 0
                     ? fetched.fullText
                     : (typeof fetched?.description === "string" ? fetched.description : "");
+                await reportStatus("Trustpilot page inspection complete", { url: normalized });
                 return {
                     success: true,
                     url: normalized,
@@ -213,6 +234,10 @@ async function executeTrustpilotAgent({
     });
 
     const limited = sanitized.slice(0, candidateLimit);
+
+    await reportStatus("Trustpilot lookup complete", {
+        candidateCount: limited.length
+    });
     const companyInfo = buildCompanyInfo({
         companyName,
         companyDescription,

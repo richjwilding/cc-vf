@@ -9,7 +9,7 @@ import { categorize, generateImage, processPromptOnText } from "../openai_helper
 import QueryQueue from "../query_queue";
 import { addRelationship, addRelationshipToMultiple, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getConfigParent, getDataForImport, getPrimitiveInputs, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, removePrimitiveById } from "../SharedFunctions"
 import { aggregateItems, checkAndGenerateSegments, compareItems, iterateItems, lookupEntity, oneShotQuery, queryByAxis, resourceLookupQuery, runAIPromptOnItems } from "../task_processor";
-import { findCompanyURL } from "../company_discovery";
+import { findCompanyURL, enrichOrganizationInvestment } from "../company_discovery";
 import { replicateWorkflow } from "../workflow";
 import { flattenStructuredResponse } from "../PrimitiveConfig";
 import { baseURL, cartesianProduct, cleanURL, markdownToSlate } from "./SharedTransforms";
@@ -28,8 +28,8 @@ registerAction( "test_cags", undefined, async (primitive, action, options = {}, 
 registerAction("lookup_entity", {type: "action"}, async (primitive, action, options, req)=>{
     const config = await getConfig( primitive )
     const inputs = await getPrimitiveInputs( primitive )
-    if( inputs?.items ){
-        let lookupList = inputs.items.data ?? []
+    let lookupList = inputs.items?.data ?? primitive.referenceParameters?.local 
+    if( lookupList ){
         if( typeof(lookupList) === "string"){
             if( lookupList.indexOf("\n") > -1){
                 lookupList = lookupList.split("\n")
@@ -123,6 +123,10 @@ registerAction("lookup_entity", {type: "action"}, async (primitive, action, opti
         }
     }
 })
+
+registerAction("enrich_investment", { type: "categoryId", id: 29 }, async (primitive, action, options = {}) => {
+    return await enrichOrganizationInvestment(primitive, options);
+});
 registerAction("run_prompt", undefined, async (primitive, action, options, req)=>{
     await QueueAI().runPromptOnPrimitive( primitive, options)
 })

@@ -11,6 +11,7 @@ import {
     buildAgentDebugPayload,
     buildCompanyInfo,
     safeHostname,
+    createStatusReporter,
 } from "../entity_resource_capability";
 
 const owlerLogger = getLogger("entity_resource_owler", "debug");
@@ -28,14 +29,15 @@ registerEntityResourceTarget("owler", {
         maxIterations: clampInteger(options?.maxIterations, OWLER_MAX_ITERATIONS, 3, 12),
         debug: options?.debug === true || options?.debug === "true"
     }),
-    async execute({ metadata = {}, companyContext = {}, options = {} }) {
+    async execute({ metadata = {}, companyContext = {}, options = {}, statusCallback }) {
         return executeOwlerAgent({
             ...metadata,
             ...companyContext,
             candidateLimit: options.candidateLimit,
             searchLimit: options.searchLimit,
             maxIterations: options.maxIterations,
-            debug: options.debug
+            debug: options.debug,
+            statusCallback
         });
     }
 });
@@ -50,7 +52,8 @@ async function executeOwlerAgent({
     candidateLimit,
     searchLimit,
     maxIterations,
-    debug
+    debug,
+    statusCallback
 }) {
     const context = {
         companyName,
@@ -62,6 +65,12 @@ async function executeOwlerAgent({
         candidateLimit,
         searchLimit
     };
+
+    const reportStatus = createStatusReporter(statusCallback, owlerLogger);
+    await reportStatus("Starting Owler lookup", {
+        candidateLimit,
+        searchLimit
+    });
 
     const toolMap = {
         search_owler: async ({ query, limit }) => {
@@ -79,8 +88,13 @@ async function executeOwlerAgent({
             }
             owlerLogger.debug("owler search", { query: searchQuery });
             try {
+                await reportStatus("Searching Owler", { query: searchQuery });
                 const result = await fetchLinksFromWebQuery(searchQuery, { timeFrame: "" });
                 const mapped = mapSearchResults(result?.links, effectiveLimit, "owler.com");
+                await reportStatus("Owler search results processed", {
+                    query: searchQuery,
+                    results: mapped.length
+                });
                 return { query: searchQuery, results: mapped, total: mapped.length };
             } catch (error) {
                 owlerLogger.error("owler search error", { error: error?.message });
@@ -94,8 +108,13 @@ async function executeOwlerAgent({
             const effectiveLimit = clampInteger(limit, searchLimit, 1, 10);
             const searchQuery = query.trim();
             try {
+                await reportStatus("Searching web for Owler references", { query: searchQuery });
                 const result = await fetchLinksFromWebQuery(searchQuery, { timeFrame: "" });
                 const mapped = mapSearchResults(result?.links, effectiveLimit);
+                await reportStatus("Web search results processed", {
+                    query: searchQuery,
+                    results: mapped.length
+                });
                 return { query: searchQuery, results: mapped, total: mapped.length };
             } catch (error) {
                 owlerLogger.error("general search error", { error: error?.message });
@@ -108,10 +127,12 @@ async function executeOwlerAgent({
                 return { success: false, error: "Invalid URL" };
             }
             try {
+                await reportStatus("Inspecting Owler page", { url: normalized });
                 const fetched = await fetchURLPlainText(normalized, false, true);
                 const rawText = typeof fetched?.fullText === "string" && fetched.fullText.length > 0
                     ? fetched.fullText
                     : (typeof fetched?.description === "string" ? fetched.description : "");
+                await reportStatus("Owler page inspection complete", { url: normalized });
                 return {
                     success: true,
                     url: normalized,
@@ -215,6 +236,10 @@ async function executeOwlerAgent({
         companyDescription,
         companyCountry
     }, context);
+
+    await reportStatus("Owler lookup complete", {
+        candidateCount: limited.length
+    });
 
     const result = {
         success: true,

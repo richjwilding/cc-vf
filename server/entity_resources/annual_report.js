@@ -13,6 +13,7 @@ import {
     normalizeYear,
     buildCompanyInfo,
     safeHostname,
+    createStatusReporter,
 } from "../entity_resource_capability";
 
 const annualReportLogger = getLogger("entity_resource_annual_report", "debug");
@@ -56,7 +57,7 @@ registerEntityResourceTarget("annual_report", {
             debug: options?.debug === true || options?.debug === "true"
         };
     },
-    async execute({ metadata = {}, companyContext = {}, options = {} }) {
+    async execute({ metadata = {}, companyContext = {}, options = {}, statusCallback }) {
         const result = await executeAnnualReportAgent({
             ...metadata,
             ...companyContext,
@@ -65,7 +66,8 @@ registerEntityResourceTarget("annual_report", {
             searchLimit: options.searchLimit,
             recencyWindow: options.recencyWindow,
             maxIterations: options.maxIterations,
-            debug: options.debug
+            debug: options.debug,
+            statusCallback
         });
         return result;
     }
@@ -86,7 +88,8 @@ async function executeAnnualReportAgent({
     searchLimit,
     recencyWindow,
     maxIterations,
-    debug
+    debug,
+    statusCallback
 }) {
     const safeRecencyWindow = Math.max(1, recencyWindow ?? ANNUAL_REPORT_DEFAULT_RECENCY_WINDOW);
     const minRecentYear = new Date().getFullYear() - (safeRecencyWindow - 1);
@@ -105,6 +108,13 @@ async function executeAnnualReportAgent({
         searchLimit,
         minRecentYear
     };
+
+    const reportStatus = createStatusReporter(statusCallback, annualReportLogger);
+    await reportStatus("Starting annual report lookup", {
+        candidateLimit,
+        searchLimit,
+        recencyWindow: safeRecencyWindow
+    });
 
     const toolMap = {
         search_annualreports: async ({ query, limit }) => {
@@ -145,8 +155,13 @@ async function executeAnnualReportAgent({
             }
             annualReportLogger.debug("annual report agent search_annualreports", { query: searchQuery });
             try {
+                await reportStatus("Searching annualreports.com", { query: searchQuery });
                 const result = await fetchLinksFromWebQuery(searchQuery, { timeFrame: "" });
                 const mapped = mapSearchResults(result?.links, effectiveLimit, "annualreports.com");
+                await reportStatus("Annualreports.com search results processed", {
+                    query: searchQuery,
+                    results: mapped.length
+                });
                 return { query: searchQuery, results: mapped, total: mapped.length };
             } catch (error) {
                 annualReportLogger.error("search_annualreports error", { error: error?.message });
@@ -161,8 +176,13 @@ async function executeAnnualReportAgent({
             const effectiveLimit = clampInteger(limit, searchLimit, 1, 10);
             annualReportLogger.debug("annual report agent search_web", { query: searchQuery });
             try {
+                await reportStatus("Searching web for annual reports", { query: searchQuery });
                 const result = await fetchLinksFromWebQuery(searchQuery, { timeFrame: "" });
                 const mapped = mapSearchResults(result?.links, effectiveLimit);
+                await reportStatus("Web search results processed", {
+                    query: searchQuery,
+                    results: mapped.length
+                });
                 return { query: searchQuery, results: mapped, total: mapped.length };
             } catch (error) {
                 annualReportLogger.error("search_web error", { error: error?.message });
@@ -176,6 +196,7 @@ async function executeAnnualReportAgent({
             }
             annualReportLogger.debug("annual report agent evaluate_candidate", { url: normalized });
             try {
+                await reportStatus("Evaluating annual report candidate", { url: normalized });
                 const pdfCandidates = await fetchPdfLinksFromPage(normalized);
                 if (Array.isArray(pdfCandidates) && pdfCandidates.length > 0) {
                     annualReportLogger.debug("annual report agent pdf candidates", { url: normalized, count: pdfCandidates.length });
@@ -193,6 +214,10 @@ async function executeAnnualReportAgent({
                     }
                     const evaluationEntries = [];
                     for (const pdfCandidate of selectedCandidates) {
+                        await reportStatus("Processing annual report PDF candidate", {
+                            pageUrl: normalized,
+                            pdfUrl: pdfCandidate.url
+                        });
                         const evaluated = await evaluatePdfCandidate({
                             pageUrl: normalized,
                             candidate: pdfCandidate,
@@ -226,6 +251,7 @@ async function executeAnnualReportAgent({
                 }
 
                 const fetched = await fetchURLPlainText(normalized, false, true);
+                await reportStatus("Annual report page processed", { url: normalized });
                 const resolvedDocumentUrl = ensureAbsoluteUrl(fetched?.resolvedUrl ?? normalized) ?? normalized;
                 const rawText = typeof fetched?.fullText === "string" && fetched.fullText.length > 0
                     ? fetched.fullText
@@ -412,6 +438,10 @@ async function executeAnnualReportAgent({
     });
 
     const limited = sanitized.slice(0, candidateLimit);
+
+    await reportStatus("Annual report lookup complete", {
+        candidateCount: limited.length
+    });
     const companyInfo = buildCompanyInfo({
         companyName,
         companyDescription,

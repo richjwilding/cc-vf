@@ -3,18 +3,22 @@ import mongoose from "mongoose";
 import Primitive from "./model/Primitive";
 import Category from "./model/Category";
 import { SIO } from "./socket";
-import { addRelationship, createPrimitive, findResultSetForCategoryId, flattenPath, getNextSequenceBlock, primitivePrimitives, runPostCreateHooks, cosineSimilarity, executeConcurrently } from "./SharedFunctions";
+import { addRelationship, createPrimitive, dispatchControlUpdate, findResultSetForCategoryId, flattenPath, getNextSequenceBlock, primitivePrimitives, runPostCreateHooks, cosineSimilarity, executeConcurrently } from "./SharedFunctions";
 import { triggerBrightDataCollector, registerBrightDataCollector, registerCollectorFilter } from "./brightdata_collectors";
 import { getMetaDescriptionFromURL, replicateURLtoStorage, fetchLinksFromWebQuery } from "./google_helper";
 import { analyzeListAgainstTopics, analyzeTextAgainstTopics, buildEmbeddings } from "./openai_helper";
 import { buildDocumentTextEmbeddings } from "./DocumentSearch";
 import { getCompanyInfoFromDomain } from "./task_processor";
+import { findEntityResourceUrl } from "./entity_resource_capability";
+import "./entity_resources/crunchbase";
 import { getLogger } from "./logger";
 
 const logger = getLogger("company_discovery", "info");
 
 const BRIGHTDATA_POLL_INTERVAL = parseInt(process.env.BRIGHTDATA_DISCOVER_POLL_INTERVAL ?? "2000", 10);
 const BRIGHTDATA_POLL_ATTEMPTS = parseInt(process.env.BRIGHTDATA_DISCOVER_MAX_ATTEMPTS ?? "30", 10);
+const INVESTMENT_DATASET_ID = "gd_l1vijqt9jfj7olije";
+const INVESTMENT_DATASET_IS_CUSTOM = process.env.BRIGHTDATA_CRUNCHBASE_INVESTMENT_CUSTOM === "true";
 
 function getDatasetId() {
     //return process.env.BRIGHTDATA_COMPANY_DISCOVERY_DATASET_ID;
@@ -60,6 +64,305 @@ function ensureAbsoluteUrl(raw) {
     }
     const domain = normalizeDomain(raw);
     return domain ? `https://${domain}` : undefined;
+}
+
+function toISODate(value) {
+    if (!value) {
+        return null;
+    }
+    const trimmed = typeof value === "string" ? value.trim() : value;
+    if (!trimmed) {
+        return null;
+    }
+    const date = new Date(trimmed);
+    if (Number.isNaN(date.getTime())) {
+        const fallback = new Date(`${trimmed}T00:00:00Z`);
+        return Number.isNaN(fallback.getTime()) ? null : fallback.toISOString();
+    }
+    return date.toISOString();
+}
+
+function normalizeCurrencyCode(value) {
+    if (!value || typeof value !== "string") {
+        return null;
+    }
+    const match = value.trim().toUpperCase();
+    return /^[A-Z]{3}$/.test(match) ? match : null;
+}
+
+function normalizeAmount(value) {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) {
+        return null;
+    }
+    return num;
+}
+
+function normalizeRoundType(raw) {
+    if (!raw || typeof raw !== "string") {
+        return null;
+    }
+    const base = raw.trim().toLowerCase();
+    if (!base) {
+        return null;
+    }
+    const replacements = {
+        "seed round": "seed",
+        "seed": "seed",
+        "pre seed": "pre_seed",
+        "pre-seed": "pre_seed",
+        "series a": "series_a",
+        "series b": "series_b",
+        "series c": "series_c",
+        "series d": "series_d",
+        "series e": "series_e",
+        "series f": "series_f",
+        "series g": "series_g",
+        "series h": "series_h",
+        "series i": "series_i",
+        "series j": "series_j",
+        "angel": "angel",
+        "convertible note": "convertible_note",
+        "debt financing": "debt_financing",
+        "equity crowdfunding": "equity_crowdfunding",
+        "grant": "grant",
+        "initial coin offering": "ico",
+        "post-ipo debt": "post_ipo_debt",
+        "post-ipo equity": "post_ipo_equity",
+        "post-ipo secondary": "post_ipo_secondary",
+        "private equity": "private_equity",
+        "corporate round": "corporate_round",
+        "secondary market": "secondary_market",
+        "product crowdfunding": "product_crowdfunding",
+        "venture - series unknown": "venture_round",
+        "venture round": "venture_round",
+        "ipo": "ipo",
+        "grant round": "grant"
+    };
+    if (replacements[base]) {
+        return replacements[base];
+    }
+    const normalized = base
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\s/g, "_");
+    return normalized || null;
+}
+
+function selectPreferredRoundRecord(existing, next) {
+    if (!existing) {
+        return next;
+    }
+    if (!next) {
+        return existing;
+    }
+
+    const score = (record) => {
+        if (!record || typeof record !== "object") {
+            return 0;
+        }
+        let total = 0;
+        if (record.announced_on) total += 1;
+        if (record.title) total += 1;
+        if (record.transaction_name) total += 1;
+        if (record.money_raised) {
+            if (record.money_raised.value) total += 1;
+            if (record.money_raised.value_usd) total += 1;
+            if (record.money_raised.currency) total += 1;
+        }
+        if (Array.isArray(record.investors)) {
+            total += record.investors.length;
+        }
+        if (Array.isArray(record.lead_investors)) {
+            total += record.lead_investors.length;
+        }
+        return total;
+    };
+
+    return score(next) > score(existing) ? next : existing;
+}
+
+function mapLeadInvestors(rawList) {
+    if (!Array.isArray(rawList)) {
+        return [];
+    }
+    return rawList.map(item => ({
+        name: item?.name ?? null,
+        permalink: item?.permalink ?? null,
+        image: item?.image ?? item?.image_id ?? null
+    }));
+}
+
+function mapInvestors(rawList, leadIndex = { ids: new Set(), names: new Set() }) {
+    if (!Array.isArray(rawList)) {
+        return [];
+    }
+    return rawList.map(item => {
+        const investor = item?.investor ?? {};
+        const id = investor.id ?? item?.id ?? null;
+        const name = investor.value ?? investor.name ?? item?.value ?? null;
+        const permalink = investor.permalink ?? item?.permalink ?? null;
+        const image = investor.image_id ?? item?.image_id ?? null;
+        const type = investor.type ?? item?.type ?? null;
+        const normalizedId = id ? String(id).toLowerCase() : null;
+        const normalizedPermalink = permalink ? String(permalink).toLowerCase() : null;
+        const normalizedName = typeof name === "string" ? name.toLowerCase() : null;
+        const leadFlag = item?.lead_investor === true ||
+            (normalizedId && leadIndex.ids.has(normalizedId)) ||
+            (normalizedPermalink && leadIndex.ids.has(normalizedPermalink)) ||
+            (normalizedName && leadIndex.names.has(normalizedName));
+        return {
+            id: id ?? null,
+            name: name ?? null,
+            type: type ?? null,
+            lead: leadFlag ? true : (item?.lead_investor === false ? false : null),
+            permalink: permalink ?? null,
+            image_id: image ?? null
+        };
+    });
+}
+
+function buildLeadLookup(rawList) {
+    const ids = new Set();
+    const names = new Set();
+    if (Array.isArray(rawList)) {
+        for (const item of rawList) {
+            if (item?.id) {
+                ids.add(String(item.id).toLowerCase());
+            }
+            if (item?.permalink) {
+                ids.add(String(item.permalink).toLowerCase());
+            }
+            if (item?.name) {
+                names.add(item.name.toLowerCase());
+            }
+        }
+    }
+    return { ids, names };
+}
+
+function mapFundingRoundsList(rawList) {
+    if (!Array.isArray(rawList)) {
+        return [];
+    }
+
+    const byKey = new Map();
+    const fallback = [];
+
+    for (const raw of rawList) {
+        if (!raw) {
+            continue;
+        }
+        const key = raw.id ?? raw.uuid ?? null;
+        if (!key) {
+            fallback.push(raw);
+            continue;
+        }
+        const existing = byKey.get(key);
+        byKey.set(key, selectPreferredRoundRecord(existing, raw));
+    }
+
+    const combined = [...byKey.values(), ...fallback];
+
+    return combined.map(raw => {
+        const leadInvestors = mapLeadInvestors(raw?.lead_investors);
+        const leadLookup = buildLeadLookup(raw?.lead_investors);
+        const investors = mapInvestors(raw?.investors, leadLookup);
+
+        const moneyRaised = raw?.money_raised ?? {};
+        const currency = normalizeCurrencyCode(moneyRaised.currency);
+        const value = normalizeAmount(moneyRaised.value);
+        const valueUsd = normalizeAmount(moneyRaised.value_usd);
+
+        const announcedOn = toISODate(raw?.announced_on);
+        let derivedType = raw?.investors?.find?.(item => item?.funding_round?.type)?.funding_round?.type;
+        if (!derivedType && raw?.transaction_name) {
+            derivedType = raw.transaction_name;
+        } else if (!derivedType && raw?.title) {
+            derivedType = raw.title;
+        }
+
+        return {
+            round_id: raw?.id ?? null,
+            round_uuid: raw?.uuid ?? null,
+            title: raw?.title ?? null,
+            type: normalizeRoundType(raw?.type ?? derivedType),
+            announced_on: announcedOn,
+            money_raised: {
+                value,
+                currency,
+                value_usd: valueUsd
+            },
+            investors,
+            lead_investors: leadInvestors,
+            artifacts: {
+                image_id: raw?.image_id ?? null,
+                transaction_name: raw?.transaction_name ?? null
+            }
+        };
+    }).sort((a, b) => {
+        const timeA = a.announced_on ? Date.parse(a.announced_on) : Number.NEGATIVE_INFINITY;
+        const timeB = b.announced_on ? Date.parse(b.announced_on) : Number.NEGATIVE_INFINITY;
+        if (timeA === timeB) {
+            return 0;
+        }
+        return timeB - timeA;
+    });
+}
+
+function buildInvestmentSummary(record = {}, rounds = []) {
+    const summary = {
+        round_count: 0,
+        total_raised_usd: 0,
+        last_round_date: null,
+        last_round_type: null
+    };
+
+    const aggregate = record?.funding_rounds ?? {};
+    const roundCount = typeof aggregate.num_funding_rounds === "number"
+        ? aggregate.num_funding_rounds
+        : rounds.length;
+    summary.round_count = roundCount ?? 0;
+
+    const totalRaised = rounds.reduce((acc, round) => {
+        const valueUsd = round?.money_raised?.value_usd;
+        return typeof valueUsd === "number" ? acc + valueUsd : acc;
+    }, 0);
+    if (totalRaised > 0) {
+        summary.total_raised_usd = totalRaised;
+    } else {
+        const aggregateUsd = normalizeAmount(aggregate?.value?.value_usd);
+        summary.total_raised_usd = aggregateUsd ?? 0;
+    }
+
+    const lastDate = aggregate?.last_funding_at
+        ? toISODate(aggregate.last_funding_at)
+        : (rounds[0]?.announced_on ?? null);
+    summary.last_round_date = lastDate ?? null;
+
+    const lastTypeRaw = aggregate?.last_funding_type ?? rounds[0]?.type;
+    summary.last_round_type = normalizeRoundType(lastTypeRaw) ?? null;
+
+    return summary;
+}
+
+function buildInvestmentPayload(record = {}) {
+    const rounds = mapFundingRoundsList(record?.funding_rounds_list);
+    const summary = buildInvestmentSummary(record, rounds);
+    const extractedAt = new Date().toISOString();
+
+    return {
+        summary,
+        rounds,
+        provenance: {
+            source: "brightdata.crunchbase",
+            extracted_at: extractedAt
+        }
+    };
 }
 
 async function findCompanyURLByNameLogoDevInternal(name, options = {}) {
@@ -1256,12 +1559,38 @@ async function processCompanyDiscoveryRecords(records, context) {
     return created;
 }
 
+async function processOrganizationInvestment(records, context) {
+    const { primitive } = context;
+    const record = Array.isArray(records) && records.length ? records[0] : {};
+    const investment = buildInvestmentPayload(record ?? {});
+    await dispatchControlUpdate(primitive.id, "referenceParameters.investment", investment);
+    if (record && Object.keys(record).length) {
+        await dispatchControlUpdate(primitive.id, "referenceParameters.investment_source", {
+            provider: "brightdata.crunchbase",
+            fetched_at: investment.provenance.extracted_at
+        });
+    }
+    return { collected: records?.length ?? 0, investment };
+}
+
+if (INVESTMENT_DATASET_ID) {
+    registerBrightDataCollector("organization_investment", {
+        datasetId: INVESTMENT_DATASET_ID,
+        ...(INVESTMENT_DATASET_IS_CUSTOM ? { customDataset: true } : {}),
+        maxConcurrent: 100,
+        processRecords: processOrganizationInvestment
+    });
+} else {
+    logger.warn?.("BRIGHTDATA_CRUNCHBASE_INVESTMENT_DATASET_ID is not configured; investment enrichment collector disabled");
+}
+
 registerBrightDataCollector("company_discovery", {
     datasetId: getDatasetId(),
     triggerConfig: {
         type: "discover_new",
         discoverBy: "keyword"
     },
+    maxConcurrent: 100,
     mapRecord: (raw) => mapCompanyRecord(raw),
     filters: ["dedupeDomain"],
     processRecords: processCompanyDiscoveryRecords
@@ -1855,6 +2184,65 @@ export async function searchCompaniesWithTheCompaniesAPI(...args) {
     return results;
 }
 
+export async function enrichOrganizationInvestment(primitive, options = {}) {
+    if (!primitive) {
+        throw new Error("Primitive is required for investment enrichment");
+    }
+    if (primitive.type !== "entity" || primitive.referenceId !== 29) {
+        throw new Error("Investment enrichment is only supported for organization entities (referenceId 29)");
+    }
+    if (!INVESTMENT_DATASET_ID) {
+        throw new Error("BRIGHTDATA_CRUNCHBASE_INVESTMENT_DATASET_ID is not configured");
+    }
+
+    const reference = primitive.referenceParameters ?? {};
+    const domain = reference.domain ?? normalizeDomain(reference.url);
+    const url = ensureAbsoluteUrl(reference.url ?? reference.domain);
+    let crunchbaseUrl = ensureAbsoluteUrl(reference.crunchbase)
+
+    if (!crunchbaseUrl) {
+        try {
+            const resolved = await findEntityResourceUrl("crunchbase", { primitive, options });
+            if (resolved) {
+                crunchbaseUrl = ensureAbsoluteUrl(resolved);
+                await dispatchControlUpdate(
+                    primitive.id,
+                    "referenceParameters.crunchbase",
+                    crunchbaseUrl,
+                    { track: primitive.id }
+                );
+            }
+        } catch (error) {
+            logger.warn?.("Failed to resolve Crunchbase URL via entity resource lookup", {
+                primitiveId: primitive.id,
+                error: error?.message
+            });
+        }
+    }
+
+    if (!crunchbaseUrl) {
+        throw new Error("Crunchbase URL is required to enrich investment data");
+    }
+
+    const payload = {
+        url: crunchbaseUrl
+    };
+
+    const result = await triggerBrightDataCollector("organization_investment", {
+        primitive,
+        input: [payload],
+        triggerOptions: options.triggerOptions ?? {},
+        collectorOptions: {
+            domain,
+            url: crunchbaseUrl,
+            source: options.source ?? "manual",
+            requestId: options.requestId
+        }
+    });
+
+    return { scheduled: true, ...result };
+}
+
 export async function searchCompaniesWithBrightData(...args) {
     let primitive;
     let terms;
@@ -2011,6 +2399,7 @@ export async function resolveAndCreateCompaniesByName(list, target, resultCatego
 
 export default {
     lookupCompanyByName,
+    enrichOrganizationInvestment,
     searchCompaniesWithBrightData,
     searchCompaniesWithTheCompaniesAPI,
     resolveCompaniesByName,
