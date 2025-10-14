@@ -1536,43 +1536,6 @@ router.post('/workflow/:id/import/:sourceId', async function(req, res, next) {
         res.status(501).json({message: "Error", error: error})
     }
 })
-/*router.get('/organizations', async function(req, res, next) {
-    const userId = req.user?._id
-    try{
-        if( userId ){
-            const organizations = await Organization.find({
-                members: {
-                    $elemMatch: { user: ObjectId(userId) }
-                }
-            })
-            const data = organizations.map(d=>{
-                const role = (d.members ?? []).find(d=>d.user.toString() === userId)?.role
-                const includeBilling = role === "owner" || role === "admin"
-                const includeUsage = role === "owner" || role === "admin"
-                const includePlan = role === "owner" || role === "admin"
-
-                const out = d.toJSON()
-                if( !includeBilling){ delete out["billing"]}
-                if( !includePlan){ delete out["plan"]}
-                if( !includeUsage){ delete out["usage"]}
-
-
-                out.id = out._id.toString()
-                out.members = out.members.map(d=>({userId: d.user.toString(), role: d.role}))
-                out.workspaces = out.workspaces.map(d=>d.toString())
-
-                delete out["_id"]
-                return out
-            })
-            res.json(data)
-            return 
-        }
-        res.status(501).json({message: "Permission denied"})
-    }catch(error){
-        console.log(error)
-        res.status(501).json({message: "Error", error: error})
-    }
-})*/
 router.get('/organizations', async (req, res) => {
   const userId = req.user?._id;
   if (!userId) return res.status(401).json({ message: "Permission denied" });
@@ -1628,7 +1591,7 @@ router.put('/organizations/:id/slack/workflows', async (req, res) => {
       return res.status(400).json({ error: 'Invalid organization id' });
     }
 
-    const organization = await Organization.findById(id);
+    const organization = await Organization.findOne({_id: id});
     if (!organization) {
       return res.status(404).json({ error: 'Organization not found' });
     }
@@ -1674,15 +1637,13 @@ router.put('/organizations/:id/slack/workflows', async (req, res) => {
         .map((value) => normalizeId(value))
         .filter(Boolean);
 
-      const validIds = uniqueIds
-        .filter((value) => ObjectId.isValid(value))
-        .map((value) => new ObjectId(value));
+      const validIds = uniqueIds.filter((value) => ObjectId.isValid(value))
 
       let allowedFlows = [];
       if (validIds.length > 0) {
         allowedFlows = await fetchPrimitives(validIds, {
           type: 'flow',
-          workspaceId: { $in: organization.workspaces ?? [] },
+          workspaceId: { $in: organization.workspaces.map(d=>d.toString()) ?? [] },
         }, {
           _id: 1,
         }) ?? [];

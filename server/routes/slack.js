@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
+import axios from 'axios';
 import Organization from '../model/Organization.js';
 import { fetchPrimitive, fetchPrimitives } from '../SharedFunctions.js';
 import FlowQueue from '../flow_queue.js';
@@ -11,6 +12,21 @@ import { getLogger } from '../logger.js';
 const router = express.Router();
 const logger = getLogger('slack', 'debug');
 const { ObjectId } = mongoose.Types;
+
+async function sendDelayedSlackResponse(responseUrl, payload) {
+  if (!responseUrl) {
+    logger.warn('No response_url available for delayed Slack message');
+    return;
+  }
+  try {
+    await axios.post(responseUrl, {
+      response_type: 'ephemeral',
+      ...payload,
+    });
+  } catch (error) {
+    logger.error('Failed to send delayed Slack response', error);
+  }
+}
 
 function rawBodySaver(req, res, buf) {
   if (buf?.length) {
@@ -92,7 +108,7 @@ async function loadEnabledWorkflows(organization) {
   const uniqueIds = [...new Set(ids)].map((value) => new ObjectId(value));
   const flows = await fetchPrimitives(uniqueIds, {
     type: 'flow',
-    workspaceId: { $in: organization.workspaces ?? [] },
+    workspaceId: { $in: organization.workspaces.map(d=>d.toString()) ?? [] },
   }, {
     _id: 1,
     plainId: 1,
@@ -271,12 +287,77 @@ function findWorkflowByIdentifier(workflows, identifier) {
     if (workflow.title && workflow.title.toLowerCase() === identifier.toLowerCase()) {
       return true;
     }
+    const short = workflow.title.split(" ")[0]
+    if (short.toLowerCase() === identifier.toLowerCase()) {
+      return true;
+    }
     return false;
   }) ?? null;
 }
 
 function respond(res, text) {
   return res.json({ response_type: 'ephemeral', text });
+}
+
+async function handleWorkflowRunAsync({
+  workflow,
+  organization,
+  title,
+  responseUrl,
+  runAsUserId,
+}) {
+  try {
+    const flowPrimitive = await fetchPrimitive(workflow.id, {
+      type: 'flow',
+      workspaceId: workflow.workspaceId,
+    });
+    if (!flowPrimitive) {
+      logger.warn('Workflow not found when attempting to run from Slack', workflow.id);
+      await sendDelayedSlackResponse(responseUrl, { text: 'Unable to load the requested workflow.' });
+      return;
+    }
+
+    const instanceData = { title, 'inputPins-1': title };
+    const created = await createWorkflowInstance(flowPrimitive, {
+      data: instanceData,
+    });
+
+    const instanceId = normalizeId(created?.id ?? created?._id);
+    const instance = instanceId
+      ? await fetchPrimitive(instanceId, { workspaceId: workflow.workspaceId })
+      : null;
+    if (!instance) {
+      logger.error('Failed to load created workflow instance for Slack command', created);
+      await sendDelayedSlackResponse(responseUrl, { text: 'Workflow instance could not be created.' });
+      return;
+    }
+
+    try {
+      await FlowQueue().runFlowInstance(instance, {
+        instantiatedBy: runAsUserId,
+        organizationId: normalizeId(organization._id),
+        force: true,
+      });
+    } catch (runError) {
+      logger.error('Failed to enqueue workflow instance for Slack command', runError);
+      await sendDelayedSlackResponse(responseUrl, {
+        text: 'Workflow instance was created but failed to start. Please try again from Sense.',
+      });
+      return;
+    }
+
+    const link = buildResultsUrl(organization, normalizeId(instance.id ?? instance._id));
+    const lines = [`Started ${workflowDisplayName(workflow)}.`];
+    if (link) {
+      lines.push(`Track progress: <${link}|View results>.`);
+    } else {
+      lines.push(`Track progress in Sense by opening item ${normalizeId(instance.id ?? instance._id)}.`);
+    }
+    await sendDelayedSlackResponse(responseUrl, { text: lines.join('\n') });
+  } catch (error) {
+    logger.error('Unhandled Slack workflow run error', error);
+    await sendDelayedSlackResponse(responseUrl, { text: 'Something went wrong while starting that workflow.' });
+  }
 }
 
 router.post('/command', async (req, res) => {
@@ -343,49 +424,26 @@ router.post('/command', async (req, res) => {
         return respond(res, `I couldn't find a workflow matching "${args[0]}".`);
       }
 
-      const title = args.slice(1).join(' ').trim();
-      const flowPrimitive = await fetchPrimitive(workflow.id, {
-        type: 'flow',
-        workspaceId: workflow.workspaceId,
-      });
-      if (!flowPrimitive) {
-        logger.warn('Workflow not found when attempting to run from Slack', workflow.id);
-        return respond(res, 'Unable to load the requested workflow.');
-      }
-
       const runAsUserId = determineRunAsUserId(organization);
       if (!runAsUserId) {
         return respond(res, 'No eligible user is available to run workflows. Please set a run user in the Sense app.');
       }
 
-      const instanceData = title ? { title } : undefined;
-      const created = await createWorkflowInstance(flowPrimitive, {
-        data: instanceData,
+      const responseUrl = payload.response_url;
+      const title = args.slice(1).join(' ').trim();
+      setImmediate(() => {
+        handleWorkflowRunAsync({
+          workflow,
+          organization,
+          title,
+          responseUrl,
+          runAsUserId,
+        }).catch((error) => {
+          logger.error('Failed to handle Slack run command asynchronously', error);
+        });
       });
 
-      const instanceId = normalizeId(created?.id ?? created?._id);
-      const instance = instanceId
-        ? await fetchPrimitive(instanceId, { workspaceId: workflow.workspaceId })
-        : null;
-      if (!instance) {
-        logger.error('Failed to load created workflow instance for Slack command', created);
-        return respond(res, 'Workflow instance could not be created.');
-      }
-
-      await FlowQueue().runFlowInstance(instance, {
-        instantiatedBy: runAsUserId,
-        organizationId: normalizeId(organization._id),
-        force: true,
-      });
-
-      const link = buildResultsUrl(organization, normalizeId(instance.id ?? instance._id));
-      const lines = [`Started ${workflowDisplayName(workflow)}.`];
-      if (link) {
-        lines.push(`Track progress: <${link}|View results>.`);
-      } else {
-        lines.push(`Track progress in Sense by opening item ${normalizeId(instance.id ?? instance._id)}.`);
-      }
-      return respond(res, lines.join('\n'));
+      return respond(res, `Starting ${workflowDisplayName(workflow)}. I'll update you here once it's running.`);
     }
 
     return respond(res, buildHelpMessage(workflows));

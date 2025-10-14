@@ -5974,7 +5974,8 @@ async function queryOrganizationsWithSubscriptionPlans( query ){
             companyUrl: 1,
             validPlans: 1,
             activePlanId: { $toString: "$activePlanId" },
-            activePlan: 1
+            activePlan: 1,
+            slack: 1
         },
 
         },

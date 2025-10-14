@@ -613,6 +613,10 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                     if( f.type === "view" && mapFor === "axis"){
                         return s
                     }
+                    if( f.type === "search" && mapFor === "origin"){
+                        logger.verbose(`Skipping nested search`)
+                        return undefined
+                    }
                     if( f !== seed ){
                         logger.error(`Couldnt find mapped id for ${s} ${f.type}`, f)
                         throw `Couldnt find mapped id for ${s}`
@@ -625,7 +629,7 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                     const p = obj.primitives;
                     const o = {}
                     
-                    if (Array.isArray(p.origin))  o.origin  = remapArray(p.origin, orig);
+                    if (Array.isArray(p.origin))  o.origin  = remapArray(p.origin, orig, {mapFor: "origin"});
                     if (Array.isArray(p.imports)) o.imports = remapArray(p.imports, orig);
                     
                     if (p.axis) {
