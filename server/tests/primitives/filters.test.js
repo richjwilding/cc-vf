@@ -1,5 +1,5 @@
+import * as dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 
 jest.mock('../../socket', () => ({
   SIO: {
@@ -18,9 +18,10 @@ import Category from '../../model/Category';
 
 const { SIO } = jest.requireMock('../../socket');
 
+dotenv.config();
+
 jest.setTimeout(120000);
 
-let mongoServer;
 let workspace;
 let workspaceId;
 let resultCategory;
@@ -55,8 +56,16 @@ const applyImportConfig = async (importConfig, overrides = {}) => {
 const listTitles = (docs) => docs.map((doc) => doc.title).sort();
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
-  await mongoose.connect(mongoServer.getUri());
+  const mongoUri = process.env.MONGOOSE_URL_LOCAL ?? process.env.MONGOOSE_URL;
+
+  if (!mongoUri) {
+    throw new Error('filters.test.js requires MONGOOSE_URL_LOCAL (or MONGOOSE_URL) to be set');
+  }
+
+  await mongoose.connect(mongoUri, {
+    dbName: 'primitive-filters-test',
+    serverSelectionTimeoutMS: 5000,
+  });
 
   workspace = await Workspace.create({ title: 'Primitive Filter Workspace' });
   workspaceId = workspace._id.toString();
@@ -209,7 +218,6 @@ afterAll(async () => {
   await Workspace.deleteMany({ _id: workspace._id });
 
   await mongoose.disconnect();
-  await mongoServer.stop();
 });
 
 beforeEach(() => {

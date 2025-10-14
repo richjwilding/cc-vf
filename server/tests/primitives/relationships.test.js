@@ -1,5 +1,5 @@
+import * as dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import {
   addRelationship,
@@ -19,9 +19,10 @@ jest.mock('../../socket', () => ({
 
 const { SIO } = jest.requireMock('../../socket');
 
+dotenv.config();
+
 jest.setTimeout(120000);
 
-let mongoServer;
 let workspace;
 let workspaceId;
 let flowCategory;
@@ -186,9 +187,17 @@ const setupFlowHierarchy = async () => {
 };
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
   mongoose.set('strictQuery', false);
-  await mongoose.connect(mongoServer.getUri(), { dbName: 'relationship-tests' });
+  const mongoUri = process.env.MONGOOSE_URL_LOCAL ?? process.env.MONGOOSE_URL;
+
+  if (!mongoUri) {
+    throw new Error('relationships.test.js requires MONGOOSE_URL_LOCAL (or MONGOOSE_URL) to be set');
+  }
+
+  await mongoose.connect(mongoUri, {
+    dbName: 'relationship-tests',
+    serverSelectionTimeoutMS: 5000,
+  });
 
   workspace = await Workspace.create({ title: 'Primitive Relationship Tests' });
   workspaceId = workspace._id.toString();
@@ -206,7 +215,6 @@ afterAll(async () => {
   await Workspace.deleteOne({ _id: workspace._id });
 
   await mongoose.disconnect();
-  await mongoServer.stop();
 });
 
 beforeEach(async () => {
@@ -309,8 +317,9 @@ describe('Primitive relationship helpers', () => {
     const refreshedTargets = await Primitive.find({ _id: { $in: targetIds } }).lean();
     refreshedTargets.forEach((target) => {
       expect(target.parentPrimitives?.[receiver.id]).toEqual(['primitives.results.main']);
-    });
   });
+});
+
 
   // Mirrors the bulk add case, verifying that the multi-remove helper cleans up every
   // linkage so parents and children end up fully detached.
@@ -335,7 +344,8 @@ describe('Primitive relationship helpers', () => {
     await removeRelationshipFromMultiple(receiver.id, targetIds, 'results.secondary', workspaceId);
 
     const updatedReceiver = await loadPrimitive(receiver.id);
-    expect(updatedReceiver.primitives?.results).toBeUndefined();
+    expect(updatedReceiver.primitives?.results?.secondary).toBeUndefined();
+    expect(updatedReceiver.primitives?.results).toEqual({});
 
     const refreshedTargets = await Primitive.find({ _id: { $in: targetIds } }).lean();
     refreshedTargets.forEach((target) => {
@@ -415,10 +425,12 @@ describe('Primitive relationship helpers', () => {
     updatedFlowInstance = await loadPrimitive(flowInstance.id);
     updatedStepInstance = await loadPrimitive(stepInstance.id);
 
-    expect(updatedFlowDef.primitives?.outputs).toBeUndefined();
+    expect(updatedFlowDef.primitives?.outputs?.main).toBeUndefined();
+    expect(updatedFlowDef.primitives?.outputs).toEqual({});
     expect(updatedStepDef.parentPrimitives?.[flowDef.id]).toEqual(['primitives.origin']);
 
-    expect(updatedFlowInstance.primitives?.outputs).toBeUndefined();
+    expect(updatedFlowInstance.primitives?.outputs?.main).toBeUndefined();
+    expect(updatedFlowInstance.primitives?.outputs).toEqual({});
     expect(updatedStepInstance.parentPrimitives?.[flowInstance.id]).toEqual(['primitives.origin']);
   });
 
@@ -585,4 +597,3 @@ describe('Primitive relationship helpers', () => {
     });
   });
 });
-
