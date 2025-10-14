@@ -5847,7 +5847,7 @@ export async function getOrganizationWithSubscription( orgId){
 
 }
 export async function getOrganizationsWithSubscriptionPlans( userId ){
-    const organizations = await queryOrganizationsWithSubscriptionPlans( 
+    const organizations = await queryOrganizationsWithSubscriptionPlans(
         // 1) only the orgs this user belongs to
         { $match: { "members.user": ObjectId(userId) } },
     )
@@ -5861,6 +5861,39 @@ export async function getOrganizationsWithSubscriptionPlans( userId ){
                 if( !includeBilling){ delete out["billing"]}
                 if( !includePlan){ delete out["plan"]}
                 if( !includeUsage){ delete out["usage"]}
+
+                if( out.slack ){
+                    const slackConfig = { ...out.slack }
+                    const workflowIds = Array.isArray(slackConfig.enabledWorkflows)
+                        ? slackConfig.enabledWorkflows
+                        : []
+                    slackConfig.enabledWorkflows = workflowIds
+                        .map((value)=>{
+                            if( !value){
+                                return undefined
+                            }
+                            if( typeof value === 'string'){
+                                return value
+                            }
+                            if( value?.toString ){
+                                return value.toString()
+                            }
+                            return undefined
+                        })
+                        .filter(Boolean)
+
+                    if( slackConfig.runAsUserId ){
+                        slackConfig.runAsUserId = slackConfig.runAsUserId?.toString?.() ?? null
+                    }
+
+                    if( slackConfig.resultsBaseUrl === undefined ){
+                        slackConfig.resultsBaseUrl = null
+                    }
+
+                    slackConfig.teamId = slackConfig.teamId ?? null
+
+                    out.slack = slackConfig
+                }
 
                 return out
             })
