@@ -417,100 +417,218 @@ export async function buildDocumentEmbedding(id, req){
 
 }
 
-export async function getDocumentAsPlainText(id, req, override_url, forcePDF, forceRefresh){
+function normalisePrimitiveId(primitiveOrId){
+    if( !primitiveOrId){
+        return undefined
+    }
+    if( typeof primitiveOrId === 'string'){
+        return primitiveOrId
+    }
+    if( primitiveOrId?._id ){
+        return primitiveOrId._id.toString()
+    }
+    return primitiveOrId.toString?.()
+}
 
-
-        
-
-    if( !forcePDF  && !forceRefresh){
-        const text = await retrieveDocumentFromSearchCache( id )
-        if( text){
-            return {plain: text}
-        }
+async function loadPrimitiveAndCategory(primitiveOrId){
+    if( !primitiveOrId){
+        return {}
+    }
+    if( typeof primitiveOrId === 'object' && primitiveOrId.referenceId){
+        const primitive = primitiveOrId
+        const category = await Category.findOne({id: primitive.referenceId})
+        return { primitive, category }
     }
 
-
-    const primitive =  await Primitive.findOne({_id:  new ObjectId(id)})
-    const category =  await Category.findOne({id:  primitive.referenceId})
-
-    if( category?.ai?.process?.contextAsContent){
-        return { plain: await buildContext( primitive ) }
+    const id = normalisePrimitiveId(primitiveOrId)
+    if( !id){
+        return {}
     }
-
-    const field = Object.keys(category?.parameters ?? {}).find(d=>category?.parameters[d].useAsContent)
-    if( field ){
-        return { plain: primitive.referenceParameters[field] }
+    const primitive = await Primitive.findOne({_id:  new ObjectId(id)})
+    if( !primitive){
+        return {}
     }
+    const category = await Category.findOne({id:  primitive.referenceId})
+    return { primitive, category }
+}
 
-
-    const bucketName = 'cc_vf_document_plaintext'
-    const storage = new Storage({
-        projectId: process.env.GOOGLE_PROJECT_ID,
-      });
-
-    const bucket = storage.bucket(bucketName);
-
-    let file = bucket.file(id)
-    if( file && !forceRefresh){
-        if( (await file.exists())[0] ){
-            const [metadata] = await file.getMetadata();
-            const fileSize = metadata.size; // Size in bytes
-            if( fileSize === 0 || fileSize === '0'){
-                console.log(`Zero length file - refetching`)
-                file = undefined
-            }
-
-        }else{
-            file = undefined
-        }
+async function readCachedPlainText(id){
+    if( !id){
+        return undefined
     }
-
-    let notes = primitive.referenceParameters?.notes
-    let url = override_url || primitive.referenceParameters?.url
-    let fecthFromPdf = primitive.referenceParameters?.sourceType === "video"
-    if(url?.slice(-3)==="pdf"){
-        fecthFromPdf = true
+    const storage = new Storage({ projectId: process.env.GOOGLE_PROJECT_ID })
+    const bucket = storage.bucket('cc_vf_document_plaintext')
+    const file = bucket.file(id)
+    if( !((await file.exists())[0]) ){
+        return undefined
     }
-
-    if( forcePDF || fecthFromPdf || !file || forceRefresh){
-        let text, matches
-        if( notes || fecthFromPdf || forcePDF){
-            console.log(`----- EXTRACT FROM PDF`)
-            const result = await extractPlainTextFromPdf( id, req )
-            if( result && result.plain){
-                await writeTextToFile(id, result.plain, req)
-            }
-            return result
-        }
-        if( url ){
-            if( url.match(/^https?:\/\/(www\.)?facebook\.com\/[^\/]+\/posts\/[A-Za-z0-9_-]+/)){
-                console.log(`Fetch pdf of facebok post`)
-                await grabUrlAsPdf( url, id )
-                text = (await extractPlainTextFromPdf( id, req ))?.plain
-            }else if( url.match(/^https?:\/\/(www\.)?linkedin\.com\/posts\//)){
-                console.log(`Fetch LinkedIn post`)
-                const result = await Parser.parse(url, {
-                    contentType: 'text',
-                })
-                if( result && result.content ){
-                    text = result.content
-
-                }
-            }else if( url && (matches = url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/))){
-                text = (await extractPlainTextFromPdf( id, req ))?.plain
-            }else{
-                const data = await fetchURLPlainText(url, false, true, primitive.referenceParameters?.full_html )
-                if( data?.fullText ){
-                    text = data?.fullText
-                }
-            }
-            await writeTextToFile(id, text, req)
-            return {plain: text}
-        }
+    const [metadata] = await file.getMetadata()
+    const fileSize = metadata.size
+    if( fileSize === 0 || fileSize === '0'){
+        console.log(`Zero length file ${id} - refetching`)
         return undefined
     }
     const contents = (await file.download())[0]
-    return {plain: contents.toString()}
+    return contents.toString()
+}
+
+async function ensureGoogleDriveContent(id, primitive, req){
+    await importDocument(id, req)
+    const cached = await readCachedPlainText(id)
+    if( cached ){
+        return { plain: cached }
+    }
+    const extracted = await extractPlainTextFromPdf(id, req)
+    if( extracted?.plain ){
+        await writeTextToFile(id, extracted.plain, req)
+    }
+    return extracted
+}
+
+async function fetchPlainTextFromPdfSources({ id, primitive, req, url }){
+    let text
+    if( primitive.referenceParameters?.notes ){
+        const result = await ensureGoogleDriveContent(id, primitive, req)
+        if( result ){
+            return result
+        }
+    }
+
+    if( !url ){
+        return undefined
+    }
+
+    if( url.match(/^https?:\/\/(www\.)?facebook\.com\/[^\/]+\/posts\/[A-Za-z0-9_-]+/)){
+        console.log(`Fetch pdf of facebok post`)
+        await grabUrlAsPdf(url, id)
+        text = (await extractPlainTextFromPdf(id, req))?.plain
+    }else if( url.match(/^https?:\/\/(www\.)?linkedin\.com\/posts\//)){
+        console.log(`Fetch LinkedIn post`)
+        const result = await Parser.parse(url, { contentType: 'text' })
+        if( result?.content ){
+            text = result.content
+        }
+    }else if( url.match(/^(https?:\/\/)?drive\.google\.com\/file\/d\/(.+)\/view\?usp=drive_link/)){
+        const result = await ensureGoogleDriveContent(id, primitive, req)
+        if( result ){
+            return result
+        }
+    }else{
+        const data = await fetchURLPlainText(url, false, true, primitive.referenceParameters?.full_html )
+        if( data?.fullText ){
+            text = data.fullText
+        }
+    }
+
+    if( text ){
+        await writeTextToFile(id, text, req)
+        return { plain: text }
+    }
+    return undefined
+}
+
+async function fetchPlainTextFromUrl({ id, primitive, url, req, preferEmbeddedPdf, fullHTML }){
+    if( !url ){
+        return undefined
+    }
+    const data = await fetchURLPlainText(url, false, preferEmbeddedPdf, fullHTML ?? primitive.referenceParameters?.full_html )
+    if( data?.fullText ){
+        await writeTextToFile(id, data.fullText, req)
+        return { plain: data.fullText, ...data }
+    }
+    return undefined
+}
+
+export async function getPrimitiveContentPlainText(primitiveOrId, options = {}){
+    const { req, overrideUrl, forcePDF = false, forceRefresh = false, preferEmbeddedPdf = false, fullHTML } = options
+    const id = normalisePrimitiveId(primitiveOrId)
+
+    if( id && !forcePDF && !forceRefresh ){
+        const text = await retrieveDocumentFromSearchCache(id)
+        if( text ){
+            return { plain: text }
+        }
+    }
+
+    const { primitive, category } = await loadPrimitiveAndCategory(primitiveOrId)
+    if( !primitive ){
+        return undefined
+    }
+
+    if( category?.ai?.process?.contextAsContent ){
+        return { plain: await buildContext(primitive) }
+    }
+
+    const field = Object.keys(category?.parameters ?? {}).find(d => category?.parameters[d].useAsContent)
+    if( field ){
+        const value = primitive.referenceParameters?.[field]
+        if( value ){
+            return { plain: value }
+        }
+    }
+
+    const url = overrideUrl || primitive.referenceParameters?.url
+    const preferPdf = forcePDF || Boolean(primitive.referenceParameters?.notes) || primitive.referenceParameters?.sourceType === "video" || url?.toLowerCase?.().endsWith('.pdf')
+    let cachedPlaintext
+    let attemptedCache = false
+    async function loadCached(){
+        if( attemptedCache ){
+            return cachedPlaintext
+        }
+        attemptedCache = true
+        if( !id ){
+            cachedPlaintext = undefined
+            return undefined
+        }
+        cachedPlaintext = await readCachedPlainText(id)
+        return cachedPlaintext
+    }
+
+    if( id && !forceRefresh && !preferPdf ){
+        const cached = await loadCached()
+        if( cached ){
+            return { plain: cached }
+        }
+    }
+
+    if( preferPdf || forceRefresh ){
+        const result = await fetchPlainTextFromPdfSources({ id, primitive, req, url })
+        if( result ){
+            cachedPlaintext = result.plain ?? cachedPlaintext
+            return result
+        }
+    }
+
+    if( id && !forceRefresh ){
+        const cached = await loadCached()
+        if( cached ){
+            return { plain: cached }
+        }
+    }
+
+    const result = await fetchPlainTextFromUrl({ id, primitive, url, req, preferEmbeddedPdf, fullHTML })
+    if( result ){
+        cachedPlaintext = result.plain ?? cachedPlaintext
+        return result
+    }
+
+    if( id && !forceRefresh ){
+        const cached = await loadCached()
+        if( cached ){
+            return { plain: cached }
+        }
+    }
+
+    return undefined
+}
+
+export async function getDocumentAsPlainText(id, req, override_url, forcePDF, forceRefresh){
+    return await getPrimitiveContentPlainText(id, {
+        req,
+        overrideUrl: override_url,
+        forcePDF,
+        forceRefresh
+    })
 }
 export async function extractPlainTextFromPdf(id, req, inline){
     const pdfExtract = new PDFExtract();
