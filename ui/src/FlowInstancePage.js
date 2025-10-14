@@ -293,23 +293,25 @@ export default function FlowInstancePage({primitive, ...props}){
 
     const showWorking = primitive.processing?.flow?.status === "running"
     return <div className={clsx([
-            "flex w-full relative flex-1 min-h-0 bg-gray-50",
+            "flex w-full relative flex-1 min-h-0 h-full max-h-[calc(100vh_-_2rem)] bg-gray-50",
             showOutput ? "p-6 space-x-6" : ""
         ])}>
                 {showOutput && !isForNewInstance && <div className="w-full h-full flex ">
                     <div className="w-full h-full flex bg-[#fefefe] overflow-hidden shadow-lg rounded-2xl relative">
-                        <FlowInstanceOutput
-                            ref={flowInfoRef} 
-                            primitive={primitive} 
-                            inputPrimitives={inputs} 
-                            steps={steps} 
-                            select={(p_or_id, options)=>{
-                                const primitives = p_or_id ? [p_or_id].flat().map(d=>typeof(d) === "object" ? d : MainStore().primitive(d)) : []
-                                console.log(primitives)
-                                setInspectorFocus({primitives, ...options, showExecution: false})
-                            }}
-                            hideProgressAt="@4xl"
-                            />
+                        <div className="flex-1 min-h-0 flex h-full">
+                            <FlowInstanceOutput
+                                ref={flowInfoRef} 
+                                primitive={primitive} 
+                                inputPrimitives={inputs} 
+                                steps={steps} 
+                                select={(p_or_id, options)=>{
+                                    const primitives = p_or_id ? [p_or_id].flat().map(d=>typeof(d) === "object" ? d : MainStore().primitive(d)) : []
+                                    console.log(primitives)
+                                    setInspectorFocus({primitives, ...options, showExecution: false})
+                                }}
+                                hideProgressAt="@4xl"
+                                />
+                        </div>
                         <div key='toolbar3' className='overflow-hidden max-h-[80vh] bg-white rounded-md shadow-lg border-gray-200 border absolute right-4 top-4 z-50 flex space-x-1 place-items-center p-1'>
                             <Button isIconOnly variant="light" onClick={()=>setShowOutput(false)}><XMarkIcon className="text-slate-500 w-5 h-5"/></Button>
                             <Button isIconOnly variant="light" onClick={()=>flowInfoRef?.current?.downloadAll()}><DocumentArrowDownIcon className="text-slate-500 w-5 h-5"/></Button>
@@ -441,7 +443,7 @@ export default function FlowInstancePage({primitive, ...props}){
                         </div>
                         {activeTab === "progress" && <div className="flex w-full h-full">
                             <FeedList 
-                                className="w-96 shrink-0 grow-0 overflow-y-scroll"
+                                className="w-96 shrink-0 grow-0 overflow-y-scroll mb-16"
                                 showLabels={true} 
                                 update={update}
                                 items={stepsToProcess.map(d=>({

@@ -3,6 +3,58 @@ import { BrightDataQueue, dispatchControlUpdate } from "./SharedFunctions.js";
 
 const collectorDefinitions = new Map();
 const filterRegistry = new Map();
+const collectorLoadState = new Map();
+const DEFAULT_COLLECTOR_CONCURRENCY = Number(process.env.BRIGHTDATA_COLLECTOR_MAX_CONCURRENT ?? "100");
+
+function getCollectorLimit(definition) {
+    const limitValue = definition?.maxConcurrent ?? DEFAULT_COLLECTOR_CONCURRENCY;
+    const numeric = Number(limitValue);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return null;
+    }
+    return Math.floor(numeric);
+}
+
+function getCollectorBucket(key) {
+    if (!collectorLoadState.has(key)) {
+        collectorLoadState.set(key, {
+            active: new Map(),
+            queue: []
+        });
+    }
+    return collectorLoadState.get(key);
+}
+
+async function acquireCollectorSlot(key, primitiveId, definition) {
+    const limit = getCollectorLimit(definition);
+    if (!limit) {
+        return null;
+    }
+
+    const bucket = getCollectorBucket(key);
+    if (bucket.active.size >= limit) {
+        await new Promise(resolve => bucket.queue.push(resolve));
+    }
+    const ticket = `${Date.now().toString(36)}:${primitiveId ?? "unknown"}:${Math.random().toString(36).slice(2, 10)}`;
+    bucket.active.set(ticket, { primitiveId, acquiredAt: Date.now() });
+    return ticket;
+}
+
+export function releaseCollectorSlot(key, ticket) {
+    if (!ticket) {
+        return;
+    }
+    const bucket = collectorLoadState.get(key);
+    if (!bucket) {
+        return;
+    }
+    if (bucket.active.delete(ticket)) {
+        const next = bucket.queue.shift();
+        if (typeof next === "function") {
+            next();
+        }
+    }
+}
 
 function getHeaders() {
     return {
@@ -151,11 +203,18 @@ export async function triggerBrightDataCollector(key, { primitive, input, trigge
 
     const url = buildTriggerUrl(definition, triggerOptions);
     const payload = ensureArray(input);
+    const loadTicket = await acquireCollectorSlot(key, primitive.id, definition);
 
-    const response = await axios.post(url, payload, { headers: getHeaders() });
-    const collectionId = extractCollectionId(definition, response.data);
-    if (!collectionId) {
-        throw new Error(`Collector "${key}" trigger did not return a collection id`);
+    let collectionId;
+    try {
+        const response = await axios.post(url, payload, { headers: getHeaders() });
+        collectionId = extractCollectionId(definition, response.data);
+        if (!collectionId) {
+            throw new Error(`Collector "${key}" trigger did not return a collection id`);
+        }
+    } catch (error) {
+        releaseCollectorSlot(key, loadTicket);
+        throw error;
     }
 
     const processingField = `processing.bd.${key}`;
@@ -163,16 +222,18 @@ export async function triggerBrightDataCollector(key, { primitive, input, trigge
         ...(primitive.processing?.bd?.[key] ?? {}),
         collectionId,
         options: collectorOptions,
-        triggeredAt: new Date().toISOString()
+        triggeredAt: new Date().toISOString(),
+        loadTicket
     };
     await dispatchControlUpdate(primitive.id, processingField, processingPayload, { track: primitive.id });
     await BrightDataQueue().scheduleCollection(primitive, {
         api: key,
         provider: "brightdata_collector",
-        collectorOptions
+        collectorOptions,
+        loadTicket
     });
 
-    return { collectionId };
+    return { collectionId, loadTicket };
 }
 
 export async function handleBrightDataCollector(primitive, data = {}) {
@@ -190,6 +251,7 @@ export async function handleBrightDataCollector(primitive, data = {}) {
         ...storedOptions,
         ...(data.collectorOptions ?? {})
     };
+    const loadTicket = primitive.processing?.bd?.[api]?.loadTicket ?? data.loadTicket;
 
     const collectionId = primitive.bd?.[api]?.collectionId ?? primitive.processing?.bd?.[api]?.collectionId;
     if (!collectionId) {
@@ -209,7 +271,8 @@ export async function handleBrightDataCollector(primitive, data = {}) {
                         api,
                         provider: "brightdata_collector",
                         collectorOptions,
-                        parent
+                        parent,
+                        loadTicket
                     };
                     await BrightDataQueue().scheduleCollection(primitive, options, true);
                 }

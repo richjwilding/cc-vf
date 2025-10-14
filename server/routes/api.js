@@ -28,6 +28,7 @@ import Organization from '../model/Organization';
 import SubscriptionPlan from '../model/SubscriptionPlan';
 import { handleChat } from '../agent/agent.js';
 import { getRedisBase } from '../redis.js';
+import { getQueue } from '../queue_registry.js';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -52,6 +53,20 @@ async function userCanAccessPrimitive(primitive, req, res){
     }
     res.status(401).json({message: "Permission denied"})
     return false
+}
+
+function parseBullJobKey(jobKey){
+    if( !jobKey || typeof jobKey !== "string"){
+        return {}
+    }
+    if( jobKey.startsWith("bull:") ){
+        const [, queueName, ...rest] = jobKey.split(":")
+        if( !queueName || rest.length === 0 ){
+            return {}
+        }
+        return { queueName, jobId: rest.join(":") }
+    }
+    return {}
 }
 
 router.get('/', async function(req, res, next) {
@@ -1095,9 +1110,80 @@ router.get('/queue/reset', async function(req, res, next) {
 
 })
 router.get('/queue/status', async function(req, res, next) {
-    const status = await queueStatus()
-    res.json({success: true, result: status})
+    try{
+        const workspaceId = req.query.workspaceId;
+        const status = await queueStatus(workspaceId ? { workspaceId } : undefined);
+        res.json({success: true, result: status})
+    }catch(error){
+        console.log(error)
+        res.status(500).json({success: false, error: error?.message || "Unable to fetch queue status"})
+    }
 
+})
+router.get('/queues/:workspaceId/status', async function(req, res) {
+    const workspaceId = req.params.workspaceId;
+    if( !req.user?.workspaceIds?.includes(workspaceId)){
+        return res.status(403).json({success: false, error: "Permission denied"})
+    }
+    try{
+        const status = await queueStatus({ workspaceId })
+        res.json({success: true, result: status})
+    }catch(error){
+        console.log(error)
+        res.status(500).json({success: false, error: error?.message || "Unable to fetch queue status"})
+    }
+})
+router.post('/queues/:workspaceId/cancel', async function(req, res) {
+    const workspaceId = req.params.workspaceId;
+    if( !req.user?.workspaceIds?.includes(workspaceId)){
+        return res.status(403).json({success: false, error: "Permission denied"})
+    }
+    try{
+        const { jobKey, queueName: bodyQueueName, jobId: bodyJobId, reason } = req.body || {}
+        let queueName = bodyQueueName
+        let jobId = bodyJobId
+        if( jobKey ){
+            const parsed = parseBullJobKey(jobKey)
+            queueName = queueName ?? parsed.queueName
+            jobId = jobId ?? parsed.jobId
+        }
+        if( !queueName || !jobId ){
+            return res.status(400).json({success: false, error: "Missing job identifier"})
+        }
+        if( !queueName.startsWith(`${workspaceId}-`) ){
+            return res.status(400).json({success: false, error: "Workspace mismatch for job"})
+        }
+        const queueType = queueName.slice(queueName.lastIndexOf('-') + 1)
+        const queue = await getQueue(queueType)
+        if( !queue?.cancelJobTree ){
+            return res.status(400).json({success: false, error: `Unsupported queue type ${queueType}`})
+        }
+        let job
+        try{
+            job = await queue._queue.getJobFromQueue({ queueName, id: jobId })
+        }catch(error){
+            console.log(`Error fetching job ${queueName} / ${jobId}`, error)
+        }
+        if( !job ){
+            return res.status(404).json({success: false, error: "Job not found"})
+        }
+        if( job.data?.id ){
+            const primitive = await userCanAccessPrimitive(job.data.id, req, res)
+            if( !primitive ){
+                return
+            }
+        }
+        const result = await queue.cancelJobTree({
+            queueName,
+            jobId,
+            reason: reason || 'user-request',
+            initiator: req.user?._id?.toString()
+        })
+        res.json({success: true, result})
+    }catch(error){
+        console.log(error)
+        res.status(500).json({success: false, error: error?.message || "Unable to cancel job"})
+    }
 })
 router.get('/primitive/:id/fetch', async function(req, res, next) {
     const primitiveId = req.params.id

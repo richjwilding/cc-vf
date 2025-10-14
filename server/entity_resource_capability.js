@@ -419,19 +419,26 @@ export async function runEntityResourceAgent({
     const toolInvocations = [];
     let finalMessage;
 
+    const hasFunctions = Array.isArray(functionDefinitions) && functionDefinitions.length > 0;
+
     for (let iteration = 0; iteration < maxIterations; iteration++) {
-        const response = await openai.chat.completions.create({
+        const requestPayload = {
             model,
             temperature,
-            messages,
-            functions: functionDefinitions,
-            function_call: "auto",
-        });
+            messages
+        };
+
+        if (hasFunctions) {
+            requestPayload.functions = functionDefinitions;
+            requestPayload.function_call = "auto";
+        }
+
+        const response = await openai.chat.completions.create(requestPayload);
         const message = response?.choices?.[0]?.message;
         if (!message) {
             throw new Error("No response from OpenAI");
         }
-        if (message.function_call) {
+        if (message.function_call && hasFunctions) {
             const fnName = message.function_call.name;
             const fnArgsRaw = message.function_call.arguments ?? "{}";
             let fnArgs;
@@ -513,5 +520,18 @@ export function buildAgentDebugPayload(parsed, toolInvocations, messages) {
         agent_response: parsed,
         tool_invocations: toolInvocations,
         messages,
+    };
+}
+
+export function createStatusReporter(statusCallback, logger) {
+    return async (message, details) => {
+        if (typeof statusCallback !== "function") {
+            return;
+        }
+        try {
+            await statusCallback(message, details);
+        } catch (error) {
+            logger?.debug?.("status callback error", { error: error?.message });
+        }
     };
 }

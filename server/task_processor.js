@@ -308,6 +308,9 @@ export async function checkAndGenerateSegments( parent, primitive, options = {} 
                     }                    
                     if( segmentsArePrimitives ){
                         data.data.referenceParameters = {sourcePrimId: targetSegments[idx].id}
+                    }else{
+                        data.data.referenceParameters = {relayImports: true}
+
                     }
                     existing = await createPrimitive( data )
                     if( !existing ){

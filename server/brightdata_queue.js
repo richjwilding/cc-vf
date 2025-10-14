@@ -3,21 +3,23 @@ import { addRelationship, cosineSimilarity, createPrimitive, dispatchControlUpda
 import Category from "./model/Category.js";
 import { setBrightdataScheduler, handleCollection as handleBrightDataCollection } from './brightdata.js';
 import { handleCollection as handleCoresignalCollection } from './coresignal.js';
-import { handleBrightDataCollector } from "./brightdata_collectors.js";
+import { handleBrightDataCollector, releaseCollectorSlot } from "./brightdata_collectors.js";
 import BaseQueue from "./base_queue.js";
 
 
 let instance
 
 export async function processQueue(job, cancelCheck){
+    const {id: primitiveId, field, ...data} = job.data
+    const provider = data.provider ?? "brightdata"
+    const shouldReleaseSlot = provider === "brightdata_collector" && data.loadTicket
+    let releaseOnFinally = true
     try{
-        const {id: primitiveId, field, ...data} = job.data
         const primitive = await Primitive.findOne({_id: primitiveId})
         if( primitive){
             if( data.mode === "collect" ){
                 console.log(`Check...`)
                 dispatchControlUpdate(primitiveId, field , {status: "Checking for results"}, {...data, track: primitiveId})
-                const provider = data.provider ?? "brightdata"
                 let handler
                 if( provider === "coresignal" ){
                     handler = handleCoresignalCollection
@@ -28,6 +30,7 @@ export async function processQueue(job, cancelCheck){
                 }
                 const result = await handler( primitive, data )
                 if( result?.reschedule ){
+                    releaseOnFinally = false
                     return result
                 }
 
@@ -47,6 +50,7 @@ export async function processQueue(job, cancelCheck){
                 let collected = 0
 
                 if( result?.reschedule ){
+                    releaseOnFinally = false
                     return result
                 }
                 const sourceCategory = await Category.findOne({id: primitive.referenceId})
@@ -100,6 +104,10 @@ export async function processQueue(job, cancelCheck){
     }catch(error){
         console.log(`Error in queryQueue`)
         console.log(error)
+    }finally{
+        if( shouldReleaseSlot && releaseOnFinally ){
+            releaseCollectorSlot(data.api, data.loadTicket)
+        }
     }
     
 }

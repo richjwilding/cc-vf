@@ -11,6 +11,7 @@ import {
     buildAgentDebugPayload,
     buildCompanyInfo,
     safeHostname,
+    createStatusReporter,
 } from "../entity_resource_capability";
 
 const linkedinLogger = getLogger("entity_resource_linkedin", "debug");
@@ -28,14 +29,15 @@ registerEntityResourceTarget("linkedin", {
         maxIterations: clampInteger(options?.maxIterations, LINKEDIN_MAX_ITERATIONS, 3, 12),
         debug: options?.debug === true || options?.debug === "true"
     }),
-    async execute({ metadata = {}, companyContext = {}, options = {} }) {
+    async execute({ metadata = {}, companyContext = {}, options = {}, statusCallback }) {
         return executeLinkedinAgent({
             ...metadata,
             ...companyContext,
             candidateLimit: options.candidateLimit,
             searchLimit: options.searchLimit,
             maxIterations: options.maxIterations,
-            debug: options.debug
+            debug: options.debug,
+            statusCallback
         });
     }
 });
@@ -50,7 +52,8 @@ async function executeLinkedinAgent({
     candidateLimit,
     searchLimit,
     maxIterations,
-    debug
+    debug,
+    statusCallback
 }) {
     const context = {
         companyName,
@@ -62,6 +65,12 @@ async function executeLinkedinAgent({
         candidateLimit,
         searchLimit
     };
+
+    const reportStatus = createStatusReporter(statusCallback, linkedinLogger);
+    await reportStatus("Starting LinkedIn lookup", {
+        candidateLimit,
+        searchLimit
+    });
 
     const toolMap = {
         search_linkedin: async ({ query, limit }) => {
@@ -79,8 +88,13 @@ async function executeLinkedinAgent({
             }
             linkedinLogger.debug("linkedin search", { query: searchQuery });
             try {
+                await reportStatus("Searching LinkedIn", { query: searchQuery });
                 const result = await fetchLinksFromWebQuery(searchQuery, { timeFrame: "" });
                 const mapped = mapSearchResults(result?.links, effectiveLimit, "linkedin.com");
+                await reportStatus("LinkedIn search results processed", {
+                    query: searchQuery,
+                    results: mapped.length
+                });
                 return { query: searchQuery, results: mapped, total: mapped.length };
             } catch (error) {
                 linkedinLogger.error("linkedin search error", { error: error?.message });
@@ -94,8 +108,13 @@ async function executeLinkedinAgent({
             const effectiveLimit = clampInteger(limit, searchLimit, 1, 10);
             const searchQuery = query.trim();
             try {
+                await reportStatus("Searching web for LinkedIn references", { query: searchQuery });
                 const result = await fetchLinksFromWebQuery(searchQuery, { timeFrame: "" });
                 const mapped = mapSearchResults(result?.links, effectiveLimit);
+                await reportStatus("Web search results processed", {
+                    query: searchQuery,
+                    results: mapped.length
+                });
                 return { query: searchQuery, results: mapped, total: mapped.length };
             } catch (error) {
                 linkedinLogger.error("general search error", { error: error?.message });
@@ -108,10 +127,12 @@ async function executeLinkedinAgent({
                 return { success: false, error: "Invalid URL" };
             }
             try {
+                await reportStatus("Inspecting LinkedIn page", { url: normalized });
                 const fetched = await fetchURLPlainText(normalized, false, true);
                 const rawText = typeof fetched?.fullText === "string" && fetched.fullText.length > 0
                     ? fetched.fullText
                     : (typeof fetched?.description === "string" ? fetched.description : "");
+                await reportStatus("LinkedIn page inspection complete", { url: normalized });
                 return {
                     success: true,
                     url: normalized,
@@ -215,6 +236,10 @@ async function executeLinkedinAgent({
         companyDescription,
         companyCountry
     }, context);
+
+    await reportStatus("LinkedIn lookup complete", {
+        candidateCount: limited.length
+    });
 
     const result = {
         success: true,

@@ -1233,6 +1233,7 @@ registerRenderer( {type: "default", configs: "datatable_grid"}, function renderF
                 config: rConfig,
                 x: x,
                 y: columnYs[idx],
+                itemIdx: dIdx,
                 onClick: options.primitiveClick,
                 width: itemWidth,
                 height: itemHeight,

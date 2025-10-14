@@ -2668,10 +2668,10 @@ export default function BoardViewer({primitive,...props}){
             myState[d.id].inPage = true
             myState[d.id].page = myState[d.origin.id]
             myState[d.id].parentRender = d.origin.id
-            updatePrimitive = d.origin.id
+            updatePrimitive = d.origin
         }else if(d.flowElement){
             myState[d.id].parentRender = d.origin.id
-            updatePrimitive = d.origin.id
+            updatePrimitive = d.origin
         }
         prepareBoard( d )
 
@@ -3109,6 +3109,12 @@ export default function BoardViewer({primitive,...props}){
 
         const cat = mainstore.category(categoryId)
         if(cat){
+            const referenceParameters = {}
+            if( categoryId === PrimitiveConfig.Constants.SHAPE_ELEMENT){
+                referenceParameters.style = "text"
+                referenceParameters.text = "New shape"
+                referenceParameters.fontSize = 30
+            }
             const newPrim = await mainstore.createPrimitive({
                 title: cat.title,
                 type: cat.primitiveType,
@@ -3117,6 +3123,7 @@ export default function BoardViewer({primitive,...props}){
                 workspaceId: primitive.workspaceId,
                 ...(addToFlow ? {flowElement: true, parent: addToFlow} : {}),
                 ...(addToPage ? {parent: addToPage} : {}),
+                referenceParameters
             })
             if(newPrim){
                 addBoardToCanvas(newPrim, {x: sceneX, y: sceneY, s:1})

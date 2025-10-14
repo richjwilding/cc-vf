@@ -224,6 +224,7 @@ export default function ApplicationLayout({
       path.startsWith("/usage") ||
       path.startsWith("/account") ||
       path.startsWith("/queue") ||
+      path.startsWith("/queues") ||
       path.startsWith("/project")
     ) {
       return false;
