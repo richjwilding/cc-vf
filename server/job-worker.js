@@ -287,6 +287,21 @@ async function getQueueObject(type) {
         if (!isMongoConnected) {
             const unavailable = new Error('MongoDB connection is not available');
             unavailable.code = 'MONGO_UNAVAILABLE';
+            logger.warn(`[Worker] Mongo unavailable while starting job ${job.id} on ${queueName}`, { type: workerData.type });
+            try {
+                await queueObject.default().endJob({
+                    success: false,
+                    error: unavailable,
+                    queueType: workerData.type,
+                    queueName,
+                    jobId: job.id,
+                    notify: job.data.notify,
+                    token,
+                    parent: parentMeta,
+                });
+            } catch (notifyErr) {
+                logger.error(`[Worker] Failed to send endJob for ${job.id} during Mongo outage`, notifyErr);
+            }
             throw unavailable;
         }
         try {
