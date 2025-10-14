@@ -585,7 +585,6 @@ export async function removeRelationshipFromMultiple(receiver, targetIds, path, 
         );
 
 
-        console.log(`Now receiver`)
         const r3 = await Primitive.updateOne(
         {
             "_id": new ObjectId(receiver),
