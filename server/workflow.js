@@ -1104,8 +1104,10 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
     logger.info( "Flow instances:")
     const flowPrimitiveParser = new Proxy(flow.primitives ?? {}, PrimitiveParser())
 
+    let createdNew = false
     if( Object.keys(flowInstance.primitives?.origin ?? {}).length === 0){
         logger.info(`Flow instance is empty - cloning baseline`)
+        createdNew = true
         let steps = await fetchFlowStepsForScaffold(flow)
         const {replicatedSeedId, data: newNodes} = await cloneTreeNodes( flow, steps, {newBase: flowInstance, scaffoldCategorizer: true, skipNodes: ["flow","element"]} )
         logger.info(`Replicating  ${newNodes.length} steps`)
@@ -1466,7 +1468,7 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
     }
     console.timeEnd("time_RELATION MAP")
 
-    if (options.create !== false) {
+    if (options.create !== false && createdNew) {
         await ensureFlowParentDependencyLinks(flowInstance, flow);
     }
 }
@@ -1596,13 +1598,12 @@ async function ensureFlowParentDependencyLinks(flowInstance, flow) {
             }
         }
 
-        const ancestorIdQuerySet = new Set(ancestorFlowInstanceIds);
-        ancestorIdQuerySet.delete(flowInstance.id);
-
         const parentInstanceIds = parentDocs.flatMap(doc => doc.primitives?.config ?? []);
         const uniqueParentInstanceIds = [...new Set(parentInstanceIds)];
-        const relevantParentInstanceIds = uniqueParentInstanceIds.filter(id => ancestorIdQuerySet.has(id));
-        const parentInstanceDocs = relevantParentInstanceIds.length > 0 ? await fetchPrimitives(relevantParentInstanceIds, undefined, DONT_LOAD) : [];
+        const ancestorFilterIds = [...ancestorFlowInstanceIds].filter(id => id !== flowInstance.id);
+        const ancestorFilters = ancestorFilterIds.map(ancestorId => ({ [`parentPrimitives.${ancestorId}`]: "primitives.origin"  }));
+        const parentInstanceQuery = ancestorFilters.length > 0 ? [{ $or: ancestorFilters }] : undefined;
+        const parentInstanceDocs = uniqueParentInstanceIds.length > 0 ? await fetchPrimitives(uniqueParentInstanceIds, parentInstanceQuery, DONT_LOAD) : [];
         const parentInstanceById = new Map(parentInstanceDocs.map(doc => [doc.id, doc]));
 
         for (const { parentId, paths } of relevantParents) {

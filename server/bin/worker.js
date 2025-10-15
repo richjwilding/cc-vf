@@ -259,6 +259,31 @@ process.on('SIGTERM', () => {
       await publishWaitingChildrenSweep('sigterm', WAITING_CHILD_SWEEP_DELAY_MS);
     };
 
+    async function publishShutdownSummary(reason, reports) {
+      if (!Array.isArray(reports) || reports.length === 0) {
+        return;
+      }
+      const totals = { recovered: 0, inactive: 0, completed: 0, missing: 0, errors: 0 };
+      for (const report of reports) {
+        totals.recovered += Array.isArray(report.recovered) ? report.recovered.length : 0;
+        totals.inactive += Array.isArray(report.inactive) ? report.inactive.length : 0;
+        totals.completed += Array.isArray(report.completed) ? report.completed.length : 0;
+        totals.missing += Array.isArray(report.missing) ? report.missing.length : 0;
+        totals.errors += Array.isArray(report.errors) ? report.errors.length : 0;
+      }
+      const payload = {
+        cmd: 'shutdown-summary',
+        reason,
+        reports,
+        totals,
+        timestamp: new Date().toISOString(),
+        source: process.env.GAE_SERVICE || process.env.ROLE || 'worker',
+        sourceId: process.env.INSTANCE_UUID,
+      };
+      await pub.publish(CONTROL_CHANNEL, JSON.stringify(payload));
+      console.log(`[worker] published shutdown summary recovered=${totals.recovered} inactive=${totals.inactive} completed=${totals.completed} missing=${totals.missing} errors=${totals.errors}`);
+    }
+
     async function terminateWorkerThreads() {
       const managers = queues
         .map((inst) => inst?._queue)
@@ -268,6 +293,9 @@ process.on('SIGTERM', () => {
       const threadShutdownMs = Number(process.env.WORKER_THREAD_SHUTDOWN_TIMEOUT_MS || 10000);
 
       for (const manager of managers) {
+        try {
+          manager.shuttingDown = true;
+        } catch {}
         const threads = Array.isArray(manager.workerThreads) ? manager.workerThreads.slice() : [];
         if (threads.length === 0) {
           continue;
@@ -281,21 +309,45 @@ process.on('SIGTERM', () => {
 
           const shutdownPromise = new Promise((resolve) => {
             let settled = false;
+            let timer;
             const cleanup = () => {
               if (settled) return;
               settled = true;
-              clearTimeout(timer);
+              if (timer) {
+                clearTimeout(timer);
+              }
               const idx = manager.workerThreads?.indexOf(thread);
               if (idx !== undefined && idx >= 0) {
                 manager.workerThreads.splice(idx, 1);
               }
               resolve();
             };
-            const timer = setTimeout(() => {
+            const forceTimeoutShutdown = async () => {
+              if (settled) {
+                return;
+              }
               console.error(`[worker] timeout waiting for worker thread ${thread.threadId} (${manager.type}) to terminate`);
+              try {
+                if (typeof manager.forceRecoverWorkerThread === 'function') {
+                  await manager.forceRecoverWorkerThread(thread, { reason: 'shutdown-timeout' });
+                }
+              } catch (recoveryErr) {
+                console.error(`[worker] failed to recover jobs for thread ${thread.threadId} (${manager.type}) during timeout`, recoveryErr);
+              }
+              try {
+                await thread.terminate();
+              } catch (terminateErr) {
+                console.error(`[worker] failed to force terminate worker thread ${thread.threadId} (${manager.type})`, terminateErr);
+              }
               cleanup();
+            };
+            timer = setTimeout(() => {
+              forceTimeoutShutdown().catch((err) => {
+                console.error(`[worker] unexpected error during timeout cleanup for thread ${thread.threadId} (${manager.type})`, err);
+                cleanup();
+              });
             }, threadShutdownMs);
-            timer.unref();
+            timer.unref?.();
 
             thread.once('exit', (code) => {
               console.log(`[worker] worker thread ${thread.threadId} (${manager.type}) exited with code ${code}`);
@@ -310,7 +362,24 @@ process.on('SIGTERM', () => {
               thread.postMessage({ type: 'terminate' });
             } catch (err) {
               console.error(`[worker] failed to send terminate to worker thread ${thread.threadId} (${manager.type})`, err);
-              cleanup();
+              (async () => {
+                try {
+                  if (typeof manager.forceRecoverWorkerThread === 'function') {
+                    await manager.forceRecoverWorkerThread(thread, { reason: 'terminate-send-failure' });
+                  }
+                } catch (recoveryErr) {
+                  console.error(`[worker] failed to recover jobs after terminate-send failure for thread ${thread.threadId} (${manager.type})`, recoveryErr);
+                }
+                try {
+                  await thread.terminate();
+                } catch (terminateErr) {
+                  console.error(`[worker] failed to force terminate thread ${thread.threadId} (${manager.type}) after send failure`, terminateErr);
+                }
+                cleanup();
+              })().catch((asyncErr) => {
+                console.error(`[worker] unexpected error handling terminate-send failure for thread ${thread.threadId} (${manager.type})`, asyncErr);
+                cleanup();
+              });
             }
           });
 
@@ -325,6 +394,28 @@ process.on('SIGTERM', () => {
 
       await Promise.all(exitPromises);
       console.log('[worker] worker threads terminated');
+
+      const allReports = [];
+      for (const manager of managers) {
+        if (typeof manager.drainRecoveryReports === 'function') {
+          const reports = manager.drainRecoveryReports() || [];
+          if (reports.length > 0) {
+            allReports.push(
+              ...reports.map((report) => ({
+                ...report,
+                queueType: report?.queueType || manager.type,
+              }))
+            );
+          }
+        }
+      }
+      if (allReports.length > 0) {
+        try {
+          await publishShutdownSummary('sigterm', allReports);
+        } catch (summaryErr) {
+          console.error('[worker] failed to publish shutdown summary', summaryErr);
+        }
+      }
     }
 
     async function announceQueueHandoff(reason = 'sigterm') {
