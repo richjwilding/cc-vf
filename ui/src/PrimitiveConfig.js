@@ -2107,7 +2107,7 @@ const PrimitiveConfig = {
                         const parent = (await fetchImports( [originId] ))[0]
                         if( parent ){
                             console.log(`-- Got parent of category  = ${parent.id} / ${parent.plainId}`)
-                            if( !parent.flowElement && !Object.values(parent.parentPrimitives ).find(d=>d.includes("primitives.config"))){
+                            if( !parent.flowElement && !Object.values(parent._parentPrimitives ?? parent.parentPrimitives ?? {}).find(d=>d.includes("primitives.config"))){
                                 console.log(`--- Parent is not in a flow, can proceed`)
                                 return false
                             }

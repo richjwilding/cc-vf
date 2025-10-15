@@ -678,53 +678,6 @@ export async function addPersonFromProxyCurlData( profile, url, resultCategoryId
     return newPrim
 }
 
-export async function fetchCompanyHeadcount( primitive ){
-    try{
-        let targetProfile = primitive.referenceParameters.linkedIn?.trim()
-
-        if( targetProfile === undefined || targetProfile === ""){
-            targetProfile = await findLinkedinCompanyPage( primitive )
-            if( targetProfile ){
-                await dispatchControlUpdate( primitive.id, "referenceParameters.linkedIn", targetProfile)
-            }
-        }
-
-        if( targetProfile === undefined || targetProfile === ""){
-            console.log(`No LI profile`)
-            return {error: "no_profile"}
-        }
-        if( targetProfile.slice(0,8)!=="https://"){
-            targetProfile = "https://" + targetProfile
-        }
-        const query = new URLSearchParams({ 
-            "url": targetProfile,
-            linkedin_employee_count:"include",
-            "use_cache":"if-present"
-        }).toString()
-        const url = `https://nubela.co/proxycurl/api/linkedin/company/employees/count?${query}`
-        
-        console.log(`Doing proxycurl query`)
-        const response = await fetch(url,{
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${process.env.PROXYCURL_KEY}`
-            },
-        });
-        
-        if( response.status !== 200){
-            console.log(`Error from proxycurl`)
-            console.log(response)
-            return {error: response}
-        }
-        const data = await response.json();
-        if( data ){
-            await dispatchControlUpdate( primitive.id, "referenceParameters.employee_count", data.linkedin_employee_count ?? data.linkdb_employee_count)
-        }
-    }catch(error){
-        console.log(`Error in fetchCompanyHeadcount`)
-        console.log(error)
-    }
-}
 export async function fetchCompanyProfileFromLinkedIn( primitive ){
     try{
 

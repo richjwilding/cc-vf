@@ -3,6 +3,30 @@ import {encode, decode} from 'gpt-3-encoder'
 import { executeConcurrently } from "./SharedFunctions"
 import { recordUsage } from "./usage_tracker"
 
+const ENCODE_WARN_THRESHOLD_MS = Number.isFinite(Number(process.env.OPENAI_ENCODE_WARN_MS))
+    ? Number(process.env.OPENAI_ENCODE_WARN_MS)
+    : 200;
+const ENCODE_LOG_ALL = String(process.env.OPENAI_ENCODE_LOG_ALL || '').toLowerCase() === 'true';
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function timedEncode(text, contextLabel) {
+    const startedAt = Date.now();
+    const tokens = encode(text);
+    const duration = Date.now() - startedAt;
+    const charLength = typeof text === 'string' ? text.length : 0;
+    if (ENCODE_LOG_ALL || duration >= ENCODE_WARN_THRESHOLD_MS) {
+        const label = contextLabel ? ` [${contextLabel}]` : '';
+        const message = `[openai_helper] encode${label} took ${duration}ms for ${tokens.length} tokens (chars=${charLength})`;
+        if (duration >= ENCODE_WARN_THRESHOLD_MS) {
+            console.warn(message);
+        } else {
+            console.log(message);
+        }
+    }
+    return tokens;
+}
+
 export async function consoldiateAxis( json, options = {}){
     if( json === undefined ){
         return {success: true, output: []}
@@ -646,7 +670,7 @@ export async function analyzeListAgainstTopics( list, topics, options = {}){
 export async function processAsSingleChunk(text, options = {}){
 
     let maxTokens = tokensForModel( options.engine )
-    const currentTokens = encode(text)
+    const currentTokens = timedEncode(text, 'processAsSingleChunk').length
     if( currentTokens > maxTokens){
         return {success: false, error: `too many tokens ${currentTokens} vs ${maxTokens}`}
     }
@@ -822,8 +846,12 @@ export async function processInChunk( list, pre, post, options = {} ){
         let numberInBatch = 0
         do{
             leave = true
-            let text = fullContent[endIdx] + (options.joiner ?? "\n")
-            let thisTokens = encode( text ).length
+            const baseText = fullContent[endIdx] ?? ""
+            let text = baseText + (options.joiner ?? "\n")
+            const relativeIndex = options.inBatch
+                ? (options.batchStartOffset ?? 0) + endIdx
+                : endIdx;
+            const thisTokens = timedEncode(text, `chunk:${relativeIndex}`).length
             if( ( thisTokens + currentCount ) < maxTokens ){
                 numberInBatch++
                 leave = false
@@ -838,7 +866,7 @@ export async function processInChunk( list, pre, post, options = {} ){
         endIdx--
 
         if(startIdx > endIdx ){
-            console.log( encode( fullContent[startIdx] ).length)
+            console.log( timedEncode(fullContent[startIdx] ?? "", `single:${startIdx}`).length)
             console.log("Cant processes chunk - response too large?")
             if( truncateIdx !== startIdx ){
                 truncateIdx = startIdx
@@ -970,7 +998,7 @@ async function executeAI(messages, options = {}){
     const openai = new OpenAI({
         apiKey: process.env.OPEN_API_KEY,
         //timeout: 600 * 1000, // 10 minutes
-        //maxRetries: 5        
+        maxRetries: 0        
     })
     let response
     let err
@@ -1045,43 +1073,95 @@ async function executeAI(messages, options = {}){
     console.log(`Executing ${model}`)
     
 
-    try {
-        // Directly call the OpenAI API method with built-in retry logic
+    const timeoutMs = options.timeoutMs ?? 240000;
+    const retryLimit = Math.max(1, options.retryLimit ?? 3);
 
-        if( options.stream){
-            const stream = await openai.chat.completions.create({
-                model: model,
-                temperature,
-                messages: messages,
-                stream: true,
-                [max_tokens]: output,
-            });
-            let buffer = ""
-            for await (const chunk of stream) {
-                const delta = chunk.choices[0].delta;
-                buffer += (delta.content || '');
-                options.stream(delta.content)
-            }
-            options.stream(undefined, true)
-            response = {
-                choices: [
-                    { 
-                        role: "assistant",
-                        message: {content: buffer},
+    for (let attempt = 1; attempt <= retryLimit; attempt++) {
+        let timeoutHandle;
+        let timedOut = false;
+        const timeoutPromise = timeoutMs > 0
+            ? new Promise((_, reject) => {
+                timeoutHandle = setTimeout(() => {
+                    timedOut = true;
+                    const timeoutError = new Error(`OpenAI request timed out after ${timeoutMs}ms`);
+                    timeoutError.name = 'OpenAITimeoutError';
+                    reject(timeoutError);
+                }, timeoutMs);
+            })
+            : null;
+
+        try {
+            if( options.stream){
+                const streamPromise = (async () => {
+                    const stream = await openai.chat.completions.create({
+                        model: model,
+                        temperature,
+                        messages: messages,
+                        stream: true,
+                        [max_tokens]: output,
+                    });
+                    let buffer = ""
+                    for await (const chunk of stream) {
+                        const delta = chunk.choices[0].delta;
+                        buffer += (delta.content || '');
+                        options.stream?.(delta.content)
                     }
-                ]
+                    options.stream?.(undefined, true)
+                    return {
+                        choices: [
+                            { 
+                                role: "assistant",
+                                message: {content: buffer},
+                            }
+                        ]
+                    };
+                })();
+                response = timeoutPromise
+                    ? await Promise.race([streamPromise, timeoutPromise])
+                    : await streamPromise;
+            }else{
+                const requestPromise = openai.chat.completions.create({
+                    model: model,
+                    temperature,
+                    messages: messages,
+                    response_format: response_format,
+                    [max_tokens]: output,
+                });
+                response = timeoutPromise
+                    ? await Promise.race([requestPromise, timeoutPromise])
+                    : await requestPromise;
             }
-        }else{
-            response = await openai.chat.completions.create({
-                model: model,
-                temperature,
-                messages: messages,
-                response_format: response_format,
-                [max_tokens]: output,
-            });
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+            err = undefined;
+            break;
+        } catch (thisErr) {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+            err = thisErr; // Capture the error for returning meaningful information
+            const message = String(thisErr?.message || '').toLowerCase();
+            const status = thisErr?.response?.status;
+            const aborted = timedOut || thisErr?.name === 'OpenAITimeoutError' || thisErr?.name === 'AbortError' || message.includes('aborted');
+            const retriableStatus = status === 429 || (status >= 500 && status < 600);
+            const shouldRetry = attempt < retryLimit && (aborted || retriableStatus);
+
+            if (aborted) {
+                console.warn(`[openai_helper] executeAI attempt ${attempt} aborted after ${timeoutMs}ms (timeout)`);
+            } else {
+                console.warn(`[openai_helper] executeAI attempt ${attempt} failed: ${thisErr?.message || thisErr}`);
+            }
+
+            if (shouldRetry) {
+                const waitMs = sleepBase * attempt;
+                console.warn(`[openai_helper] retrying OpenAI request in ${waitMs}ms (attempt ${attempt + 1}/${retryLimit})`);
+                await delay(waitMs);
+                continue;
+            }
+
+            break;
         }
-    } catch (thisErr) {
-        err = thisErr; // Capture the error for returning meaningful information
     }
     
     // Handle the final response or error
@@ -1270,8 +1350,10 @@ function repackLongText( text, options ){
     let list = text.split(`\n`)
     let maxTokens = tokensForModel(options.engine)
     list.push("")
-    list = list.map((d)=>{
-        if( encode(d).length > maxTokens ){
+    list = list.map((d, idx)=>{
+        const itemLabel = `repack:item:${idx}`
+        const tokenCount = timedEncode(d, itemLabel).length
+        if( tokenCount > maxTokens ){
             const temp = []
             let split = d.split("  ")
             if( split.length === 1){
@@ -1284,7 +1366,7 @@ function repackLongText( text, options ){
             
             while(split.length > 0){
                 const t = split.shift()
-                const tt = encode(t).length
+                const tt = timedEncode(t, `${itemLabel}:segment`).length
                 if( (count + tt) > maxTokens){
                     temp.push(current)
                     current = ""
@@ -1507,7 +1589,7 @@ export async function analyzeText(text, options = {}){
 const MAX_EMBED_TOKENS = 8192;
 
 function truncateToMaxTokens(text) {
-  const toks = encode(text);
+  const toks = timedEncode(text, 'truncateToMaxTokens');
   if (toks.length <= MAX_EMBED_TOKENS) return text;
   const truncated = toks.slice(0, MAX_EMBED_TOKENS);
   return decode(truncated);

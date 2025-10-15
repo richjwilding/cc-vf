@@ -994,6 +994,9 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                         myState[stateId].originalList = inputs
                         if( config.flowinstance){
                             inputs = uniquePrimitives(inputs.flatMap(d=>d.findParentPrimitives({type: "flowinstance", first:true})))
+                            if( inputs.length === 0){
+                                inputs = [pageInstance.origin]
+                            }
                         }else{
                             if( config.ancestor){
                                 const rel = config.ancestor
@@ -1079,8 +1082,8 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
                             myState[stateId].config = "plain_object"
                             myState[stateId].primitive = basePrimitive
                             myState[stateId].primitiveList = inputs
-                            myState[stateId].empty = !inputs || inputs.length === 0 
-                            myState[stateId].noContent = !myState[stateId].empty  && (data.length === 0 || data.flat().every(d=>d?.content === ""))
+                            myState[stateId].empty = !config.flowinstance && (!inputs || inputs.length === 0 )
+                            myState[stateId].noContent = !config.flowinstance && (!myState[stateId].empty  && (data.length === 0 || data.flat().every(d=>d?.content === "")))
                             renderType = "plain_object"
                         }else if (basePrimitive.getConfig.extract === "page"){
                             let text = format.compose

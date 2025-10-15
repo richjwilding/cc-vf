@@ -305,6 +305,7 @@ async function handleWorkflowRunAsync({
   title,
   responseUrl,
   runAsUserId,
+  slackContext = {},
 }) {
   try {
     const flowPrimitive = await fetchPrimitive(workflow.id, {
@@ -332,6 +333,37 @@ async function handleWorkflowRunAsync({
       return;
     }
 
+    const instanceIdentifier = normalizeId(instance.id ?? instance._id);
+    const link = buildResultsUrl(organization, instanceIdentifier);
+
+    if (responseUrl) {
+      const initiatedAt = new Date().toISOString();
+      const metadata = {
+        ...slackContext,
+        responseUrl,
+        initiatedAt,
+        workflowId: workflow.id,
+        workflowPlainId: workflow.plainId ?? null,
+        workflowTitle: workflow.title ?? null,
+        workflowDisplayName: workflowDisplayName(workflow),
+        resultsUrl: link ?? null,
+        instanceId: instanceIdentifier,
+        lastProgressPercent: null,
+        lastProgressCompleted: 0,
+        lastProgressFailed: 0,
+        lastProgressAt: null,
+        requestTitle: title || null,
+      };
+      await Primitive.updateOne(
+        { _id: instanceIdentifier },
+        { $set: { 'slack.workflow': metadata } },
+      );
+      instance.slack = {
+        ...(instance.slack ?? {}),
+        workflow: metadata,
+      };
+    }
+
     try {
       await FlowQueue().runFlowInstance(instance, {
         instantiatedBy: runAsUserId,
@@ -346,12 +378,11 @@ async function handleWorkflowRunAsync({
       return;
     }
 
-    const link = buildResultsUrl(organization, normalizeId(instance.id ?? instance._id));
     const lines = [`Started ${workflowDisplayName(workflow)}.`];
     if (link) {
       lines.push(`Track progress: <${link}|View results>.`);
     } else {
-      lines.push(`Track progress in Sense by opening item ${normalizeId(instance.id ?? instance._id)}.`);
+      lines.push(`Track progress in Sense by opening item ${instanceIdentifier}.`);
     }
     await sendDelayedSlackResponse(responseUrl, { text: lines.join('\n') });
   } catch (error) {
@@ -431,6 +462,18 @@ router.post('/command', async (req, res) => {
 
       const responseUrl = payload.response_url;
       const title = args.slice(1).join(' ').trim();
+      const slackContext = {
+        command: payload.command ?? null,
+        teamId: payload.team_id ?? null,
+        enterpriseId: payload.enterprise_id ?? null,
+        channelId: payload.channel_id ?? null,
+        channelName: payload.channel_name ?? null,
+        triggerId: payload.trigger_id ?? null,
+        userId: payload.user_id ?? null,
+        userName: payload.user_name ?? null,
+        text: payload.text ?? '',
+        organizationId: normalizeId(organization._id),
+      };
       setImmediate(() => {
         handleWorkflowRunAsync({
           workflow,
@@ -438,6 +481,7 @@ router.post('/command', async (req, res) => {
           title,
           responseUrl,
           runAsUserId,
+          slackContext,
         }).catch((error) => {
           logger.error('Failed to handle Slack run command asynchronously', error);
         });
