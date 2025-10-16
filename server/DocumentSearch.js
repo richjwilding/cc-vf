@@ -107,7 +107,8 @@ export async function buildDocumentTextEmbeddings( text, limit ){
             logger.verbose(`-- part ${part} back`)
             if( response?.success){
                 return { part: part, segment: segment, embeddings: response.embeddings}
-            }  
+            }
+            logger.warn(`Embedding build failed for primitive segment`, { part, reason: response?.error ?? response?.raw })
             return undefined
         }
     }
