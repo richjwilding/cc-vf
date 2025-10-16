@@ -2066,7 +2066,7 @@ async function executeStructuredQuery({ primitive, revised, items, toSummarize, 
         },
         merge: false,
         debug: true,
-        debug_content:true
+        //debug_content:true
     })
 
     if( results.shouldMerge ){

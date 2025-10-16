@@ -8,6 +8,7 @@ import apiRouter from './routes/api';
 import publishedRouter from './routes/published';
 import authRouter from './routes/auth';
 import integrationsRouter from './routes/integrations';
+import slackRouter from './routes/slack';
 import passport from 'passport';
 import cookieSession from 'cookie-session';
 import bodyParser from 'body-parser'
@@ -32,6 +33,13 @@ dotenv.config()
 import stripeWebhooks from './stripeWebhooks.js';
 import stripeCheckout from './stripeCheckout.js';
 import { getRedisBase } from './redis.js';
+
+
+function rawBodySaver(req, res, buf) {
+    if (buf?.length) {
+        req.rawBody = buf.toString('utf8');
+    }
+}
 
 
 export const userCache = new NodeCache({ stdTTL: 300, checkperiod: 60 })
@@ -218,11 +226,11 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.use(logger('dev'));
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true, verify: rawBodySaver }));
+app.use(bodyParser.json({ verify: rawBodySaver }));
 //app.use(bodyParser.raw());
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+app.use(express.json({ verify: rawBodySaver }));
+app.use(express.urlencoded({ extended: false, verify: rawBodySaver }));
 app.use(cookieParser());
 
 app.use('/stripe', stripeCheckout);
@@ -254,6 +262,7 @@ app.use((req, res, next) => {
 
 app.use('/published', publishedRouter);
 app.use('/auth', authRouter);
+app.use('/api/slack', slackRouter);
 
 if (process.env.NODE_ENV !== 'production') {
     app.use(

@@ -7084,13 +7084,26 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
         width,
         height
     })
-    let mode = false ? "seperate" : "interleave"
+    const requestedMode = options.mode ?? "interleave"
+    let mode
+    if( options.stack ){
+        mode = "stack"
+    }else if( requestedMode === "separate" || requestedMode === "seperate"){
+        mode = "separate"
+    }else{
+        mode = "interleave"
+    }
     const fontSize = 4
     let axisFontSize = config.width > 300 ? 20 : 6
 
     const asPercent = options.showValue === "percent"
     const segmentCount = segments.length
     const subSegments = options.sublabels?.items?.length ?? 1
+    const stackSegments = options.stack && subSegments === 1
+    const positiveStackTotals = new Array(segmentCount).fill(0)
+    const negativeStackTotals = new Array(segmentCount).fill(0)
+    let stackPositiveOverall = 0
+    let stackNegativeOverall = 0
 
     // Accumulate series totals and maxima
     const totals = [];
@@ -7102,6 +7115,8 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
         const { count } = segments[sIdx]
         if (Array.isArray(count)) {
             let segSum = 0
+            let segmentPositiveTotal = 0
+            let segmentNegativeTotal = 0
             for (let i = 0; i < count.length; i++) {
                 const v = count[i] ?? 0
                 segSum += v
@@ -7109,8 +7124,23 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                 perSeriesMax[i] = Math.max(perSeriesMax[i] ?? 0, v)
                 if (v > globalMaxCount) globalMaxCount = v
                 if (v < globalMinCount) globalMinCount = v
+                if( options.stack ){
+                    if( v >= 0 ){
+                        segmentPositiveTotal += v
+                    }else{
+                        segmentNegativeTotal += v
+                    }
+                }
             }
             perSegmentTotals[sIdx] = segSum
+            if( options.stack ){
+                positiveStackTotals[sIdx] = segmentPositiveTotal
+                negativeStackTotals[sIdx] = segmentNegativeTotal
+                if( stackSegments ){
+                    stackPositiveOverall += segmentPositiveTotal
+                    stackNegativeOverall += segmentNegativeTotal
+                }
+            }
         } else {
             const v = (count ?? 0)
             totals[0] = (totals[0] ?? 0) + v
@@ -7118,6 +7148,19 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
             perSegmentTotals[sIdx] = v
             if (v > globalMaxCount) globalMaxCount = v
             if (v < globalMinCount) globalMinCount = v
+            if( options.stack ){
+                if( v >= 0 ){
+                    positiveStackTotals[sIdx] = v
+                    if( stackSegments ){
+                        stackPositiveOverall += v
+                    }
+                }else{
+                    negativeStackTotals[sIdx] = v
+                    if( stackSegments ){
+                        stackNegativeOverall += v
+                    }
+                }
+            }
         }
     }
 
@@ -7132,8 +7175,8 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
         minValue = 0
         maxValue = 100
     } else if (options.stack) {
-        const stackedMax = Math.max(0, ...perSegmentTotals)
-        const stackedMin = Math.min(0, ...perSegmentTotals)
+        const stackedMax = stackSegments ? Math.max(0, stackPositiveOverall) : Math.max(0, ...positiveStackTotals)
+        const stackedMin = stackSegments ? Math.min(0, stackNegativeOverall) : Math.min(0, ...negativeStackTotals)
         minValue = stackedMin
         maxValue = stackedMax || 1
     } else {
@@ -7158,6 +7201,8 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
         const epsilon = Math.abs(minValue) > 1 ? Math.abs(minValue) * 0.01 : 1
         maxValue = minValue + epsilon
     }
+    const positiveBaseline = Math.max(minValue, Math.min(0, maxValue))
+    const negativeBaseline = Math.min(maxValue, Math.max(0, minValue))
     let colors = options.colors ?? options.theme?.palette?.categoryColors ?? categoryColors
 
     let axisList = []
@@ -7244,23 +7289,46 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
     }
     const plotWidth = width - ox
     const subSegmentGap = (subSegments === 1 || segmentCount === 1) ? 0 : (mode === "interleave" ? 0.2 : 0.05)
-    const widthToUse = plotWidth * (1 - subSegmentGap)
-    const barWidth = options.stack ? plotWidth : widthToUse / (segmentCount * subSegments)
-    const segmentGap = segmentCount > 1 ? (plotWidth * subSegmentGap) / (segmentCount - 1) : 0
-    const axisWidth = barWidth * (mode === "interleave" ? subSegments : 1)
+    const segmentGap = stackSegments ? 0 : (segmentCount > 1 ? (plotWidth * subSegmentGap) / (segmentCount - 1) : 0)
+    const availableWidth = plotWidth - (segmentGap * Math.max(0, segmentCount - 1))
+    const safeAvailableWidth = availableWidth > 0 ? availableWidth : plotWidth
+    let barWidth
+    if( mode === "stack" ){
+        if( stackSegments ){
+            barWidth = safeAvailableWidth
+        }else{
+            barWidth = segmentCount ? safeAvailableWidth / segmentCount : safeAvailableWidth
+        }
+    }else{
+        const divisor = segmentCount * (subSegments || 1)
+        barWidth = divisor ? safeAvailableWidth / divisor : safeAvailableWidth
+    }
+    const groupWidth = mode === "interleave" ? barWidth * subSegments : barWidth
+    const axisWidth = stackSegments ? barWidth : groupWidth
     if( showAxis ){
         let rescaleAxis = false
 
         segments.forEach((s, idx)=>{
+            if( stackSegments && idx > 0 ){
+                return
+            }
             [s.count].flat().forEach((ss, iIdx)=>{
                 let x
                 if( mode === "interleave"){
-                    x = ox + (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
+                    const segmentOffset = idx * (groupWidth + segmentGap)
+                    x = ox + segmentOffset + (iIdx * barWidth)
+                }else if( mode === "stack"){
+                    if( stackSegments ){
+                        x = ox
+                    }else{
+                        x = ox + (idx * (groupWidth + segmentGap))
+                    }
                 }else{
                     x = ox + (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
                 }
                 if( mode !== "interleave" || iIdx === 0){
-                    const r = prepareAxisText( s, {
+                    const axisLabelSource = stackSegments ? (options.stackLabel ?? segments[0] ?? "") : s
+                    const r = prepareAxisText( axisLabelSource, {
                         fontSize: axisFontSize, 
                         maxWidth: axisWidth,
                         textPadding: [0,0,0,0],
@@ -7300,26 +7368,56 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
     
     const colorBySubSegment = subSegments > 1 //options.colorBySecondary ?? segmentCount  === 1
     const whiteMixFactor = 0.8 / (colorBySubSegment ? segmentCount : subSegments)
+    let globalStackPositiveBase = positiveBaseline
+    let globalStackNegativeBase = negativeBaseline
 
     for( const s of  segments){
-        // Reset stack position per segment in value space
-        let stackBaseValue = minValue
+        // Reset stack position per segment (track positive and negative separately)
+        let stackPositiveBase = stackSegments ? globalStackPositiveBase : positiveBaseline
+        let stackNegativeBase = stackSegments ? globalStackNegativeBase : negativeBaseline
         ;[s.count].flat().forEach((ss, iIdx)=>{
             let x
             if( mode === "interleave"){
-                x = ox + (((idx * subSegments) + iIdx) * barWidth) + (idx * segmentGap)
+                const segmentOffset = idx * (groupWidth + segmentGap)
+                x = ox + segmentOffset + (iIdx * barWidth)
+            }else if( mode === "stack"){
+                if( stackSegments ){
+                    x = ox
+                }else{
+                    x = ox + (idx * (groupWidth + segmentGap))
+                }
             }else{
                 x = ox + (idx * barWidth) + (iIdx * segmentCount * barWidth) +(iIdx * segmentGap * segmentCount)
             }
             const denom = asPercent ? (perSegmentTotals[idx] || 0) : 1
             const rawValue = ss ?? 0
             const count = asPercent ? (denom ? (100 * rawValue / denom) : 0) : rawValue
-            const startValue = options.stack ? stackBaseValue : minValue
-            const endValue = options.stack ? stackBaseValue + count : count
+            let startValue = minValue
+            let endValue = count
+            if( options.stack ){
+                const isPositive = count >= 0
+                if( isPositive ){
+                    startValue = stackPositiveBase
+                    endValue = stackPositiveBase + count
+                    stackPositiveBase = endValue
+                    if( stackSegments ){
+                        globalStackPositiveBase = stackPositiveBase
+                    }
+                }else{
+                    startValue = stackNegativeBase
+                    endValue = stackNegativeBase + count
+                    stackNegativeBase = endValue
+                    if( stackSegments ){
+                        globalStackNegativeBase = stackNegativeBase
+                    }
+                }
+            }
             const clampedStart = clampValue(startValue)
             const clampedEnd = clampValue(endValue)
-            const barTopY = valueToY(clampedEnd)
-            const barBottomY = valueToY(clampedStart)
+            const startY = valueToY(clampedStart)
+            const endY = valueToY(clampedEnd)
+            const barTopY = Math.min(startY, endY)
+            const barBottomY = Math.max(startY, endY)
             const h = barBottomY - barTopY
             if( h > 0){
                 const majorIdx = colorBySubSegment ? iIdx : idx
@@ -7341,9 +7439,11 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                 g.add(bar)
             }
             if( showValue && h > 0 ){
+                const isPositive = count >= 0
+                const valueY = isPositive ? (barTopY - fontSize * 1.2) : (barBottomY + fontSize * 0.2)
                 const t = new CustomText({
                     x: x,
-                    y: barTopY - fontSize * 1.2,
+                    y: valueY,
                     fontSize: fontSize,
                     text: asPercent ? `${count.toFixed(0)}%` : count,
                     align:"center",
@@ -7354,9 +7454,6 @@ function renderBarChart( segments, {showValue, showAxis, showLines, showAxisValu
                     refreshCallback: options.imageCallback
                 })
                 g.add(t)
-            }
-            if( options.stack){
-                stackBaseValue += count
             }
         })
         idx++

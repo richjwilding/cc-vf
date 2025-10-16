@@ -60,10 +60,30 @@ const OrganizationSchema = new Schema({
     },
   },
   billing: {},
+  slack: {
+    teamId: {
+      type: String,
+      trim: true,
+    },
+    resultsBaseUrl: {
+      type: String,
+      trim: true,
+    },
+    runAsUserId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    enabledWorkflows: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'Primitive',
+      }
+    ],
+  },
 }, {
   timestamps: true, // adds createdAt / updatedAt
   strict: false
 });
 
 const Organization = model('Organization', OrganizationSchema);
-export default Organization
+export default Organization;

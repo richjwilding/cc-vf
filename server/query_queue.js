@@ -35,9 +35,10 @@ export async function processQueue(job, cancelCheck, extendJob){
                         throw `Cant find category ${primitive.referenceId} for ${primitive.id}`
                     }
 
-                    const asTitle = !primitive.referenceParameters?.useTerms && !primitive?.referenceParameters?.hasOwnProperty("terms") && primitive.title
                     let config = await getConfig( primitive )
-                    let baseTerms = asTitle ? primitive.title : config.terms
+                    //const asTitle = !primitive.referenceParameters?.useTerms && !primitive?.referenceParameters?.hasOwnProperty("terms") && primitive.title
+                    //let baseTerms = asTitle ? primitive.title : config.terms
+                    let baseTerms = config.terms
 
                     let origin
                     
@@ -157,6 +158,10 @@ export async function processQueue(job, cancelCheck, extendJob){
                    
 
                     let topic = config.topic?.trim()
+                    if( parentSearch ){
+                        const parentConfigBase = await getConfig( parentSearch, {}, true )
+                        topic = parentConfigBase.topic?.includes("{topic}") ? parentConfigBase.topic.replace("{topic}", topic) : topic
+                    }
                     if( !topic  ){
                         const realOrigin = await fetchPrimitive(primitiveOrigin( parentSearch ?? primitive ) )
                         if( realOrigin?.type === "board" ){
@@ -618,7 +623,7 @@ export async function processQueue(job, cancelCheck, extendJob){
                             await searchCompaniesWithBrightData( primitive, allTerms, callopts )
                         }
                         if( source.platform === "thecompaniesapi" ){
-                            const allTerms = {
+                            /*const allTerms = {
                                 keyword: terms,
                                 searchTerms: {
                                     ...config,
@@ -626,10 +631,10 @@ export async function processQueue(job, cancelCheck, extendJob){
                                     phrase: callopts.quoteKeywords,
                                     exact : undefined
                                 }
-                            }
+                            }*/
                             await searchCompaniesWithTheCompaniesAPI(
                                 primitive,
-                                allTerms,
+                                terms,
                                 {
                                     ...callopts,
                                     filters: source.filters,

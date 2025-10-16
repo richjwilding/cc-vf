@@ -1,3 +1,4 @@
+import axios from "axios";
 import { registerAction } from "./action_helper";
 import { getLogger } from "./logger";
 import { addRelationship, computeInstanceLinks, createPrimitive, dispatchControlUpdate, DONT_LOAD, doPrimitiveAction, executeConcurrently, fetchPrimitive, fetchPrimitives, findParentPrimitivesOfType, getConfig, getFilterName, getNextSequenceBlock, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentsOfType, primitivePrimitives, relevantInstanceForFlowChain, remapImportFilters, removePrimitiveById, removeRelationship } from "./SharedFunctions";
@@ -11,6 +12,7 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import User from "./model/User";
 import Organization from "./model/Organization";
 import { findOrganizationForWorkflowAllocation, recordCreditUsageEvent } from "./CreditHandling";
+import { postCompletionMessage, updateProgressCard, slackBotAvailable } from "./slack_client";
 import mongoose from "mongoose";
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -62,6 +64,257 @@ registerAction("create_flowinstance", {id: "flow"}, async (p,a,o)=>{
 })
 
 const logger = getLogger('workflow', 'debug'); // Debug level for moduleA
+
+const PROGRESS_COMPLETION_REASONS = new Set(['complete']);
+
+function isFailureReason(reason) {
+    if (!reason) {
+        return false;
+    }
+    return typeof reason === "string" && reason.startsWith('error');
+}
+
+function deriveFlowProgress(stepStatus = []) {
+    const relevant = stepStatus.filter((status) => status.needReason !== 'ignored');
+    if (relevant.length === 0) {
+        return {
+            total: 0,
+            completed: 0,
+            failed: 0,
+            running: 0,
+            pending: 0,
+            percent: 100,
+        };
+    }
+
+    let completed = 0;
+    let failed = 0;
+    let running = 0;
+
+    for (const status of relevant) {
+        const reason = status.needReason ?? '';
+        if (PROGRESS_COMPLETION_REASONS.has(reason)) {
+            completed += 1;
+        } else if (isFailureReason(reason)) {
+            failed += 1;
+        } else if (status.running) {
+            running += 1;
+        }
+    }
+
+    const finished = completed + failed;
+    let pending = relevant.length - finished - running;
+    if (pending < 0) {
+        pending = 0;
+    }
+
+    const percent = relevant.length === 0 ? 100 : Math.round((finished / relevant.length) * 100);
+
+    return {
+        total: relevant.length,
+        completed,
+        failed,
+        running,
+        pending,
+        percent,
+    };
+}
+
+function progressHasMeaningfulChange(previous, next) {
+    if (!previous) {
+        return true;
+    }
+    const keys = new Set([
+        ...Object.keys(previous ?? {}),
+        ...Object.keys(next ?? {}),
+    ]);
+    keys.delete('updatedAt');
+    for (const key of keys) {
+        const prev = previous?.[key];
+        const curr = next?.[key];
+        if (prev !== curr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+async function persistFlowProgress(flowInstance, progress) {
+    if (!flowInstance) {
+        return null;
+    }
+    if (!flowInstance.processing) {
+        flowInstance.processing = {};
+    }
+    if (!flowInstance.processing.flow) {
+        flowInstance.processing.flow = {};
+    }
+
+    const existing = flowInstance.processing.flow.progress;
+    if (!progressHasMeaningfulChange(existing, progress)) {
+        return existing;
+    }
+
+    const payload = {
+        ...progress,
+        updatedAt: new Date().toISOString(),
+    };
+    await dispatchControlUpdate(flowInstance.id, "processing.flow.progress", payload);
+    flowInstance.processing.flow.progress = payload;
+    return payload;
+}
+
+async function maybeSendSlackProgress(flowInstance, progress, { statusOverride, force = false } = {}) {
+    try {
+        const slackWorkflow = flowInstance?.slack?.workflow;
+        if (!slackWorkflow) {
+            return;
+        }
+        if (!progress) {
+            return;
+        }
+
+        const total = progress.total ?? 0;
+        const completed = progress.completed ?? 0;
+        const failed = progress.failed ?? 0;
+        const percent = progress.percent ?? 0;
+        const running = progress.running ?? 0;
+        const pending = progress.pending ?? 0;
+
+        const lastPercent = slackWorkflow.lastProgressPercent ?? null;
+        const lastCompleted = slackWorkflow.lastProgressCompleted ?? 0;
+        const lastFailed = slackWorkflow.lastProgressFailed ?? 0;
+        const status = statusOverride ?? flowInstance.processing?.flow?.status ?? 'running';
+
+        const isComplete = status === 'complete' || (total > 0 && completed + failed >= total);
+        if (isComplete && slackWorkflow.completed && slackWorkflow.finalMessageSent) {
+            return;
+        }
+        if (total === 0 && !isComplete && !force) {
+            return;
+        }
+
+        const percentChanged = lastPercent == null ? percent > 0 : lastPercent !== percent;
+        const hasNewCompletion = completed > lastCompleted || failed > lastFailed;
+        const shouldSend = force || percentChanged || hasNewCompletion || isComplete;
+        if (!shouldSend) {
+            return;
+        }
+
+        const workflowLabel = slackWorkflow.instanceDisplayName
+            || slackWorkflow.workflowDisplayName
+            || `Workflow ${flowInstance.plainId ?? flowInstance.id}`;
+        const finishedCount = completed + failed;
+        const parts = [`${workflowLabel} progress: ${finishedCount}/${total} steps (${percent}%).`];
+
+        if (failed > 0) {
+            parts.push(`• ${failed} step${failed === 1 ? '' : 's'} failed.`);
+        }
+        if (!isComplete) {
+            if (running > 0) {
+                parts.push(`• ${running} running, ${pending} waiting.`);
+            } else if (pending > 0) {
+                parts.push(`• ${pending} step${pending === 1 ? '' : 's'} remaining.`);
+            }
+        } else if (failed > 0) {
+            parts.push('Workflow finished with issues.');
+        } else {
+            parts.push('Workflow completed successfully.');
+        }
+
+        if (slackWorkflow.resultsUrl) {
+            parts.push(`View results: <${slackWorkflow.resultsUrl}|Open in Sense>`);
+        }
+
+        const botTokenAvailable = slackBotAvailable();
+        let cardUpdated = false;
+        if (botTokenAvailable && slackWorkflow.botMessageTs && slackWorkflow.botChannelId) {
+            try {
+                cardUpdated = await updateProgressCard({
+                    channel: slackWorkflow.botChannelId,
+                    ts: slackWorkflow.botMessageTs,
+                    workflowLabel,
+                    status,
+                    percent,
+                    completed,
+                    failed,
+                    total,
+                    running,
+                    pending,
+                    resultsUrl: slackWorkflow.resultsUrl,
+                    initiatedBy: slackWorkflow.requestUserName ? `@${slackWorkflow.requestUserName}` : null,
+                    initiatedAt: slackWorkflow.initiatedAt,
+                    requestTitle: slackWorkflow.requestTitle,
+                });
+                if (!cardUpdated) {
+                    logger.debug(`Slack progress card update returned no-op for ${flowInstance.id}`);
+                }
+            } catch (cardError) {
+                logger.warn('Failed to update Slack progress card', cardError);
+            }
+        }
+
+        if (!cardUpdated && slackWorkflow.responseUrl) {
+            try{
+                await axios.post(slackWorkflow.responseUrl, {
+                    response_type: 'ephemeral',
+                    text: parts.join('\n'),
+                });
+            }catch(e){
+                logger.warn(`Couldnt send update to slack`, e?.message ?? e);
+            }
+        }
+
+        const now = new Date().toISOString();
+        const updatedWorkflowSlack = {
+            ...slackWorkflow,
+            lastProgressPercent: percent,
+            lastProgressCompleted: completed,
+            lastProgressFailed: failed,
+            lastProgressAt: now,
+            botUpdatesEnabled: botTokenAvailable,
+        };
+        if (isComplete) {
+            updatedWorkflowSlack.completed = true;
+            updatedWorkflowSlack.completedAt = now;
+            updatedWorkflowSlack.lastStatus = status;
+            if (botTokenAvailable && slackWorkflow.botChannelId && !slackWorkflow.finalMessageSent) {
+                try {
+                    const completion = await postCompletionMessage({
+                        channel: slackWorkflow.botChannelId,
+                        channelType: slackWorkflow.botChannelType,
+                        isDirectMessage: slackWorkflow.botChannelIsDirect,
+                        userId: slackWorkflow.requestUserId,
+                        workflowLabel,
+                        completed,
+                        failed,
+                        total,
+                        resultsUrl: slackWorkflow.resultsUrl,
+                        status,
+                    });
+                    if (completion?.ts) {
+                        updatedWorkflowSlack.finalMessageSent = true;
+                        updatedWorkflowSlack.finalMessageTs = completion.ts;
+                        updatedWorkflowSlack.finalMessageAt = now;
+                    }
+                } catch (completionError) {
+                    logger.error('Failed to send Slack completion announcement', completionError);
+                }
+            }
+        }
+        const nextSlackState = {
+            ...(flowInstance.slack ?? {}),
+            workflow: updatedWorkflowSlack,
+        };
+        await Primitive.updateOne(
+            { _id: flowInstance.id },
+            { $set: { 'slack.workflow': updatedWorkflowSlack } },
+        );
+        flowInstance.slack = nextSlackState;
+    } catch (error) {
+        logger.error('Failed to send Slack progress update', error);
+    }
+}
 
 
 async function preWorkflowInstanceActions( flowInstance, {userInstantiated, ...details} ){
@@ -613,6 +866,10 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                     if( f.type === "view" && mapFor === "axis"){
                         return s
                     }
+                    if( f.type === "search" && mapFor === "origin"){
+                        logger.verbose(`Skipping nested search`)
+                        return undefined
+                    }
                     if( f !== seed ){
                         logger.error(`Couldnt find mapped id for ${s} ${f.type}`, f)
                         throw `Couldnt find mapped id for ${s}`
@@ -625,7 +882,7 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                     const p = obj.primitives;
                     const o = {}
                     
-                    if (Array.isArray(p.origin))  o.origin  = remapArray(p.origin, orig);
+                    if (Array.isArray(p.origin))  o.origin  = remapArray(p.origin, orig, {mapFor: "origin"});
                     if (Array.isArray(p.imports)) o.imports = remapArray(p.imports, orig);
                     
                     if (p.axis) {
@@ -697,7 +954,7 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                                 parentPrimitives: {
                                     [obj._id.toString()]: ["primitives.origin", "primitives.config"]
                                 },
-                                primitives:[],
+                                primitives:{},
                                 _nested: true
                             }
                             data.push( category )
@@ -902,8 +1159,10 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
     logger.info( "Flow instances:")
     const flowPrimitiveParser = new Proxy(flow.primitives ?? {}, PrimitiveParser())
 
+    let createdNew = false
     if( Object.keys(flowInstance.primitives?.origin ?? {}).length === 0){
         logger.info(`Flow instance is empty - cloning baseline`)
+        createdNew = true
         let steps = await fetchFlowStepsForScaffold(flow)
         const {replicatedSeedId, data: newNodes} = await cloneTreeNodes( flow, steps, {newBase: flowInstance, scaffoldCategorizer: true, skipNodes: ["flow","element"]} )
         logger.info(`Replicating  ${newNodes.length} steps`)
@@ -1263,6 +1522,10 @@ export async function scaffoldWorkflowInstance( flowInstance, flow, steps, flowI
         }
     }
     console.timeEnd("time_RELATION MAP")
+
+    if (options.create !== false && createdNew) {
+        await ensureFlowParentDependencyLinks(flowInstance, flow);
+    }
 }
 
 async function alignPrimitiveRelationships( targetPrimitive, targetImports, rel, create = true){
@@ -1317,6 +1580,133 @@ async function alignPrimitiveRelationships( targetPrimitive, targetImports, rel,
                 dispatchControlUpdate(targetPrimitive.id, "referenceParameters.importConfig", importConfig)
             }
         }
+    }
+}
+
+const FLOW_PARENT_DEPENDENCY_PREFIXES = ["primitives.imports", "primitives.inputs", "primitives.outputs", "primitives.axis."];
+
+function isFlowParentDependencyPath(path) {
+    return FLOW_PARENT_DEPENDENCY_PREFIXES.some(prefix => path === prefix || path.startsWith(prefix));
+}
+
+async function ensureFlowParentDependencyLinks(flowInstance, flow) {
+    try {
+        if (!flow?.id) {
+            logger.warn(`Cannot align parent dependencies without flow context`);
+            return;
+        }
+        if (!flowInstance?.id) {
+            logger.warn(`Cannot align parent dependencies without flow instance context`);
+            return;
+        }
+        const flowDoc = await fetchPrimitive(flow.id, undefined, DONT_LOAD);
+        if (!flowDoc) {
+            logger.warn(`Unable to load flow ${flow?.id} for dependency alignment`);
+            return;
+        }
+
+        const parentEntries = Object.entries(flowDoc.parentPrimitives ?? {});
+        if (parentEntries.length === 0) {
+            return;
+        }
+
+        const relevantParents = parentEntries
+            .map(([parentId, paths]) => {
+                const filtered = [...new Set(paths.filter(isFlowParentDependencyPath))];
+                return { parentId, paths: filtered };
+            })
+            .filter(({ paths }) => paths.length > 0);
+
+        if (relevantParents.length === 0) {
+            return;
+        }
+
+        const parentIds = [...new Set(relevantParents.map(({ parentId }) => parentId))];
+        const parentDocs = await fetchPrimitives(parentIds, undefined, DONT_LOAD);
+        const parentById = new Map(parentDocs.map(doc => [doc.id, doc]));
+
+        const ancestorCache = new Map();
+        if (flowInstance?.parentPrimitives) {
+            ancestorCache.set(flowInstance.id, flowInstance);
+        }
+        const ancestorFlowInstanceIds = new Set();
+        const toVisitAncestors = [flowInstance.id];
+        while (toVisitAncestors.length > 0) {
+            const currentId = toVisitAncestors.pop();
+            if (!currentId || ancestorFlowInstanceIds.has(currentId)) {
+                continue;
+            }
+            ancestorFlowInstanceIds.add(currentId);
+            let currentInstance = ancestorCache.get(currentId);
+            if (!currentInstance) {
+                currentInstance = await fetchPrimitive(currentId, undefined, {_id: 1, parentPrimitives: 1});
+                if (currentInstance) {
+                    ancestorCache.set(currentId, currentInstance);
+                }
+            }
+            if (!currentInstance) {
+                continue;
+            }
+            const parentFlowEntry = Object.entries(currentInstance.parentPrimitives ?? {}).find(([, paths]) => paths.includes("primitives.subfi"));
+            if (parentFlowEntry) {
+                toVisitAncestors.push(parentFlowEntry[0]);
+            }
+        }
+
+        const parentInstanceIds = parentDocs.flatMap(doc => doc.primitives?.config ?? []);
+        const uniqueParentInstanceIds = [...new Set(parentInstanceIds)];
+        const ancestorFilterIds = [...ancestorFlowInstanceIds].filter(id => id !== flowInstance.id);
+        const ancestorFilters = ancestorFilterIds.map(ancestorId => ({ [`parentPrimitives.${ancestorId}`]: "primitives.origin"  }));
+        const parentInstanceQuery = ancestorFilters.length > 0 ? [{ $or: ancestorFilters }] : undefined;
+        const parentInstanceDocs = uniqueParentInstanceIds.length > 0 ? await fetchPrimitives(uniqueParentInstanceIds, parentInstanceQuery, DONT_LOAD) : [];
+        const parentInstanceById = new Map(parentInstanceDocs.map(doc => [doc.id, doc]));
+
+        for (const { parentId, paths } of relevantParents) {
+            const parent = parentById.get(parentId);
+            if (!parent) {
+                continue;
+            }
+            if (!parent.flowElement && parent.type !== "flow") {
+                continue;
+            }
+
+            const parentInstances = (parent.primitives?.config ?? [])
+                .map(id => parentInstanceById.get(id))
+                .filter(Boolean);
+            if (parentInstances.length === 0) {
+                continue;
+            }
+
+            const relevantParentMatch = await relevantInstanceForFlowChain(parentInstances, [flowInstance.id]);
+            const alignedParentInstance = relevantParentMatch?.[0];
+            if (!alignedParentInstance) {
+                continue;
+            }
+            const receiverInstance = alignedParentInstance;
+
+            for (const relPath of paths) {
+                try {
+                    const { mappings } = await computeInstanceLinks({
+                        receiverDef: parent,
+                        targetDef: flowDoc,
+                        relationship: relPath,
+                        receiverInstances: [receiverInstance],
+                        targetInstances: [flowInstance],
+                    });
+
+                    for (const { receiverId, targetId } of mappings) {
+                        if (targetId !== flowInstance.id || receiverId !== receiverInstance.id) {
+                            continue;
+                        }
+                        await addRelationship(receiverId, targetId, relPath);
+                    }
+                } catch (err) {
+                    logger.error(`Failed to align parent relationship ${relPath} for flow ${flowDoc.id}`, err);
+                }
+            }
+        }
+    } catch (err) {
+        logger.error(`Error ensuring parent dependency links for flow ${flow?.id}`, err);
     }
 }
 
@@ -1500,6 +1890,9 @@ export async function runFlowInstance( flowInstance, options = {}){
     logger.info(`Running flow instance ${flowInstance.id} @ ${flowInstance.processing?.flow?.started} (${flowStarted})`)
     logger.info(`Looking for next steps to run`)
     const stepStatus = await flowInstanceStepsStatus( flowInstance )
+    const progressSnapshot = deriveFlowProgress(stepStatus);
+    await persistFlowProgress(flowInstance, progressSnapshot);
+    await maybeSendSlackProgress(flowInstance, progressSnapshot);
 
     logger.debug(stepStatus.map(d=>`${d.step.id} / ${d.step.plainId} / ${d.step.type} - [${d.candidateForRun ? "RC" : "--"}] N ${d.need} (${d.needReason}) C ${d.can} (${d.canReason}) - ${d.running ? "RUNNING" : ""}` ).join("\n"))
 
@@ -1536,6 +1929,8 @@ export async function runFlowInstance( flowInstance, options = {}){
             }
             delete update["last_run"]
             await dispatchControlUpdate(flowInstance.id, "processing.flow", update)
+            flowInstance.processing.flow = update
+            await maybeSendSlackProgress(flowInstance, progressSnapshot, { statusOverride: update.status })
             await postWorkflowInstanceActions( flowInstance, {
                 outstanding,
                 lastIterationRanSteps

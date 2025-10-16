@@ -32,7 +32,10 @@ let mongoose, getRedisBase, asyncLocalStorage;
 let redisClient, queueObject;
 const queueWorkers = {};
 let isTerminating = false;
+let terminationPromise = null;
 const DEFAULT_LOCK_DURATION_MS = 5 * 60 * 1000;
+const EXTEND_LOCK_INTERVAL_MS = 5 * 1000;
+const MAX_CONSECUTIVE_LOCK_EXTEND_FAILURES = Math.ceil(DEFAULT_LOCK_DURATION_MS / EXTEND_LOCK_INTERVAL_MS);
 let workersPausedForMongo = false;
 let isMongoConnected = false;
 
@@ -125,19 +128,59 @@ messageHandler['addJobResponse'] = async (message)=>{
         }
     }
 }
-messageHandler['terminate'] = async ()=>{
-        logger.info(`[Worker] Termination requested for queue: ${workerData.queueName}`, {  type: workerData.type });
+
+async function performTermination(reason = 'parent-request') {
+    if (terminationPromise) {
+        return terminationPromise;
+    }
+    terminationPromise = (async () => {
+        try {
+            logger.info(`[Worker] Termination requested for queue: ${workerData.queueName} (${reason})`, { type: workerData.type });
+        } catch (err) {
+            console.error(`[Worker:${workerData.type}] termination logging failed`, err);
+        }
+        if (isTerminating) {
+            return;
+        }
         isTerminating = true;
-
-        try { await mongoose.connection.close() } catch {}
-        logger.info(`[Worker] MongoDB connection closed for queue: ${workerData.queueName}`, { type: workerData.type });
-        try { await redisClient.quit() } catch {}
-        logger.info(`[Worker] Redis closed: ${workerData.queueName}`, { type: workerData.type });
+        try {
+            await changeWorkerMongoState(true);
+        } catch (err) {
+            logger.warn(`[Worker] Failed to pause workers during termination (${reason})`, err);
+        }
+        for (const [queueName, worker] of Object.entries(queueWorkers)) {
+            try {
+                await worker.close();
+                logger.info(`[Worker] Closed BullMQ worker ${queueName} during termination`, { type: workerData.type });
+            } catch (err) {
+                logger.error(`[Worker] Error closing BullMQ worker ${queueName} during termination`, err);
+            }
+            delete queueWorkers[queueName];
+        }
+        try {
+            if (mongoose?.connection) {
+                await mongoose.connection.close();
+                logger.info(`[Worker] MongoDB connection closed for queue: ${workerData.queueName}`, { type: workerData.type });
+            }
+        } catch (err) {
+            logger.error(`[Worker] Error closing MongoDB connection during termination`, err);
+        }
+        try {
+            if (redisClient) {
+                await redisClient.quit();
+                logger.info(`[Worker] Redis closed for queue: ${workerData.queueName}`, { type: workerData.type });
+            }
+        } catch (err) {
+            logger.error(`[Worker] Error closing Redis during termination`, err);
+        }
+        logger.info(`[Worker] Shutdown complete for queue: ${workerData.queueName} (${reason})`, { type: workerData.type });
         process.exit(0);
+    })();
+    return terminationPromise;
+}
 
-        mongoose.connection.close(() => {
-            process.exit(0);
-        });
+messageHandler['terminate'] = async ()=>{
+        await performTermination('parent-request');
 }
 messageHandler['stop'] = async ({queueName})=>{
         if( !queueWorkers[queueName ]){
@@ -315,7 +358,7 @@ async function getQueueObject(type) {
             }
             parentPort.postMessage({ type: "startJob", queueName, jobId: job.id, token: token });
 
-            const extendLockInterval = 5000;
+            const extendLockInterval = EXTEND_LOCK_INTERVAL_MS;
             const lockDuration = DEFAULT_LOCK_DURATION_MS;
             let resetErrors = 0
             let lostLockError = null;
@@ -333,8 +376,11 @@ async function getQueueObject(type) {
                     resetErrors = 0;
                 }catch(e){
                     const message = e?.message || String(e);
-                    logger.info(`ERROR EXTENDING LOCK FOR JOB ${job.id}`, {  type: workerData.type });
-                    logger.info(e)
+                    logger.warn(`Lock extend failed for job ${job.id} (attempt ${resetErrors + 1})`, {
+                        type: workerData.type,
+                        message,
+                        code: e?.code,
+                    });
                     resetErrors++
                     if (isMissingLockError(message)) {
                         lostLockError = new Error(`Lost lock while processing job ${job.id}`);
@@ -343,12 +389,16 @@ async function getQueueObject(type) {
                         clearInterval(lockExtension);
                         return;
                     }
-                    if( resetErrors > 10){
+                    if( resetErrors >= MAX_CONSECUTIVE_LOCK_EXTEND_FAILURES){
                         if (!lostLockError) {
                             lostLockError = new Error(`Unable to extend lock for job ${job.id} after ${resetErrors} attempts`);
                             lostLockError.originalError = e;
                         }
-                        logger.info(`Terminating lock refresh for ${job.id} after ${resetErrors}`, {  type: workerData.type });
+                        logger.error(`Exceeded maximum lock extend failures for job ${job.id}; giving up`, {
+                            type: workerData.type,
+                            attempts: resetErrors,
+                            lastError: message,
+                        });
                         clearInterval(lockExtension);
 
                     }
@@ -490,10 +540,20 @@ async function getQueueObject(type) {
             logger.info(`[worker_${workerData.type}] ${threadId} completed ${queueName} ${job?.id}`);
         });
         worker.on('failed', async (job, error) =>{
-            console.log(`failed`, error)
+            logger.error(`[worker_${workerData.type}] ${threadId} failed ${queueName} ${job?.id}`, {
+                err: error?.message,
+                stack: error?.stack,
+            });
             logger.info(`===> Sending failed message ${job?.id}`, { type: workerData.type});
             parentPort.postMessage({ error: error.message, queueName, jobId: job?.id })}
         );
+        worker.on('stalled', (jobIdOrJob)=>{
+            const id = jobIdOrJob?.id ?? jobIdOrJob;
+            logger.warn(`[worker_${workerData.type}] ${threadId} stalled ${queueName} ${id}`);
+        });
+        worker.on('error', (err)=>{
+            logger.error(`[worker_${workerData.type}] ${threadId} worker error on ${queueName}`, err);
+        });
         queueWorkers[queueName ] = worker
     }
     messageHandler['invoke_job'] = async ({data, parentJob, requestId, options})=>{
@@ -508,7 +568,18 @@ async function getQueueObject(type) {
         parentPort.postMessage({ type: "invoke_job_response", requestId,...data });
     }
     process._rawDebug(`[worker ${threadId}] ${workerData.type} - sending ready`)
-    parentPort.postMessage({ type: "ready"});
+parentPort.postMessage({ type: "ready"});
 
 
 })();
+
+process.on('SIGTERM', () => {
+    performTermination('sigterm').catch((err) => {
+        try {
+            logger.error(`[Worker] Error during SIGTERM termination`, err);
+        } catch {
+            console.error('[Worker] Error during SIGTERM termination', err);
+        }
+        process.exit(1);
+    });
+});

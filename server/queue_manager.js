@@ -57,6 +57,8 @@ class QueueManager {
         this.controlInstanceId = process.env.INSTANCE_UUID || process.env.GAE_INSTANCE || String(process.pid);
 
         this.sweepingWaitingChildren = false;
+        this.recoveryReports = [];
+        this.shuttingDown = false;
 
         //this.redis = createClient({socket: {host: redisOptions.host, port: redisOptions.port}});
         //this.redis.connect().catch(console.error);
@@ -87,6 +89,9 @@ class QueueManager {
 
                         //worker.stdout?.on('data', d => process.stdout.write(`[worker ${worker.threadId}] ${d}`));
                         worker.stderr?.on('data', d => process.stderr.write(`[worker ${worker.threadId} ERR] ${d}`));
+                        
+                        worker.__queueManager = this;
+                        worker.__workerState = workerState;
                         
                         worker.on('message', async (message) => {
                             if (message.type === 'startJob') {
@@ -244,52 +249,21 @@ class QueueManager {
                             console.error(`Error in worker for queue ${this.type}:`, error);                        
                         });
                         worker.on('exit', async (code) => {
-                            if (code !== 0) {
+                            const shouldRecover = code !== 0 || this.shuttingDown;
+                            if (shouldRecover) {
+                                const reason = this.shuttingDown && code === 0 ? 'shutdown-exit' : 'worker-exit';
+                                try {
+                                    await this.recoverWorkerState(workerState, { reason, threadId: worker.threadId, exitCode: code });
+                                } catch (recoveryError) {
+                                    logger.error(`Error recovering jobs for ${this.type} after ${reason}`, recoveryError);
+                                }
+                            }
+                            if (code !== 0 && !this.shuttingDown) {
                                 logger.error(`Worker for queue ${this.type} exited with code ${code}`);
                                 readyCount--
-                                
-                                logger.debug(workerState.running)
-                                for(const d of workerState.running){
-                                    try{
-                                        
-                                        const [qn, jid, token] = d.split("/")
-                                        logger.debug(`Cancelling active jobs`, {qn, jid, token})
-                                        const job = await this.queues[qn]?.getJob(jid)
-                                        if( job ){
-                                            const state = await job.getState()
-                                            if( state === "active"){
-                                                await job.moveToFailed({message: "Recover from crashed worker"}, token)
-                                                try {
-                                                    await this.setQueueActivity(qn, false);
-                                                } catch (activityError) {
-                                                    logger.error(`Error updating activity for crashed job ${jid} on ${qn}`, activityError);
-                                                }
-                                                try {
-                                                    await this.resetChildWaiting(qn, jid);
-                                                } catch (childError) {
-                                                    logger.error(`Error clearing child wait counter for crashed job ${jid} on ${qn}`, childError);
-                                                }
-                                                try {
-                                                    await this.resetCancelJob(jid);
-                                                } catch (cancelError) {
-                                                    logger.error(`Error clearing cancel flag for crashed job ${jid}`, cancelError);
-                                                }
-                                            }
-                                        }
-                                    }catch(error){
-                                        logger.error("Error trying to reset worker after crash")
-                                        logger.error(error)
-                                    }
-                                }
-                                
-                                workerState.running = new Set()
                                 const newWorker = createThisWorker(true)
                                 this.workerThreads[i] = newWorker
                                 logger.debug(`Replaced worker ${i}`)
-                                
-                                workerState = {running: new Set()}
-                                
-                                
                             }
                         });
                         return worker
@@ -306,6 +280,176 @@ class QueueManager {
             }
         }
     }
+    async recoverWorkerState(workerState, opts = {}) {
+        if (!workerState || !(workerState.running instanceof Set)) {
+            return null;
+        }
+        const reason = opts.reason || 'recovery';
+        const hasThreadId = typeof opts.threadId === 'number' || typeof opts.threadId === 'string';
+        const threadLabel = hasThreadId ? ` thread ${opts.threadId}` : '';
+        const runningEntries = Array.from(workerState.running);
+        if (runningEntries.length === 0) {
+            workerState.running = new Set();
+            return null;
+        }
+
+        logger.warn(`[${this.type}] Recovering ${runningEntries.length} active job(s)${threadLabel ? ` for${threadLabel}` : ''} during ${reason}`);
+
+        const summary = {
+            queueType: this.type,
+            reason,
+            threadId: hasThreadId ? Number(opts.threadId) : undefined,
+            exitCode: typeof opts.exitCode === 'number' ? opts.exitCode : undefined,
+            timestamp: new Date().toISOString(),
+            recovered: [],
+            inactive: [],
+            completed: [],
+            missing: [],
+            errors: [],
+        };
+
+        for (const entry of runningEntries) {
+            if (!entry) {
+                continue;
+            }
+            const [queueName, jobId, token] = entry.split('/');
+            if (!queueName || !jobId) {
+                continue;
+            }
+
+            let queueRef = this.queues[queueName];
+            let createdTemporaryQueue = false;
+            if (!queueRef) {
+                try {
+                    queueRef = new Queue(queueName, { connection: this.connection });
+                    createdTemporaryQueue = true;
+                } catch (queueErr) {
+                    logger.error(`[${this.type}] Failed to open queue ${queueName} during ${reason}`, queueErr);
+                    summary.errors.push({ queueName, jobId, error: queueErr?.message || String(queueErr) });
+                    continue;
+                }
+            }
+
+            try {
+                const job = await queueRef.getJob(jobId);
+                if (!job) {
+                    logger.info(`[${this.type}] Job ${jobId} on ${queueName} already finalized before recovery during ${reason}`);
+                    summary.completed.push({ queueName, jobId, action: 'already-finalized' });
+                    continue;
+                }
+                const state = await job.getState();
+                if (state === 'active') {
+                    try {
+                        await job.moveToFailed({ message: `Recovered during ${reason}` }, token);
+                        logger.warn(`[${this.type}] Moved active job ${jobId} on ${queueName} to failed during ${reason}`);
+                        summary.recovered.push({ queueName, jobId, action: 'movedToFailed' });
+                    } catch (moveErr) {
+                        const moveMessage = moveErr?.message || String(moveErr);
+                        const isMissingLock = typeof moveMessage === 'string' && moveMessage.toLowerCase().includes('missing lock');
+                        if (isMissingLock) {
+                            logger.info(`[${this.type}] Job ${jobId} on ${queueName} already released its lock during ${reason}; treating as completed`);
+                            summary.completed.push({
+                                queueName,
+                                jobId,
+                                action: 'already-completed',
+                                note: moveMessage,
+                            });
+                        } else {
+                            logger.error(`[${this.type}] Unable to move job ${jobId} on ${queueName} to failed during ${reason}`, moveErr);
+                            summary.errors.push({
+                                queueName,
+                                jobId,
+                                error: moveMessage,
+                                action: 'moveToFailed',
+                            });
+                        }
+                    }
+                    try {
+                        await this.setQueueActivity(queueName, false);
+                    } catch (activityErr) {
+                        logger.error(`[${this.type}] Error updating activity for ${jobId} on ${queueName} during ${reason}`, activityErr);
+                        summary.errors.push({
+                            queueName,
+                            jobId,
+                            error: activityErr?.message || String(activityErr),
+                            action: 'setQueueActivity',
+                        });
+                    }
+                    try {
+                        await this.resetChildWaiting(queueName, jobId);
+                    } catch (childErr) {
+                        logger.error(`[${this.type}] Error clearing child tracker for ${jobId} on ${queueName} during ${reason}`, childErr);
+                        summary.errors.push({
+                            queueName,
+                            jobId,
+                            error: childErr?.message || String(childErr),
+                            action: 'resetChildWaiting',
+                        });
+                    }
+                    try {
+                        await this.resetCancelJob(jobId);
+                    } catch (cancelErr) {
+                        logger.error(`[${this.type}] Error clearing cancel flag for ${jobId} during ${reason}`, cancelErr);
+                        summary.errors.push({
+                            queueName,
+                            jobId,
+                            error: cancelErr?.message || String(cancelErr),
+                            action: 'resetCancelJob',
+                        });
+                    }
+                } else {
+                    summary.inactive.push({ queueName, jobId, state });
+                }
+            } catch (entryErr) {
+                logger.error(`[${this.type}] Error recovering job ${jobId} on ${queueName} during ${reason}`, entryErr);
+                summary.errors.push({ queueName, jobId, error: entryErr?.message || String(entryErr) });
+            } finally {
+                workerState.running.delete(entry);
+                if (createdTemporaryQueue && queueRef) {
+                    try {
+                        await queueRef.close();
+                    } catch (closeErr) {
+                        logger.error(`[${this.type}] Error closing temporary queue ${queueName} during ${reason}`, closeErr);
+                    }
+                }
+            }
+        }
+
+        workerState.running = new Set();
+
+        const totalEvents =
+            summary.recovered.length +
+            summary.inactive.length +
+            summary.completed.length +
+            summary.missing.length +
+            summary.errors.length;
+        if (totalEvents > 0) {
+            this.recoveryReports.push(summary);
+            return summary;
+        }
+        return null;
+    }
+
+    async forceRecoverWorkerThread(workerThread, opts = {}) {
+        if (!workerThread || typeof workerThread !== 'object') {
+            return null;
+        }
+        const workerState = workerThread.__workerState;
+        if (!workerState) {
+            return null;
+        }
+        return await this.recoverWorkerState(workerState, { ...opts, threadId: workerThread.threadId });
+    }
+
+    drainRecoveryReports() {
+        if (!Array.isArray(this.recoveryReports) || this.recoveryReports.length === 0) {
+            return [];
+        }
+        const reports = this.recoveryReports.slice();
+        this.recoveryReports.length = 0;
+        return reports;
+    }
+
     async sendNotification(jobId, data, {childJob, parentJob} = {}){
         let queue = this.getQueueObject(this.type)
         let result

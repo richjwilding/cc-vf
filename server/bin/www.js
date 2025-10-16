@@ -106,6 +106,75 @@ setInterval(() => { logWebHeartbeat(); }, WEB_HEARTBEAT_MS);
         }
         const type = msg.queueType;
 
+        if (msg.cmd === 'shutdown-summary') {
+          const totals = msg.totals || {};
+          const labelSource = `${msg.source || 'worker'}/${msg.sourceId || 'unknown'}`;
+          console.log(`[web] worker shutdown summary from ${labelSource} recovered=${totals.recovered || 0} inactive=${totals.inactive || 0} completed=${totals.completed || 0} missing=${totals.missing || 0} errors=${totals.errors || 0}`);
+
+          const workspaceMap = new Map();
+          const collectForWorkspace = (workspaceId, queueType, bucket, job) => {
+            if (!workspaceId) return;
+            const existing = workspaceMap.get(workspaceId) || { queues: new Map() };
+            const queueEntry = existing.queues.get(queueType) || { queueType, recovered: [], inactive: [], completed: [], missing: [] };
+            queueEntry[bucket].push(job);
+            existing.queues.set(queueType, queueEntry);
+            workspaceMap.set(workspaceId, existing);
+          };
+
+          if (Array.isArray(msg.reports)) {
+            for (const report of msg.reports) {
+              const queueType = report?.queueType || 'unknown';
+              console.log(
+                `[web]   ${queueType} thread=${report?.threadId ?? 'n/a'} reason=${report?.reason || 'n/a'} recovered=${Array.isArray(report?.recovered) ? report.recovered.length : 0} inactive=${Array.isArray(report?.inactive) ? report.inactive.length : 0} completed=${Array.isArray(report?.completed) ? report.completed.length : 0} missing=${Array.isArray(report?.missing) ? report.missing.length : 0} errors=${Array.isArray(report?.errors) ? report.errors.length : 0}`
+              );
+              if (Array.isArray(report?.completed)) {
+                for (const job of report.completed) {
+                  const workspaceId = typeof job?.queueName === 'string' ? job.queueName.split('-')[0] : undefined;
+                  collectForWorkspace(workspaceId, queueType, 'completed', job);
+                }
+              }
+              if (Array.isArray(report?.recovered)) {
+                for (const job of report.recovered) {
+                  const workspaceId = typeof job?.queueName === 'string' ? job.queueName.split('-')[0] : undefined;
+                  collectForWorkspace(workspaceId, queueType, 'recovered', job);
+                }
+              }
+              if (Array.isArray(report?.inactive)) {
+                for (const job of report.inactive) {
+                  const workspaceId = typeof job?.queueName === 'string' ? job.queueName.split('-')[0] : undefined;
+                  collectForWorkspace(workspaceId, queueType, 'inactive', job);
+                }
+              }
+              if (Array.isArray(report?.missing)) {
+                for (const job of report.missing) {
+                  const workspaceId = typeof job?.queueName === 'string' ? job.queueName.split('-')[0] : undefined;
+                  collectForWorkspace(workspaceId, queueType, 'missing', job);
+                }
+              }
+            }
+          }
+
+          for (const [workspaceId, detail] of workspaceMap.entries()) {
+            try {
+              const queues = Array.from(detail.queues.values());
+              await SIO.sendNotificationToSocket(workspaceId, {
+                data: [{
+                  type: 'worker_shutdown',
+                  instanceId: msg.sourceId,
+                  reason: msg.reason,
+                  totals: msg.totals,
+
+                  queues,
+                  timestamp: msg.timestamp,
+                }],
+              });
+            } catch (notifyErr) {
+              console.error(`[web] failed to notify workspace ${workspaceId} about shutdown summary`, notifyErr);
+            }
+          }
+          return;
+        }
+
         if (msg.cmd === 'sweep-wchildren') {
           const targetTypes = Array.isArray(msg.queueTypes) && msg.queueTypes.length > 0
             ? msg.queueTypes

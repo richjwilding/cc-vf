@@ -1,19 +1,16 @@
 import { SIO } from './socket';
 import Primitive from "./model/Primitive";
 import { addRelationship, createPrimitive, dispatchControlUpdate, doPrimitiveAction, executeConcurrently, fetchPrimitive, primitiveChildren, primitiveDescendents, primitiveOrigin, primitiveParentPath, primitiveRelationship, primitiveTask, removePrimitiveById, updateFieldWithCallbacks } from "./SharedFunctions";
-import { enrichCompanyFromLinkedIn, findLinkedinCompanyPage } from "./linkedin_helper";
-import { searchCompaniesWithBrightData } from "./company_discovery";
+import { enrichCompanyFromLinkedIn, findCompanyLIPage } from "./linkedin_helper";
 import Category from "./model/Category";
-//import { fetchArticlesFromGNews } from "./gnews_helper";
 import { fetchPostsFromSocialSeracher } from "./socialsearcher_helper";
-import { extractURLsFromPage, extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL, queryGoogleSERP, replicateURLtoStorage } from "./google_helper";
+import { extractURLsFromPageAlternative, extractURLsFromPageUsingScrapingBrowser, fetchURLPlainText, getMetaDescriptionFromURL, queryGoogleSERP, replicateURLtoStorage } from "./google_helper";
 import { categorize, processPromptOnText } from "./openai_helper";
 import { buildDocumentTextEmbeddings, storeDocumentEmbeddings } from "./DocumentSearch";
-import { getCompanyInfoFromDomain } from "./task_processor";
-import { findCompanyURL } from "./company_discovery";
+import { findCompanyURLByName, getCompanyInfoFromDomain } from "./task_processor";
 import { enrichEntityFromOwler } from "./owler_helper";
 import BaseQueue from "./base_queue";
-import { getBaseDomain, getRegisteredDomain } from "./actions/SharedTransforms";
+import { getRegisteredDomain } from "./actions/SharedTransforms";
 import { fetchSERPViaBrightData } from "./brightdata";
 
 
@@ -295,46 +292,6 @@ async function consolidate_details(primitive, options){
     }
 
     
-}
-async function generate_jtbd(primitive, options){
-    try{
-        if( !options?.resultCategoryId ){
-            throw "No referenceId provided"
-        }
-        let text = "Company name: " + primitive.title
-        for(const field of ["description", "offerings", "customers","capabilities","markets"]){
-            if( primitive.referenceParameters?.[field]){
-                text += "\n" + field + ": " + primitive.referenceParameters?.[field]
-            }
-        }
-            const results = await processPromptOnText( text,{
-                opener: `here is an overview about a company`,
-                prompt: `Using only the information provided in the overview produce a list of key jobs to be done (JTBD) that the company is meeting for its customers. Ensure that the JTBD is meaningful, concrete and specific and addresses the core underlying concern and need of the cutsomer..`,
-                output: `Return the result in a json object called "result" containing an array of candidtae JTBDs with each entry being an object with the following fields: a 'job' field containing the JTBD in the form 'As [customer of the company] I want to [motivation of customer] to allow [desired outcome of the customer]', a score field containing how well the company can undertake this job on the scale of 'not at all', 'possibly', 'easily', and a 'ranking' field which ranks the generated JTBD from best to worse - with 1 being the best.  Do not put anything other than the JSON object in your output. `,
-                engine: "gpt4p",
-                debug:true,
-                debug_content:true,
-                field: "result"
-            })
-            if( results?.success && results.output){
-                for(const item of results.output){
-                    const newData = {
-                        workspaceId: primitive.workspaceId,
-                        parent: primitive.id,
-                        paths: ['origin'],
-                        data:{
-                            title: item.job,
-                            type: "evidence",
-                            referenceId: options.resultCategoryId
-                        }
-                    }
-                    const newPrim = await createPrimitive( newData )
-                }
-            }
-    }catch(error){
-        console.log("Error in generate_jtbd")
-        console.log(error)
-    }
 }
 
 async function processURLAsDetail(primitive, url, thisCategory, categories, {resultCategoryId, detailPrimitive, resultSet, detailResultSet}, pageCache = {}){
@@ -764,8 +721,6 @@ export async function processQueue(job, cancelCheck){
         try{
             if( job.data.mode === "site_discovery" ){
                     await site_discovery( primitive, options)
-            }else if( job.data.mode === "generate_jtbd" ){
-                    await generate_jtbd( primitive, options)
             }else if( job.data.mode === "site_discovery_short" ){
                     await site_discovery_short( primitive, options)
             }else if( job.data.mode === "url_as_detail" ){
@@ -804,7 +759,7 @@ export async function processQueue(job, cancelCheck){
                         SIO.notifyPrimitiveEvent( primitive, result)
                     }
                     if( job.data.options.source === "li_profile" ){
-                        const targetProfile = await findLinkedinCompanyPage( primitive )
+                        const targetProfile = await findCompanyLIPage( primitive )
                         if( targetProfile ){
                             await dispatchControlUpdate( primitive.id, "referenceParameters.linkedIn", targetProfile)
                         }
@@ -851,7 +806,7 @@ export async function processQueue(job, cancelCheck){
                     }
                     if( job.data.options.source === "name" ){
                         const task = await primitiveTask( primitive )
-                        const url = await findCompanyURL( primitive.referenceParameters.search_name, {topics: task?.referenceParameters?.topics} )
+                        const url = await findCompanyURLByName( primitive.referenceParameters.search_name, {topics: task?.referenceParameters?.topics} )
                         console.log(url)
                         if( url ){
                             updateFieldWithCallbacks( primitive.id, "referenceParameters.url", url )

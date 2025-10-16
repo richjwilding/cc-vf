@@ -1078,7 +1078,7 @@ async function fetchCompaniesFromTheCompaniesAPI(keyword, options = {}) {
     const pageSize = Math.min(options.limit ?? options.pageSize ?? 10, 100);
     const page = options.page ?? 1;
 
-    const searchThreshold = String(options.searchThreshold ?? "0.75");
+    const searchThreshold = String(options.searchThreshold ?? "0.60");
 
     const payload = {
         query: [

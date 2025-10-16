@@ -35,6 +35,57 @@ var ObjectId = require('mongoose').Types.ObjectId;
 const parser = PrimitiveParser()
 var router = express.Router();
 
+function normalizeId(value) {
+  if (!value) {
+    return undefined;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value?.toString) {
+    return value.toString();
+  }
+  return undefined;
+}
+
+function sanitizeSlackConfig(slack) {
+  if (!slack) {
+    return {
+      teamId: null,
+      resultsBaseUrl: null,
+      runAsUserId: null,
+      enabledWorkflows: [],
+    };
+  }
+  const enabledWorkflows = Array.isArray(slack.enabledWorkflows)
+    ? slack.enabledWorkflows
+        .map((value) => normalizeId(value))
+        .filter(Boolean)
+    : [];
+  const runAsUserId = normalizeId(slack.runAsUserId) ?? null;
+  const resultsBaseUrl = slack.resultsBaseUrl ?? null;
+  const teamId = slack.teamId ?? null;
+
+  return {
+    teamId,
+    resultsBaseUrl,
+    runAsUserId,
+    enabledWorkflows,
+  };
+}
+
+function findOrganizationMembership(organization, userId) {
+  if (!organization || !userId) {
+    return null;
+  }
+  const members = organization.members ?? [];
+  return members.find((member) => normalizeId(member.user) === normalizeId(userId)) ?? null;
+}
+
+function canManageOrganizationSlack(role) {
+  return role === 'owner' || role === 'admin';
+}
+
 async function userCanAccessPrimitive(primitive, req, res){
     if( typeof(primitive) === "string"){
         const realPrim = await fetchPrimitive(primitive, {workspaceId: {$in: req?.user?.workspaceIds ?? []}})
@@ -1485,43 +1536,6 @@ router.post('/workflow/:id/import/:sourceId', async function(req, res, next) {
         res.status(501).json({message: "Error", error: error})
     }
 })
-/*router.get('/organizations', async function(req, res, next) {
-    const userId = req.user?._id
-    try{
-        if( userId ){
-            const organizations = await Organization.find({
-                members: {
-                    $elemMatch: { user: ObjectId(userId) }
-                }
-            })
-            const data = organizations.map(d=>{
-                const role = (d.members ?? []).find(d=>d.user.toString() === userId)?.role
-                const includeBilling = role === "owner" || role === "admin"
-                const includeUsage = role === "owner" || role === "admin"
-                const includePlan = role === "owner" || role === "admin"
-
-                const out = d.toJSON()
-                if( !includeBilling){ delete out["billing"]}
-                if( !includePlan){ delete out["plan"]}
-                if( !includeUsage){ delete out["usage"]}
-
-
-                out.id = out._id.toString()
-                out.members = out.members.map(d=>({userId: d.user.toString(), role: d.role}))
-                out.workspaces = out.workspaces.map(d=>d.toString())
-
-                delete out["_id"]
-                return out
-            })
-            res.json(data)
-            return 
-        }
-        res.status(501).json({message: "Permission denied"})
-    }catch(error){
-        console.log(error)
-        res.status(501).json({message: "Error", error: error})
-    }
-})*/
 router.get('/organizations', async (req, res) => {
   const userId = req.user?._id;
   if (!userId) return res.status(401).json({ message: "Permission denied" });
@@ -1533,6 +1547,117 @@ router.get('/organizations', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error", error: err });
+  }
+});
+
+router.get('/organizations/:id/slack/workflows', async (req, res) => {
+  try {
+    const userId = req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid organization id' });
+    }
+
+    const organization = await Organization.findById(id);
+    if (!organization) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    const membership = findOrganizationMembership(organization, userId);
+    if (!membership) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    res.json({ slack: sanitizeSlackConfig(organization.slack) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to load Slack configuration' });
+  }
+});
+
+router.put('/organizations/:id/slack/workflows', async (req, res) => {
+  try {
+    const userId = req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid organization id' });
+    }
+
+    const organization = await Organization.findOne({_id: id});
+    if (!organization) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    const membership = findOrganizationMembership(organization, userId);
+    if (!membership) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (!canManageOrganizationSlack(membership.role)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    const { enabledWorkflowIds, teamId, resultsBaseUrl, runAsUserId } = req.body ?? {};
+
+    organization.slack ||= {};
+
+    if (teamId !== undefined) {
+      const trimmed = typeof teamId === 'string' ? teamId.trim() : '';
+      organization.slack.teamId = trimmed || undefined;
+    }
+
+    if (resultsBaseUrl !== undefined) {
+      const trimmed = typeof resultsBaseUrl === 'string' ? resultsBaseUrl.trim() : '';
+      organization.slack.resultsBaseUrl = trimmed || undefined;
+    }
+
+    if (runAsUserId !== undefined) {
+      if (!runAsUserId) {
+        organization.slack.runAsUserId = undefined;
+      } else if (ObjectId.isValid(runAsUserId) && findOrganizationMembership(organization, runAsUserId)) {
+        organization.slack.runAsUserId = new ObjectId(runAsUserId);
+      } else {
+        return res.status(400).json({ error: 'Invalid runAsUserId' });
+      }
+    }
+
+    if (enabledWorkflowIds !== undefined) {
+      const workflowIds = Array.isArray(enabledWorkflowIds)
+        ? enabledWorkflowIds
+        : enabledWorkflowIds ? [enabledWorkflowIds] : [];
+
+      const uniqueIds = [...new Set(workflowIds)]
+        .map((value) => normalizeId(value))
+        .filter(Boolean);
+
+      const validIds = uniqueIds.filter((value) => ObjectId.isValid(value))
+
+      let allowedFlows = [];
+      if (validIds.length > 0) {
+        allowedFlows = await fetchPrimitives(validIds, {
+          type: 'flow',
+          workspaceId: { $in: organization.workspaces.map(d=>d.toString()) ?? [] },
+        }, {
+          _id: 1,
+        }) ?? [];
+      }
+
+      organization.slack.enabledWorkflows = allowedFlows.map((flow) => flow._id);
+    }
+
+    await organization.save();
+
+    res.json({ slack: sanitizeSlackConfig(organization.slack) });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to update Slack configuration' });
   }
 });
 

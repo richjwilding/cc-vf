@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Card, CardBody, CardHeader, Chip, Divider, Spinner } from "@heroui/react";
+import { Button, Card, CardBody, CardHeader, Chip, Divider, Spinner, Input, Checkbox } from "@heroui/react";
 import toast from "react-hot-toast";
 import MainStore from "./MainStore";
 import IntegrationConfigModal from "./integrations/IntegrationConfigModal.jsx";
+import useDataEvent from "./CustomHook";
 
 function formatDate(value) {
   if (!value) {
@@ -17,6 +18,224 @@ function formatDate(value) {
   } catch (error) {
     return null;
   }
+}
+
+function idToString(value) {
+  if (!value) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value?.toString) {
+    return value.toString();
+  }
+  return undefined;
+}
+
+function SlackWorkflowManager() {
+  const mainstore = MainStore();
+  const organization = mainstore.activeOrganization;
+  const primitives = mainstore.primitives();
+  const [teamId, setTeamId] = useState("");
+  const [resultsBaseUrl, setResultsBaseUrl] = useState("");
+  const [selectedWorkflows, setSelectedWorkflows] = useState(new Set());
+  const [saving, setSaving] = useState(false);
+
+  useDataEvent("organization_updated", organization?.id);
+  useDataEvent("new_primitive delete_primitive set_field", undefined);
+
+  const enabledWorkflowsKey = useMemo(() => {
+    return JSON.stringify((organization?.slack?.enabledWorkflows ?? []).map(idToString).filter(Boolean));
+  }, [organization?.slack?.enabledWorkflows]);
+
+  useEffect(() => {
+    if (!organization) {
+      return;
+    }
+    const slackConfig = organization.slack ?? {};
+    const initialIds = (slackConfig.enabledWorkflows ?? [])
+      .map(idToString)
+      .filter(Boolean);
+    setTeamId(slackConfig.teamId ?? "");
+    setResultsBaseUrl(slackConfig.resultsBaseUrl ?? "");
+    setSelectedWorkflows(new Set(initialIds));
+  }, [organization?.id, organization?.slack?.teamId, organization?.slack?.resultsBaseUrl, enabledWorkflowsKey]);
+
+  const availableWorkflows = useMemo(() => {
+    if (!organization) {
+      return [];
+    }
+    const workspaceIds = new Set((organization.workspaces ?? []).map(idToString).filter(Boolean));
+    return primitives
+      .filter((primitive) => primitive?.type === "flow" && workspaceIds.has(idToString(primitive.workspaceId)))
+      .map((primitive) => ({
+        id: idToString(primitive.id),
+        plainId: primitive.plainId ?? null,
+        title: primitive.title ?? (primitive.plainId != null ? `Workflow ${primitive.plainId}` : "Workflow"),
+      }))
+      .filter((workflow) => workflow.id)
+      .sort((a, b) => (a.title ?? "").localeCompare(b.title ?? ""));
+  }, [organization, primitives]);
+
+  const toggleWorkflow = useCallback((id, selected) => {
+    setSelectedWorkflows((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedWorkflows(new Set(availableWorkflows.map((workflow) => workflow.id)));
+  }, [availableWorkflows]);
+
+  const handleClearAll = useCallback(() => {
+    setSelectedWorkflows(new Set());
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!organization) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/organizations/${organization.id}/slack/workflows`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teamId: teamId.trim() || null,
+          resultsBaseUrl: resultsBaseUrl.trim() || null,
+          enabledWorkflowIds: Array.from(selectedWorkflows),
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Save failed (${response.status})`);
+      }
+      const body = await response.json();
+      const slack = body?.slack ?? {};
+      const updatedOrganization = {
+        ...organization,
+        slack: {
+          teamId: slack.teamId ?? null,
+          resultsBaseUrl: slack.resultsBaseUrl ?? null,
+          runAsUserId: slack.runAsUserId ?? null,
+          enabledWorkflows: slack.enabledWorkflows ?? [],
+        },
+      };
+      mainstore.data.organizations[organization.id] = updatedOrganization;
+      if (mainstore.activeOrganization?.id === organization.id) {
+        mainstore.activeOrganization = updatedOrganization;
+      }
+      mainstore.triggerCallback("organization_updated", [organization.id], updatedOrganization, true);
+      toast.success("Slack configuration saved");
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Failed to save Slack settings");
+    } finally {
+      setSaving(false);
+    }
+  }, [organization, teamId, resultsBaseUrl, selectedWorkflows, mainstore]);
+
+  if (!organization) {
+    return null;
+  }
+
+  return (
+    <Card className="border border-default-200" shadow="sm">
+      <CardHeader>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-large font-semibold text-foreground">Slack</h2>
+          <p className="text-small text-default-500">
+            Allow teammates to run Sense workflows directly from Slack slash commands.
+          </p>
+        </div>
+      </CardHeader>
+      <CardBody className="flex flex-col gap-6">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Input
+            label="Slack team ID"
+            labelPlacement="outside"
+            placeholder="T0123456789"
+            value={teamId}
+            onValueChange={setTeamId}
+            size="sm"
+          />
+          <Input
+            label="Results link base URL"
+            labelPlacement="outside"
+            placeholder="https://app.sense.ai"
+            description="Used to build the results link shared in Slack responses."
+            value={resultsBaseUrl}
+            onValueChange={setResultsBaseUrl}
+            size="sm"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <p className="text-small font-medium text-foreground">Workflows available in Slack</p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="light"
+                onPress={handleClearAll}
+                isDisabled={selectedWorkflows.size === 0}
+              >
+                Clear all
+              </Button>
+              <Button
+                size="sm"
+                variant="light"
+                onPress={handleSelectAll}
+                isDisabled={availableWorkflows.length === 0}
+              >
+                Select all
+              </Button>
+            </div>
+          </div>
+          {availableWorkflows.length === 0 ? (
+            <p className="text-small text-default-500">
+              No workflows available. Create a workflow in one of the organization's workspaces to expose it to Slack.
+            </p>
+          ) : (
+            <div className="grid gap-2">
+              {availableWorkflows.map((workflow) => {
+                const identifier = workflow.plainId != null ? `#${workflow.plainId}` : workflow.id;
+                const isSelected = selectedWorkflows.has(workflow.id);
+                return (
+                  <Checkbox
+                    key={workflow.id}
+                    size="sm"
+                    isSelected={isSelected}
+                    onValueChange={(selected) => toggleWorkflow(workflow.id, selected)}
+                  >
+                    <span className="font-medium text-foreground">{workflow.title}</span>
+                    <span className="ml-2 text-xs text-default-400">{identifier}</span>
+                  </Checkbox>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            color="primary"
+            onPress={handleSave}
+            isDisabled={saving}
+            isLoading={saving}
+          >
+            Save Slack settings
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
+  );
 }
 
 export default function IntegrationsScreen() {
@@ -302,6 +521,8 @@ export default function IntegrationsScreen() {
             </Chip>
           )}
         </header>
+
+        <SlackWorkflowManager />
 
         <Divider />
 

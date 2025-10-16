@@ -905,7 +905,8 @@ export function deepEqualIgnoreOrder(a, b) {
       const {title, ...toKeep} = d
       return toKeep
     })
-    const testTarget = Object.fromEntries( Object.entries(target ?? {}).filter(d=>d[1]) )
+    const {title, ...baseTarget} = target
+    const testTarget = Object.fromEntries( Object.entries(baseTarget ?? {}).filter(d=>d[1]) )
     return findMatches(testArr, testTarget)
   }
   

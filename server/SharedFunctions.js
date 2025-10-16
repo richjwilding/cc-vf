@@ -3,29 +3,27 @@ import Category from './model/Category';
 import Counter from './model/Counter';
 import PrimitiveConfig from "./PrimitiveConfig";
 import AssessmentFramework from './model/AssessmentFramework';
-import {enrichCompanyFromLinkedIn, pivotFromLinkedIn, extractUpdatesFromLinkedIn, findPeopleFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, searchPosts, liPostExtractor, updateFromProxyCurlData, fetchCompanyHeadcount, extractPostsFromProfile} from './linkedin_helper'
-import { resolveAndCreateCompaniesByName, resolveCompaniesByName } from './company_discovery';
-import {buildCategories, categorize, summarizeMultiple, processPromptOnText, buildEmbeddings, simplifyHierarchy, analyzeListAgainstTopics, analyzeEvidenceAgainstHypothesis, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk, generateImage} from './openai_helper';
+import {pivotFromLinkedIn, extractUpdatesFromLinkedIn, fetchLinkedInProfile, addPersonFromProxyCurlData, liPostExtractor, updateFromProxyCurlData} from './linkedin_helper'
+import {resolveAndCreateCompaniesByName } from './company_discovery';
+import {summarizeMultiple, processPromptOnText, buildEmbeddings, analyzeListAgainstTopics, buildRepresentativeItemssForHypothesisTest, buildKeywordsFromList, processAsSingleChunk, generateImage} from './openai_helper';
 import PrimitiveParser from './PrimitivesParser';
-import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, extractURLsFromPage, fetchLinksFromWebQuery, fetchURLAsArticle, fetchURLAsTextAlternative, fetchURLPlainText, fetchURLScreenshot, getDocumentAsPlainText, getFaviconFromURL, getGoogleAdKeywordIdeas, getGoogleAdKeywordMetrics, getMetaImageFromURL, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
+import { buildEmbeddingsForPrimitives, decodeBase64ImageToStorage, fetchLinksFromWebQuery, fetchURLPlainText, fetchURLScreenshot, getDocumentAsPlainText, getFaviconFromURL, getMetaImageFromURL, removeDocument, replicateURLtoStorage, uploadDataToBucket, writeTextToFile } from './google_helper';
 import { SIO } from './socket';
 //import silhouetteScore from '@robzzson/silhouette';
-import { localeData } from 'moment';
 import Parser from '@postlight/parser';
 import { buildDocumentTextEmbeddings, fetchFragmentsForTerm, indexDocument, storeDocumentEmbeddings } from './DocumentSearch';
 import ContentEmbedding from './model/ContentEmbedding';
-import { computeFinanceSignals, fetchFinancialData } from './FinanceHelpr';
 import Embedding from './model/Embedding';
-import { aggregateItems, checkAndGenerateSegments, comapreToPeers, companyLogoURL, compareItems, extractor, getSegemntDefinitions, iterateItems, lookupPerson, queryByAxis, replicateFlow, resourceLookupQuery, runProcess, summarizeWithQuery } from './task_processor';
-import { loopkupOrganizationsForAcademic, resolveNameTest } from './entity_helper';
-import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, handleCollection, restartCollection } from './brightdata';
+import { companyLogoURL, compareItems, extractor, getSegemntDefinitions, lookupPerson, replicateFlow, runProcess, summarizeWithQuery } from './task_processor';
+import { loopkupOrganizationsForAcademic } from './entity_helper';
+import { enrichPrimitiveViaBrightData, fetchSERPViaBrightData, restartCollection } from './brightdata';
 import { runAction } from './action_helper';
 import "./workflow.js"
 ;
 import { getLogger } from './logger.js';
 import { queryQuoraByRapidAPI } from './rapid_helper.js';
 import { baseURL, expandStringLiterals, findFilterMatches, getRegisteredDomain, pickAtRandom } from './actions/SharedTransforms.js';
-import { fetchMoneySavingExpertSearchResults, moneySavingExpertSERP } from './scrapers/moneysavingexpert.js';
+import { fetchMoneySavingExpertSearchResults } from './scrapers/moneysavingexpert.js';
 import mongoose, { Types } from 'mongoose';
 import { reviseUserRequest } from './prompt_helper.js';
 import Workspace from './model/Workspace.js';
@@ -35,17 +33,6 @@ import { getDataForImportDB } from './actions/getDataForImportDB.js';
 import { getConfigFromDB } from './actions/getConfigFromDB.js';
 import { fetchPrimitiveInputs } from './InputHandler.js';
 import { getQueue } from './queue_registry.js';
-import { query } from 'winston';
-
-/*
-import EnrichPrimitive from './enrich_queue';
-import QueueAI from './ai_queue';
-import QueueDocument, { compareTwoStrings, extractEvidenceFromFragmentSearch, mergeDataQueryResult } from './document_queue';
-import QueryQueue from './query_queue';
-import BrightDataQueue, { enrichmentDuplicationCheck } from './brightdata_queue';
-import FlowQueue from './flow_queue.js'
-*/
-
 
 
 function makeQueueFacade(name) {
@@ -3913,13 +3900,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
             }
-            if( command === "finance_signals"){
-                if( true || !primitive.financialData || options?.force ){
-                    await computeFinanceSignals( primitive )
-                }
-                done = true
-            }
-
             if( command === "summarize_results"){
                 if( primitive.type === "query"){
                     const list = await primitiveChildren(primitive, "result")
@@ -3942,9 +3922,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
             if( command == "document_discovery"){
                 const result = await QueueDocument().documentDiscovery( primitive, req )
-            }
-            if( command === "entity_jbtd"){
-                await EnrichPrimitive().generateJTBD(primitive, {...action, ...options}, req)
             }
             if( command === "site_discovery_short"){
                 await EnrichPrimitive().siteDiscoveryShort(primitive, {...action, ...options}, req)
@@ -4028,80 +4005,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                     dispatchControlUpdate( primitive.id, `referenceParameters.${action.targetParameter ?? "description"}`, result)
                 }
-            }
-            if( command === "build_keywords"){
-                let items = (options.ids && options.ids.length > 0) ? (await Primitive.find({_id: {$in: options.ids} })) : [primitive]
-
-                console.log(`Build keywords from ${items.length} items`)
-                const [_, toSummarize] = await getDataForProcessing(primitive, {...action}, undefined, {list: items} )
-                if( toSummarize.length === 0){
-                    console.log(`Nothing to summarize`)
-                    done = true
-                    return
-                }
-                const keywords = await buildKeywordsFromList(toSummarize, {types: action.types ?? "organizations", count: action.count ?? 10, ...(action.ai ?? {}) })
-                
-                if( keywords.success){
-                    result = {keywords: keywords.keywords, command: command, key: action.key}
-                    
-                    const origin = await primitiveTask( primitive )
-                    if( origin ){
-                        if( origin.type === "board"){
-                            console.log(`Creating search for board (${action.searchCategoryId})`)
-                            if( action.searchCategoryId){
-
-                                const newData = {
-                                    workspaceId: origin.workspaceId,
-                                    paths: ['origin', `ref`],
-                                    parent: origin.id,
-                                    data:{
-                                        type: "search",
-                                        referenceId: action.searchCategoryId,
-                                        referenceParameters:{
-                                            terms: result.keywords?.join(", ")
-                                        }
-                                    }
-                                }
-                                const newPrim = await createPrimitive( newData )
-                                if( newPrim ){
-                                    await addRelationship(primitive.id, newPrim.id, "source.terms")
-                                }
-                            }
-
-                        }else{
-                            const resultSet = await findResultSetForCategoryId( origin, primitive.referenceId )
-                            const originCategory = await Category.findOne({id: origin.referenceId})
-                            const searchCategoryIds = originCategory.resultCategories.find(d=>d.id === resultSet)?.searchCategoryIds
-                            if( searchCategoryIds ){
-                                const selectedSearchCategoryId = searchCategoryIds[0]
-                                if( searchCategoryIds.length > 0){
-                                    console.log(`WARNING - Selecting first search category by default`)
-                                }
-                                const searchCategory = await Category.findOne({id: selectedSearchCategoryId})
-                                console.log(`WILL CREATE NEW SERACH ITEM AT `, resultSet, searchCategory)
-                                
-                                const newData = {
-                                    workspaceId: origin.workspaceId,
-                                    paths: ['origin', `search.${resultSet}`],
-                                    parent: origin.id,
-                                    data:{
-                                        type: "search",
-                                        referenceId: selectedSearchCategoryId,
-                                        referenceParameters:{
-                                            terms: result.keywords?.join(", ")
-                                        }
-                                    }
-                                }
-                                const newPrim = await createPrimitive( newData )
-                                result.searchPrimitive = newPrim?.id
-                            }
-                        }
-                    }
-                    
-
-                    done = true
-                }
-
             }
             if( command === "extract_evidence_new"){
                 const resultMapping = primitive.referenceParameters?.evidenceCategoryMapping ?? options.evidenceCategoryMapping ?? action.evidenceCategoryMapping
@@ -4375,88 +4278,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                         }
                     }
                 }
-                if( command === "extract"){
-                  //  if( actionKey === "extract_problems_addressed") {
-                    let text
-                    try{
-
-                        text = await getDocumentAsPlainText( primitive._id.toString(), req )
-                    }catch(error){
-                        console.log(`error on Extract`)
-                        console.log(error)
-                        throw error
-                    }
-
-                        let title = primitive.title
-                        if( action.titleSource === "origin"){
-                            const originId = Object.keys(primitive.parentPrimitives || {}).filter((d)=>primitive.parentPrimitives[d].includes("primitives.origin"))[0]
-                        console.log(originId)
-                            if( originId ){
-                                const origin = await Primitive.findOne({_id:  new ObjectId(originId)})
-                                if( origin ){
-                                    title = origin.title
-                                }
-                            }
-                        }
-                        console.log(title)
-
-                        let topics = options.topics || action.topics
-                        if( topics === "{parent_topic}"){
-                            const task = await primitiveTask( primitive )
-                            if( task ){
-                                topics = task.referenceParameters?.topics
-                            }
-                        }
-
-                        const output = await processPromptOnText(text?.plain, {title: title, topics: topics, prompt: options.prompt || action.prompt, type: action.dataType, extractField: action.extractField ,extractNoun: action.extractNoun, transformPrompt: action.transformPrompt})
-                        if( output && output.success && output.output){
-                            let extracted = output.output 
-
-                            console.log(output)
-                            console.log(output.output?.results)
-                            const items = []
-                            
-                            console.log( `GOT`, extracted)
-
-                            if( topics ){
-                                console.log(`DO FILTER CHECK`)
-                                const result = await analyzeListAgainstTopics(extracted.map((d)=>d[action.extractNoun].replaceAll("\n",". ")), topics, {prefix: "Problem", type: "problem", maxTokens: 3000, engine: "gpt4"})
-                                console.log( result.output )
-                                if( result.success ){
-                                    extracted = extracted.filter((d,idx)=>!(["hardly", "not at all"].includes( result.output[idx].s ) ))
-                                }
-                                console.log(extracted)
-                            }
-
-                            // do filter
-
-                            for( const item of extracted){
-                                const title = item[action.extractNoun]
-                                if( title ) {
-                                    items.push( await createPrimitive({
-                                        workspaceId: primitive.workspaceId,
-                                        parent: options.parent || primitive.id,
-                                        paths: ['origin'],
-                                        data:{
-                                            type: action.type,
-                                            referenceId: action.resultCategory,
-                                            title: title,
-                                            quote: item.quote,
-                                            quoted: item.quote ? "true" : false
-                                        }
-                                        
-                                    }))
-                                    done = true
-                                }
-                            }
-                            result = [{
-                                type: "new_primitives",
-                                data: items
-                            }]
-                            done = true
-                        }
-                    }
-//                }
             }
             //if( primitive.type === "segment" || primitive.type === "activity" ){
                     if(command === "define_axis" ){
@@ -4702,13 +4523,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
             }
 
             
-            if( command === "enrich_employee_count" ){
-                await fetchCompanyHeadcount(primitive, options, action)
-            }
-            if( command === "find_staff" ){
-                await findPeopleFromLinkedIn(primitive, options, action)
-
-            }
             if( command === "fetch_company_from_person" ){
                 const task = await primitiveTask( primitive )
                 const resultCategory = action.resultCategory
@@ -4908,23 +4722,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                     }
                 }
             }
-            if( command === "mark_child" ){
-                const [list,_] = await getDataForProcessing(primitive, action)
-                const candidates = list.filter(d=>d?.referenceParameters?.role && d?.referenceParameters?.degree_end_year)
-                const query = candidates.map((d)=>`${d.referenceParameters.role.trim()} - working since ${d.referenceParameters.degree_end_year}`).join('\n')
-                const result = await processPromptOnText(query, {
-                        type: "list of staff in a business",
-                        prompt: "Determing the most senior person involved in marketing activities, considering both the job title and length of time in employment. Also provide a one line explanation for your choice.",
-                        output: `Provide the result as a json object with a field called results, which contains a 'id' field indicating the number of the selected person and a 'rationale' field containing your explanation in 10 words or less`,
-                        no_num: false, 
-                        })
-                if( result.success && result.output?.[0] ){
-                    const winnerIdx = result.output[0]?.id
-                    const winner = candidates[ winnerIdx ]
-                    await addRelationship( primitive.id, winner.id, "marked")
-                }
-
-            }
             if( primitive.type === "entity" ){
                 if( command === "update_icon_url"){
                     let url 
@@ -4970,22 +4767,6 @@ export async function doPrimitiveAction(primitive, actionKey, options, req){
                             data: await pivotFromLinkedIn(primitive),
                         }]
                         done = true
-                    }
-                }
-                if( command === "extract"){
-                    const path = options.path || `results.${findResultPathFor(options.resultCategory  || action.resultCategory)}`
-                    if( path ){
-
-                        if( actionKey === "find_articles_linked") {
-                            const output = await extractUpdatesFromLinkedIn(primitive, {path: path , type: options.type || action.type, referenceId: options.resultCategory || action.resultCategory})
-                            if( output.error === undefined){
-                                result = [{
-                                    type: "new_primitives",
-                                    data: output
-                                }]
-                                done = true
-                            }
-                        }
                     }
                 }
             }
@@ -5847,7 +5628,7 @@ export async function getOrganizationWithSubscription( orgId){
 
 }
 export async function getOrganizationsWithSubscriptionPlans( userId ){
-    const organizations = await queryOrganizationsWithSubscriptionPlans( 
+    const organizations = await queryOrganizationsWithSubscriptionPlans(
         // 1) only the orgs this user belongs to
         { $match: { "members.user": ObjectId(userId) } },
     )
@@ -5861,6 +5642,39 @@ export async function getOrganizationsWithSubscriptionPlans( userId ){
                 if( !includeBilling){ delete out["billing"]}
                 if( !includePlan){ delete out["plan"]}
                 if( !includeUsage){ delete out["usage"]}
+
+                if( out.slack ){
+                    const slackConfig = { ...out.slack }
+                    const workflowIds = Array.isArray(slackConfig.enabledWorkflows)
+                        ? slackConfig.enabledWorkflows
+                        : []
+                    slackConfig.enabledWorkflows = workflowIds
+                        .map((value)=>{
+                            if( !value){
+                                return undefined
+                            }
+                            if( typeof value === 'string'){
+                                return value
+                            }
+                            if( value?.toString ){
+                                return value.toString()
+                            }
+                            return undefined
+                        })
+                        .filter(Boolean)
+
+                    if( slackConfig.runAsUserId ){
+                        slackConfig.runAsUserId = slackConfig.runAsUserId?.toString?.() ?? null
+                    }
+
+                    if( slackConfig.resultsBaseUrl === undefined ){
+                        slackConfig.resultsBaseUrl = null
+                    }
+
+                    slackConfig.teamId = slackConfig.teamId ?? null
+
+                    out.slack = slackConfig
+                }
 
                 return out
             })
@@ -5941,7 +5755,8 @@ async function queryOrganizationsWithSubscriptionPlans( query ){
             companyUrl: 1,
             validPlans: 1,
             activePlanId: { $toString: "$activePlanId" },
-            activePlan: 1
+            activePlan: 1,
+            slack: 1
         },
 
         },
