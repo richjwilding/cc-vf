@@ -899,7 +899,7 @@ async function cloneTreeNodes(seed, childNodes, {newBase, skipNodes = [], scaffo
                                 parentPrimitives: {
                                     [obj._id.toString()]: ["primitives.origin", "primitives.config"]
                                 },
-                                primitives:[],
+                                primitives:{},
                                 _nested: true
                             }
                             data.push( category )
