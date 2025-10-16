@@ -12,6 +12,7 @@ import PrimitiveConfig from "./PrimitiveConfig";
 import User from "./model/User";
 import Organization from "./model/Organization";
 import { findOrganizationForWorkflowAllocation, recordCreditUsageEvent } from "./CreditHandling";
+import { postCompletionMessage, updateProgressCard, slackBotAvailable } from "./slack_client";
 import mongoose from "mongoose";
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -166,7 +167,7 @@ async function persistFlowProgress(flowInstance, progress) {
 async function maybeSendSlackProgress(flowInstance, progress, { statusOverride, force = false } = {}) {
     try {
         const slackWorkflow = flowInstance?.slack?.workflow;
-        if (!slackWorkflow?.responseUrl) {
+        if (!slackWorkflow) {
             return;
         }
         if (!progress) {
@@ -186,10 +187,10 @@ async function maybeSendSlackProgress(flowInstance, progress, { statusOverride, 
         const status = statusOverride ?? flowInstance.processing?.flow?.status ?? 'running';
 
         const isComplete = status === 'complete' || (total > 0 && completed + failed >= total);
-        if (isComplete && slackWorkflow.completed) {
+        if (isComplete && slackWorkflow.completed && slackWorkflow.finalMessageSent) {
             return;
         }
-        if (total === 0 && !isComplete) {
+        if (total === 0 && !isComplete && !force) {
             return;
         }
 
@@ -200,7 +201,8 @@ async function maybeSendSlackProgress(flowInstance, progress, { statusOverride, 
             return;
         }
 
-        const workflowLabel = slackWorkflow.workflowDisplayName
+        const workflowLabel = slackWorkflow.instanceDisplayName
+            || slackWorkflow.workflowDisplayName
             || `Workflow ${flowInstance.plainId ?? flowInstance.id}`;
         const finishedCount = completed + failed;
         const parts = [`${workflowLabel} progress: ${finishedCount}/${total} steps (${percent}%).`];
@@ -224,14 +226,43 @@ async function maybeSendSlackProgress(flowInstance, progress, { statusOverride, 
             parts.push(`View results: <${slackWorkflow.resultsUrl}|Open in Sense>`);
         }
 
-        try{
-            await axios.post(slackWorkflow.responseUrl, {
-                response_type: 'ephemeral',
-                text: parts.join('\n'),
-            });
-        }catch(e){
-            logger.warn(`Couldnt send update to slack`, e?.message ?? e)
+        const botTokenAvailable = slackBotAvailable();
+        let cardUpdated = false;
+        if (botTokenAvailable && slackWorkflow.botMessageTs && slackWorkflow.botChannelId) {
+            try {
+                cardUpdated = await updateProgressCard({
+                    channel: slackWorkflow.botChannelId,
+                    ts: slackWorkflow.botMessageTs,
+                    workflowLabel,
+                    status,
+                    percent,
+                    completed,
+                    failed,
+                    total,
+                    running,
+                    pending,
+                    resultsUrl: slackWorkflow.resultsUrl,
+                    initiatedBy: slackWorkflow.requestUserName ? `@${slackWorkflow.requestUserName}` : null,
+                    initiatedAt: slackWorkflow.initiatedAt,
+                    requestTitle: slackWorkflow.requestTitle,
+                });
+                if (!cardUpdated) {
+                    logger.debug(`Slack progress card update returned no-op for ${flowInstance.id}`);
+                }
+            } catch (cardError) {
+                logger.warn('Failed to update Slack progress card', cardError);
+            }
+        }
 
+        if (!cardUpdated && slackWorkflow.responseUrl) {
+            try{
+                await axios.post(slackWorkflow.responseUrl, {
+                    response_type: 'ephemeral',
+                    text: parts.join('\n'),
+                });
+            }catch(e){
+                logger.warn(`Couldnt send update to slack`, e?.message ?? e);
+            }
         }
 
         const now = new Date().toISOString();
@@ -241,11 +272,35 @@ async function maybeSendSlackProgress(flowInstance, progress, { statusOverride, 
             lastProgressCompleted: completed,
             lastProgressFailed: failed,
             lastProgressAt: now,
+            botUpdatesEnabled: botTokenAvailable,
         };
         if (isComplete) {
             updatedWorkflowSlack.completed = true;
             updatedWorkflowSlack.completedAt = now;
             updatedWorkflowSlack.lastStatus = status;
+            if (botTokenAvailable && slackWorkflow.botChannelId && !slackWorkflow.finalMessageSent) {
+                try {
+                    const completion = await postCompletionMessage({
+                        channel: slackWorkflow.botChannelId,
+                        channelType: slackWorkflow.botChannelType,
+                        isDirectMessage: slackWorkflow.botChannelIsDirect,
+                        userId: slackWorkflow.requestUserId,
+                        workflowLabel,
+                        completed,
+                        failed,
+                        total,
+                        resultsUrl: slackWorkflow.resultsUrl,
+                        status,
+                    });
+                    if (completion?.ts) {
+                        updatedWorkflowSlack.finalMessageSent = true;
+                        updatedWorkflowSlack.finalMessageTs = completion.ts;
+                        updatedWorkflowSlack.finalMessageAt = now;
+                    }
+                } catch (completionError) {
+                    logger.error('Failed to send Slack completion announcement', completionError);
+                }
+            }
         }
         const nextSlackState = {
             ...(flowInstance.slack ?? {}),

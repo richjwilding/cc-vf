@@ -8,6 +8,7 @@ import FlowQueue from '../flow_queue.js';
 import { createWorkflowInstance } from '../workflow.js';
 import Primitive from '../model/Primitive.js';
 import { getLogger } from '../logger.js';
+import { postProgressCard, slackBotAvailable } from '../slack_client.js';
 
 const router = express.Router();
 const logger = getLogger('slack', 'debug');
@@ -160,6 +161,20 @@ function workflowDisplayName(workflow) {
   }
   const identifier = workflow.plainId != null ? `#${workflow.plainId}` : workflow.id;
   return `${workflow.title ?? 'Workflow'} (${identifier})`;
+}
+
+function flowInstanceDisplayName(instance, workflow) {
+  const fallback = workflowDisplayName(workflow);
+  if (!instance) {
+    return fallback;
+  }
+  const title = instance.title ?? workflow?.title ?? 'Workflow run';
+  const plainId = instance.plainId;
+  if (plainId != null) {
+    return `${title} (#${plainId})`;
+  }
+  const identifier = normalizeId(instance._id ?? instance.id);
+  return identifier ? `${title} (${identifier})` : title;
 }
 
 function buildHelpMessage(workflows) {
@@ -334,35 +349,81 @@ async function handleWorkflowRunAsync({
     }
 
     const instanceIdentifier = normalizeId(instance.id ?? instance._id);
+    const instancePlainId = instance.plainId ?? null;
+    const instanceDisplayName = flowInstanceDisplayName(instance, workflow);
     const link = buildResultsUrl(organization, instanceIdentifier);
 
-    if (responseUrl) {
-      const initiatedAt = new Date().toISOString();
-      const metadata = {
-        ...slackContext,
-        responseUrl,
-        initiatedAt,
-        workflowId: workflow.id,
-        workflowPlainId: workflow.plainId ?? null,
-        workflowTitle: workflow.title ?? null,
-        workflowDisplayName: workflowDisplayName(workflow),
-        resultsUrl: link ?? null,
-        instanceId: instanceIdentifier,
-        lastProgressPercent: null,
-        lastProgressCompleted: 0,
-        lastProgressFailed: 0,
-        lastProgressAt: null,
-        requestTitle: title || null,
-      };
-      await Primitive.updateOne(
-        { _id: instanceIdentifier },
-        { $set: { 'slack.workflow': metadata } },
-      );
-      instance.slack = {
-        ...(instance.slack ?? {}),
-        workflow: metadata,
-      };
+    const initiatedAt = new Date().toISOString();
+    const metadata = {
+      ...slackContext,
+      responseUrl: responseUrl ?? null,
+      initiatedAt,
+      workflowId: workflow.id,
+      workflowPlainId: workflow.plainId ?? null,
+      workflowTitle: workflow.title ?? null,
+      workflowDisplayName: workflowDisplayName(workflow),
+      instanceDisplayName,
+      instancePlainId,
+      resultsUrl: link ?? null,
+      instanceId: instanceIdentifier,
+      lastProgressPercent: null,
+      lastProgressCompleted: 0,
+      lastProgressFailed: 0,
+      lastProgressAt: null,
+      requestTitle: title || null,
+      botUpdatesEnabled: slackBotAvailable(),
+      botChannelId: slackContext.channelId ?? null,
+      botChannelType: slackContext.channelType ?? null,
+      botChannelIsDirect: slackContext.isDirectMessage ?? false,
+      botMessageTs: null,
+      botCardPostedAt: null,
+      finalMessageSent: false,
+      finalMessageTs: null,
+      finalMessageAt: null,
+      requestUserName: slackContext.userName ?? null,
+      requestUserId: slackContext.userId ?? null,
+    };
+
+    if (metadata.botUpdatesEnabled && metadata.botChannelId) {
+      try {
+        const card = await postProgressCard({
+          channel: metadata.botChannelId,
+          channelType: metadata.botChannelType,
+          isDirectMessage: metadata.botChannelIsDirect,
+          userId: metadata.requestUserId,
+          workflowLabel: metadata.instanceDisplayName,
+          status: 'starting',
+          percent: 0,
+          completed: 0,
+          failed: 0,
+          total: 0,
+          resultsUrl: metadata.resultsUrl,
+          initiatedBy: metadata.requestUserName ? `@${metadata.requestUserName}` : null,
+          initiatedAt,
+          requestTitle: metadata.requestTitle,
+        });
+        if (card?.ts) {
+          metadata.botMessageTs = card.ts;
+          metadata.botCardPostedAt = new Date().toISOString();
+          metadata.botChannelId = card.channel ?? metadata.botChannelId;
+          if (card?.channel) {
+            metadata.botChannelIsDirect = card.channel.startsWith('D');
+            metadata.botChannelType = metadata.botChannelIsDirect ? 'im' : metadata.botChannelType;
+          }
+        }
+      } catch (cardError) {
+        logger.error('Failed to post Slack progress card', cardError);
+      }
     }
+
+    await Primitive.updateOne(
+      { _id: instanceIdentifier },
+      { $set: { 'slack.workflow': metadata } },
+    );
+    instance.slack = {
+      ...(instance.slack ?? {}),
+      workflow: metadata,
+    };
 
     try {
       await FlowQueue().runFlowInstance(instance, {
@@ -378,11 +439,18 @@ async function handleWorkflowRunAsync({
       return;
     }
 
-    const lines = [`Started ${workflowDisplayName(workflow)}.`];
+    const lines = [`Started ${metadata.instanceDisplayName || workflowDisplayName(workflow)}.`];
     if (link) {
       lines.push(`Track progress: <${link}|View results>.`);
     } else {
       lines.push(`Track progress in Sense by opening item ${instanceIdentifier}.`);
+    }
+    if (metadata.botMessageTs) {
+      const channelName = metadata.channelName ?? null;
+      const channelDisplay = channelName
+        ? (channelName.startsWith('#') ? channelName : `#${channelName}`)
+        : (metadata.botChannelId ? `<#${metadata.botChannelId}>` : 'this channel');
+      lines.push(`I'll keep the progress card updated in ${channelDisplay}.`);
     }
     await sendDelayedSlackResponse(responseUrl, { text: lines.join('\n') });
   } catch (error) {
@@ -462,12 +530,19 @@ router.post('/command', async (req, res) => {
 
       const responseUrl = payload.response_url;
       const title = args.slice(1).join(' ').trim();
+      const channelId = payload.channel_id ?? null;
+      const channelName = payload.channel_name ?? null;
+      const isDirectMessage = Boolean(
+        (channelId && channelId.startsWith('D')) || (channelName && channelName.toLowerCase() === 'directmessage'),
+      );
       const slackContext = {
         command: payload.command ?? null,
         teamId: payload.team_id ?? null,
         enterpriseId: payload.enterprise_id ?? null,
-        channelId: payload.channel_id ?? null,
-        channelName: payload.channel_name ?? null,
+        channelId,
+        channelName,
+        channelType: isDirectMessage ? 'im' : (channelName ?? null),
+        isDirectMessage,
         triggerId: payload.trigger_id ?? null,
         userId: payload.user_id ?? null,
         userName: payload.user_name ?? null,
