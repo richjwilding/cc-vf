@@ -304,12 +304,13 @@ async function getQueueObject(type) {
         const parentMeta = job.parent ? { id: job.parent.id, queueName: job.parent.queueKey.slice(5) } : null;
 
         const isCancelled = await redisClient.get(`job:${job.id}:cancel`);
+        const cancelReason = job.data?.cancellationReason || 'cancelled-before-start';
         if (isCancelled === 'true') {
             logger.info(`[Worker] Detected pre-start cancellation for ${job.id} on ${queueName}`, { type: workerData.type });
             try {
                 await queueObject.default().endJob({
                     success: false,
-                    result: { cancelled: true, reason: 'cancelled-before-start' },
+                    result: { cancelled: true, reason: cancelReason },
                     queueType: workerData.type,
                     queueName,
                     jobId: job.id,
@@ -320,11 +321,12 @@ async function getQueueObject(type) {
             } catch (notifyErr) {
                 logger.error(`[Worker] Error notifying cancel for ${job.id} before start`, notifyErr);
             }
-            try {
+            /*try {
+                await job.discard();  
                 await job.moveToFailed({ message: 'Cancelled before start' }, token);
             } catch (moveErr) {
                 logger.error(`[Worker] Error moving cancelled job ${job.id} to failed`, moveErr);
-            }
+            }*/
             return;
         }
         if (!isMongoConnected) {
@@ -352,8 +354,34 @@ async function getQueueObject(type) {
             // If this job previously moved to waiting-children and is now resuming, finalize without redoing work
             if (job?.data?.awaitingChildren === true) {
                 logger.debug(`===> Sending endJob message B ${job.id} (resumed after children completed)`, { type: workerData.type });
-                try { await job.updateData({ ...(job.data || {}), awaitingChildren: false }); } catch {}
-                await queueObject.default().endJob({ success: true, queueType: workerData.type, queueName, jobId: job.id, notify: job.data.notify, token: token, parent: parentMeta })
+                const update = { ...(job.data || {}), awaitingChildren: false };
+                try { await job.updateData(update); } catch {}
+                const requestedCancel = job.data?.cancellationRequested === true || isCancelled === 'true';
+                const cancellationReason = job.data?.cancellationReason || cancelReason;
+                const endPayload = {
+                    success: !requestedCancel,
+                    queueType: workerData.type,
+                    queueName,
+                    jobId: job.id,
+                    notify: job.data.notify,
+                    token,
+                    parent: parentMeta,
+                };
+                if (requestedCancel) {
+                    endPayload.result = { cancelled: true, reason: cancellationReason };
+                } else {
+                    endPayload.error = undefined;
+                }
+                await queueObject.default().endJob(endPayload);
+
+                /*if (requestedCancel) {
+                    try {
+                        await job.discard();  
+                        await job.moveToFailed({ message: `Cancelled: ${cancellationReason}` }, token);
+                    } catch (failErr) {
+                        logger.error(`[worker_${workerData.type}] Error moving cancelled waiting-children job ${job.id} to failed`, failErr);
+                    }
+                }*/
                 return
             }
             parentPort.postMessage({ type: "startJob", queueName, jobId: job.id, token: token });
@@ -418,7 +446,15 @@ async function getQueueObject(type) {
                 try {
                     result = await processQueue(
                         job,
-                        () => redisClient.get(`job:${job.id}:cancel`) === 'true',
+                        async () => {
+                            try {
+                                const flag = await redisClient.get(`job:${job.id}:cancel`);
+                                return flag === 'true';
+                            } catch (cancelErr) {
+                                logger.error(`[worker_${workerData.type}] Error reading cancel flag for ${job.id}`, cancelErr);
+                                return false;
+                            }
+                        },
                         async () => {
                             if (lostLockError) {
                                 throw lostLockError;

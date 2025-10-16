@@ -1340,18 +1340,40 @@ class QueueManager {
     async cancelWaitingChildrenJob(queueName, job, opts = {}) {
         const reason = opts.reason || 'user-request';
         const pendingDependencies = typeof opts.dependencyCount === 'number' ? opts.dependencyCount : undefined;
+
         try {
-            await this.finalizeWaitingChildrenJob(queueName, job, {
-                reason: `cancelled:${reason}`,
-                pendingDependencies,
-                payload: {
-                    result: { cancelled: true, reason },
-                    error: null,
-                    success: false,
-                },
-            });
+            await this.cancelJob(job.name);
         } catch (err) {
-            logger.error(`[${this.type}] Error cancelling waiting-children job ${job?.id}`, err);
+            logger.error(`[${this.type}] Error flagging waiting-children job ${job?.id} for cancellation`, err);
+        }
+
+        try {
+            const updatedData = {
+                ...(job.data || {}),
+                awaitingChildren: true,
+                cancellationRequested: true,
+                cancellationReason: reason,
+                cancellationRequestedAt: Date.now(),
+            };
+            await job.updateData(updatedData);
+        } catch (err) {
+            logger.error(`[${this.type}] Error updating waiting-children job data for ${job?.id} during cancellation`, err);
+        }
+
+        if (pendingDependencies === 0) {
+            try {
+                await this.finalizeWaitingChildrenJob(queueName, job, {
+                    reason: `cancelled:${reason}`,
+                    pendingDependencies,
+                    payload: {
+                        result: { cancelled: true, reason },
+                        error: null,
+                        success: false,
+                    },
+                });
+            } catch (err) {
+                logger.error(`[${this.type}] Error finalizing zero-dependency waiting-children job ${job?.id}`, err);
+            }
         }
     }
 
@@ -1453,12 +1475,21 @@ class QueueManager {
             }
 
             if (state === 'waiting-children') {
+                const pendingDependencies = dependencyKeys.length;
                 await this.cancelWaitingChildrenJob(queueName, job, {
                     reason,
                     initiator,
-                    dependencyCount: dependencyKeys.length,
+                    dependencyCount: pendingDependencies,
                 });
-                return { queueName, jobId, state, cancelled: true, children };
+                return {
+                    queueName,
+                    jobId,
+                    state,
+                    cancelled: pendingDependencies === 0,
+                    cancellationRequested: true,
+                    pendingDependencies,
+                    children,
+                };
             }
 
             if (state === 'failed' || state === 'completed') {
@@ -1628,7 +1659,37 @@ class QueueManager {
             const now = Date.now();
             for (const queueName in this.queues) {
                 const { activeCount, lastActivity } = await this.getQueueActivity(queueName);
-                if (activeCount === 0 && lastActivity && now - lastActivity > this.idleTimeBeforePurge) {
+                if (!lastActivity) {
+                    continue;
+                }
+
+                let hasPendingWork = false;
+                try {
+                    const queue = this.queues[queueName];
+                    if (queue) {
+                        const counts = await queue.getJobCounts(
+                            "waiting",
+                            "active",
+                            "waiting-children",
+                            "delayed"
+                        );
+                        hasPendingWork =
+                            (counts?.waiting ?? 0) > 0 ||
+                            (counts?.["waiting-children"] ?? 0) > 0 ||
+                            (counts?.delayed ?? 0) > 0 ||
+                            (counts?.active ?? 0) > 0;
+                    }
+                } catch (countError) {
+                    logger.error(
+                        `[${this.type}] Error checking job counts for idle purge (${queueName})`,
+                        countError
+                    );
+                    // If we cannot confirm the queue is empty, skip purging this cycle.
+                    continue;
+                }
+
+                const idleFor = now - lastActivity;
+                if (!hasPendingWork && activeCount === 0 && idleFor > this.idleTimeBeforePurge) {
                     logger.info(`Purging queue for timeout`)
                     await this.purgeQueue(queueName.split('-')[0]);
                 }
