@@ -85,6 +85,218 @@ function preparePins(primitiveToPrepare, basePrimitive, stateId, myState){
 function dropZoneToAxis(id){
     return id.split('-')
 }
+
+const TEXT_BASED_PLAIN_OBJECT_TYPES = new Set(["text", "structured_text"]);
+
+function stableRepresentationString(value) {
+    if (value === null || typeof value !== "object") {
+        return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map(item => stableRepresentationString(item)).join(",")}]`;
+    }
+    const entries = Object.keys(value)
+        .sort()
+        .map(key => `${JSON.stringify(key)}:${stableRepresentationString(value[key])}`);
+    return `{${entries.join(",")}}`;
+}
+
+function cloneForTransport(value, seen = new WeakMap()) {
+    if (value === null) {
+        return null;
+    }
+    const type = typeof value;
+    if (type === "number" || type === "string" || type === "boolean") {
+        return value;
+    }
+    if (type === "bigint" || type === "function" || type === "symbol" || type === "undefined") {
+        return undefined;
+    }
+    if (Array.isArray(value)) {
+        if (seen.has(value)) {
+            return seen.get(value);
+        }
+        const next = [];
+        seen.set(value, next);
+        value.forEach((item, index) => {
+            const cloned = cloneForTransport(item, seen);
+            if (cloned !== undefined) {
+                next[index] = cloned;
+            }
+        });
+        return next;
+    }
+    if (type === "object") {
+        if (seen.has(value)) {
+            return seen.get(value);
+        }
+        const next = {};
+        seen.set(value, next);
+        Object.keys(value).forEach(key => {
+            const cloned = cloneForTransport(value[key], seen);
+            if (cloned !== undefined) {
+                next[key] = cloned;
+            }
+        });
+        return next;
+    }
+    return undefined;
+}
+
+function coerceNumber(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function buildRepresentationPayload(stateEntry, stageOptions = {}, renderOptions = {}) {
+    if (!stateEntry?.object || !TEXT_BASED_PLAIN_OBJECT_TYPES.has(stateEntry.object.type)) {
+        return null;
+    }
+
+    const baseContent = stateEntry.object;
+    const fallbackFrame = stateEntry.primitive?.frames?.[stateEntry.id] ?? {};
+
+    const width = coerceNumber(stageOptions.width ?? renderOptions.width ?? baseContent.width ?? fallbackFrame.width);
+    const height = coerceNumber(stageOptions.height ?? renderOptions.height ?? baseContent.height ?? fallbackFrame.height);
+
+    if (!width || !height) {
+        return null;
+    }
+
+    const payloadContent = cloneForTransport(baseContent) ?? {};
+    const payloadRenderOptions = {
+        width,
+        height,
+    };
+
+    const padding = stageOptions.padding ?? renderOptions.padding ?? baseContent.padding ?? baseContent.text_padding;
+    if (padding !== undefined) {
+        payloadRenderOptions.padding = padding;
+    }
+
+    const fontSize = coerceNumber(stageOptions.fontSize ?? renderOptions.fontSize ?? baseContent.fontSize);
+    if (fontSize !== undefined) {
+        payloadRenderOptions.fontSize = fontSize;
+    }
+
+    const lineHeight = coerceNumber(stageOptions.lineHeight ?? renderOptions.lineHeight ?? baseContent.lineHeight);
+    if (lineHeight !== undefined) {
+        payloadRenderOptions.lineHeight = lineHeight;
+    }
+
+    const columns = coerceNumber(stageOptions.columns ?? renderOptions.columns ?? baseContent.columns);
+    if (columns !== undefined) {
+        payloadRenderOptions.columns = columns;
+    }
+
+    const fontFamily = stageOptions.fontFamily ?? renderOptions.fontFamily ?? baseContent.fontFamily;
+    if (fontFamily) {
+        payloadRenderOptions.fontFamily = fontFamily;
+    }
+
+    const fontStyle = stageOptions.fontStyle ?? renderOptions.fontStyle ?? baseContent.fontStyle;
+    if (fontStyle) {
+        payloadRenderOptions.fontStyle = fontStyle;
+    }
+
+    const theme = stageOptions.theme ?? renderOptions.theme ?? baseContent.theme ?? stateEntry.theme;
+    if (theme) {
+        const themeClone = cloneForTransport(theme);
+        if (themeClone !== undefined) {
+            payloadRenderOptions.theme = themeClone;
+        }
+    }
+
+    const themeOverrides = stageOptions.themeOverrides ?? renderOptions.themeOverrides;
+    const payloadThemeOverrides = themeOverrides ? cloneForTransport(themeOverrides) : undefined;
+
+    const keyPayload = {
+        content: payloadContent,
+        renderOptions: payloadRenderOptions,
+    };
+    if (payloadThemeOverrides !== undefined) {
+        keyPayload.themeOverrides = payloadThemeOverrides;
+    }
+
+    const signature = stableRepresentationString(keyPayload);
+
+    return {
+        payloadContent,
+        payloadRenderOptions,
+        payloadThemeOverrides,
+        signature,
+    };
+}
+
+function maybeTriggerRepresentationPass(stateEntry, stageOptions, renderOptions, rootState) {
+    if (!stateEntry?.object || !TEXT_BASED_PLAIN_OBJECT_TYPES.has(stateEntry.object.type)) {
+        return stateEntry?.object;
+    }
+
+    const payload = buildRepresentationPayload(stateEntry, stageOptions, renderOptions);
+    if (!payload) {
+        return stateEntry.representation?.result?.content ?? stateEntry.object;
+    }
+
+    if (!stateEntry.representation) {
+        stateEntry.representation = {};
+    }
+
+    const representationState = stateEntry.representation;
+    const hasNewSignature = representationState.signature !== payload.signature;
+
+    if (hasNewSignature) {
+        representationState.signature = payload.signature;
+        representationState.result = undefined;
+        representationState.error = undefined;
+    }
+
+    if (hasNewSignature && !representationState.inFlight) {
+        const body = {
+            content: payload.payloadContent,
+            renderOptions: payload.payloadRenderOptions,
+        };
+        if (payload.payloadThemeOverrides !== undefined) {
+            body.themeOverrides = payload.payloadThemeOverrides;
+        }
+        if (representationState.lastSourceHash) {
+            body.previousHash = representationState.lastSourceHash;
+        }
+
+        representationState.inFlight = fetch("/api/representationPass", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+        })
+            .then(response => {
+                if (!response.ok) {
+                    const error = new Error(`representationPass failed: ${response.status}`);
+                    error.status = response.status;
+                    throw error;
+                }
+                return response.json();
+            })
+            .then(result => {
+                representationState.result = result;
+                representationState.lastSourceHash = result?.sourceHash ?? null;
+            })
+            .catch(error => {
+                representationState.error = error;
+                console.error("representationPass error", error);
+            })
+            .finally(() => {
+                representationState.inFlight = null;
+                if (rootState?.forceUpdate) {
+                    rootState.forceUpdate();
+                }
+            });
+    }
+
+    return representationState.result?.content ?? stateEntry.object;
+}
+
 async function moveItemOnAxis(  primitive, axis, from, to ){
     if( axis){
         if( axis.type === "category"){
@@ -588,7 +800,9 @@ function SharedRenderView(d, primitive, myState, stageOptions = {}) {
           frameless: true,
           canChangeSize: "plain",
           items: stageOptions => {
-            const data = myState[d.id].object;
+            const stateEntry = myState[d.id];
+            const processed = maybeTriggerRepresentationPass(stateEntry, stageOptions, renderOptions, myState);
+            const data = processed ?? stateEntry?.object ?? {};
             return renderPlainObject({ ...data, ...stageOptions, ...renderOptions, renderOptions });
           }
         };
@@ -1705,6 +1919,11 @@ export default function BoardViewer({primitive,...props}){
     const agentRef = useRef({})
     const [update, forceUpdate] = useReducer( (x)=>x+1, 0)
     const [updateLinks, forceUpdateLinks] = useReducer( (x)=>x+1, 0)
+
+    myState.forceUpdate = forceUpdate
+    if( myState.current && typeof myState.current === "object" ){
+        myState.current.forceUpdate = forceUpdate
+    }
     const [agentStatus, setAgentStatus] = useState({activeChat: false})
     const [panelTab, setPanelTab] = useState("info")
     const [showAddDrawer, setShowAddDrawer] = useState(false)
