@@ -2,6 +2,9 @@ import OpenAI from "openai"
 import {encode, decode} from 'gpt-3-encoder'
 import { executeConcurrently } from "./SharedFunctions"
 import { recordUsage } from "./usage_tracker"
+import { getLogger } from "./logger"
+
+const logger = getLogger("openai_helper", "info")
 
 const ENCODE_WARN_THRESHOLD_MS = Number.isFinite(Number(process.env.OPENAI_ENCODE_WARN_MS))
     ? Number(process.env.OPENAI_ENCODE_WARN_MS)
@@ -1587,6 +1590,68 @@ export async function analyzeText(text, options = {}){
 }
 
 const MAX_EMBED_TOKENS = 8192;
+const DEFAULT_EMBED_TIMEOUT_MS = 20000;
+const EMBEDDING_RETRY_DELAY_MS = 500;
+
+let sharedOpenAIClient;
+
+function getOpenAIClient() {
+  if (sharedOpenAIClient) {
+    return sharedOpenAIClient;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY ?? process.env.OPEN_API_KEY;
+
+  if (!apiKey) {
+    logger.error("OpenAI API key not configured. Set OPENAI_API_KEY or OPEN_API_KEY in the environment.");
+    return undefined;
+  }
+
+  const timeout = Number(process.env.OPENAI_EMBEDDING_TIMEOUT_MS ?? DEFAULT_EMBED_TIMEOUT_MS);
+
+  // The OpenAI SDK wires a fresh HTTPS agent for every client instance. Reusing
+  // a single client allows keep-alive sockets (and the underlying HTTP/2
+  // session) to be shared across embedding calls so we avoid the connection
+  // setup cost on every fragment, while also centralising timeout/maxRetry
+  // configuration in one place.
+  sharedOpenAIClient = new OpenAI({
+    apiKey,
+    timeout,
+    maxRetries: 0, // we implement our own retry logic with backoff below
+  });
+
+  return sharedOpenAIClient;
+}
+
+function isRetryableEmbeddingError(error) {
+  if (!error) {
+    return false;
+  }
+
+  const status = error.status ?? error?.response?.status;
+  if (status && (status === 429 || status >= 500)) {
+    return true;
+  }
+
+  const message = `${error.message ?? error?.error?.message ?? ""}`.toLowerCase();
+  if (!message) {
+    return false;
+  }
+
+  return (
+    message.includes("timeout") ||
+    message.includes("aborted") ||
+    message.includes("fetch failed") ||
+    message.includes("invalid response body")
+  );
+}
+
+async function wait(ms) {
+  if (!ms || ms <= 0) {
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function truncateToMaxTokens(text) {
   const toks = timedEncode(text, 'truncateToMaxTokens');
@@ -1605,13 +1670,12 @@ export async function buildEmbeddings( text, attempt = 3 ){
     }
     text = text.trim();
     text = truncateToMaxTokens(text);
-    
-    try{   
-        const openai = new OpenAI({
-            apiKey: process.env.OPEN_API_KEY,
-            timeout: 5000,
-            maxRetries: 3
-        })
+
+    try{
+        const openai = getOpenAIClient();
+        if( !openai ){
+            return {success: false, error: "missing_openai_api_key"}
+        }
 
         const response = await openai.embeddings.create({
             model: "text-embedding-ada-002",
@@ -1622,12 +1686,15 @@ export async function buildEmbeddings( text, attempt = 3 ){
         }
         return {success: false, raw: response}
     }catch(error){
-        console.log('Error in buildEmbeddings')
-        console.log(error)
-        if( attempt > 0){
-            console.log(`Retry ${attempt}`)
-            return await  buildEmbeddings( text, attempt - 1)
+        logger.warn('Error in buildEmbeddings', error)
+        if( attempt > 0 && isRetryableEmbeddingError(error)){
+            const retryAttempt = attempt - 1;
+            const backoff = EMBEDDING_RETRY_DELAY_MS * Math.pow(2, (3 - attempt));
+            logger.warn(`Retrying embeddings request in ${backoff}ms (remaining attempts: ${retryAttempt})`);
+            await wait(backoff);
+            return await  buildEmbeddings( text, retryAttempt)
 
         }
+        return {success: false, error}
     }
 }
