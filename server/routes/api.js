@@ -29,6 +29,7 @@ import SubscriptionPlan from '../model/SubscriptionPlan';
 import { handleChat } from '../agent/agent.js';
 import { getRedisBase } from '../redis.js';
 import { getQueue } from '../queue_registry.js';
+import * as cheerio from 'cheerio';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -95,9 +96,9 @@ async function userCanAccessPrimitive(primitive, req, res){
         }
         return realPrim
     }
-    if( req.user ){
+    if( primitive && req.user ){
         if( req.user.workspaceIds ){
-            if( req.user.workspaceIds.includes(primitive.workspaceId)){
+            if( req.user.workspaceIds.includes(primitive?.workspaceId)){
                 return primitive
             }
         }
@@ -194,6 +195,165 @@ router.get('/companyLogo', async (req, res) => {
       res.status(500).send('Error fetching image');
     }
   });
+router.get('/preview', async (req, res) => {
+    const rawUrl = typeof req.query.url === 'string' ? req.query.url.trim() : '';
+    if (!rawUrl) {
+        res.status(400).json({ message: 'Missing url parameter' });
+        return;
+    }
+
+    let targetUrl;
+    try {
+        targetUrl = new URL(rawUrl);
+        if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+            throw new Error('Unsupported protocol');
+        }
+    } catch (err) {
+        res.status(400).json({ message: 'Invalid url parameter' });
+        return;
+    }
+
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    const remoteImageCandidates = new Set();
+
+    const resolveCandidate = (value) => {
+        if (!value || typeof value !== 'string') {
+            return null;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return null;
+        }
+        try {
+            return new URL(trimmed, targetUrl).toString();
+        } catch (err) {
+            return null;
+        }
+    };
+
+    const collectFromHtml = (html) => {
+        try {
+            const $ = cheerio.load(html);
+            const metaSelectors = [
+                'meta[property="og:image:secure_url"]',
+                'meta[property="og:image:url"]',
+                'meta[property="og:image"]',
+                'meta[name="og:image"]',
+                'meta[name="twitter:image:src"]',
+                'meta[name="twitter:image"]',
+            ];
+            metaSelectors.forEach((selector) => {
+                $(selector).each((_, element) => {
+                    const candidate = $(element).attr('content');
+                    const resolved = resolveCandidate(candidate);
+                    if (resolved) {
+                        remoteImageCandidates.add(resolved);
+                    }
+                });
+            });
+            const linkSelectors = [
+                'link[rel="apple-touch-icon"]',
+                'link[rel="apple-touch-icon-precomposed"]',
+                'link[rel="shortcut icon"]',
+                'link[rel="icon"]',
+                'link[rel="mask-icon"]',
+                'link[rel="image_src"]',
+            ];
+            linkSelectors.forEach((selector) => {
+                $(selector).each((_, element) => {
+                    const candidate = $(element).attr('href');
+                    const resolved = resolveCandidate(candidate);
+                    if (resolved) {
+                        remoteImageCandidates.add(resolved);
+                    }
+                });
+            });
+        } catch (err) {
+            console.error('Error parsing preview HTML', err?.message ?? err);
+        }
+    };
+
+    try {
+        const pageResponse = await axios.get(targetUrl.toString(), {
+            responseType: 'text',
+            timeout: 10000,
+            maxContentLength: 2 * 1024 * 1024,
+            headers: {
+                'User-Agent': userAgent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            },
+            validateStatus: (status) => status >= 200 && status < 400,
+        });
+        const pageContentType = (pageResponse.headers?.['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+        if (pageContentType.startsWith('image/')) {
+            const imageResponse = await axios.get(targetUrl.toString(), {
+                responseType: 'stream',
+                timeout: 10000,
+                headers: {
+                    'User-Agent': userAgent,
+                    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+                },
+            });
+            const remoteContentType = imageResponse.headers?.['content-type'] ?? pageContentType;
+            res.set('Access-Control-Allow-Origin', '*');
+            res.set('Cache-Control', 'public, max-age=86400');
+            if (remoteContentType) {
+                res.set('Content-Type', remoteContentType);
+            }
+            imageResponse.data.pipe(res);
+            return;
+        }
+        if (typeof pageResponse.data === 'string') {
+            collectFromHtml(pageResponse.data);
+        }
+    } catch (err) {
+        console.error('Error fetching preview metadata', err?.message ?? err);
+    }
+
+    const fallbackIconUrl = resolveCandidate('/favicon.ico');
+    if (fallbackIconUrl) {
+        remoteImageCandidates.add(fallbackIconUrl);
+    }
+    const googleFavicon = `https://www.google.com/s2/favicons?sz=256&domain_url=${encodeURIComponent(targetUrl.origin)}`;
+    remoteImageCandidates.add(googleFavicon);
+
+    for (const candidateUrl of remoteImageCandidates) {
+        try {
+            const imageResponse = await axios.get(candidateUrl, {
+                responseType: 'stream',
+                timeout: 10000,
+                headers: {
+                    'User-Agent': userAgent,
+                    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+                },
+                validateStatus: (status) => status >= 200 && status < 400,
+            });
+            const remoteContentType = (imageResponse.headers?.['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+            if (!remoteContentType.startsWith('image/')) {
+                continue;
+            }
+            res.set('Access-Control-Allow-Origin', '*');
+            res.set('Cache-Control', imageResponse.headers?.['cache-control'] ?? 'public, max-age=86400');
+            res.set('Content-Type', imageResponse.headers?.['content-type'] ?? 'image/octet-stream');
+            imageResponse.data.pipe(res);
+            return;
+        } catch (err) {
+            console.error(`Error fetching preview image from ${candidateUrl}`, err?.message ?? err);
+        }
+    }
+
+    const placeholderSvg = (() => {
+        const hostname = targetUrl.hostname ?? '';
+        const sanitized = hostname.replace(/[^a-zA-Z0-9]/g, '');
+        const letter = sanitized.charAt(0)?.toUpperCase() || '#';
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect width="256" height="256" fill="#e2e8f0"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="120" fill="#475569">${letter}</text></svg>`;
+        return Buffer.from(svg);
+    })();
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.set('Content-Type', 'image/svg+xml');
+    res.send(placeholderSvg);
+});
 router.get('/remoteImage', async (req, res) => {
     try {
         let imageUrl = req.query.url;

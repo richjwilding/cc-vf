@@ -1291,22 +1291,80 @@ export async function processQueue(job){
                             }
                         }
                     }else if( thisCategory?.type === "one_shot_query"){
-                        let result = await oneShotQuery( primitive, config)
-                        console.log(result)
-                        if( result ){
-                            if( result.length > 1){
-                                console.log(`GOT MULTIPLE - NOT HANDLED, DEFUALTING TO FIRST`)
-                            }
-                            result = result[0]
-                            if( result){
-                                const segmentParent = (await findParentPrimitivesOfType(primitive, "segment"))?.[0]
-                                let title = primitive.title
-                                if( segmentParent ){
-                                    const filterName = await getFilterName( segmentParent)
-                                    if( filterName !== "New segment"){
-                                        title = filterName
-                                    }
+                        const results = await oneShotQuery( primitive, config)
+                        console.log(results)
+                        const resultEntries = Array.isArray(results)
+                            ? results.filter(Boolean)
+                            : (results && typeof results === "object" ? [results] : [])
+                        if( resultEntries.length > 0 ){
+                            const segmentParent = (await findParentPrimitivesOfType(primitive, "segment"))?.[0]
+                            let segmentTitle
+                            if( segmentParent ){
+                                const filterName = await getFilterName( segmentParent)
+                                if( filterName && filterName !== "New segment"){
+                                    segmentTitle = filterName
                                 }
+                            }
+
+                            if( config.split && resultEntries.length > 1 ){
+                                const primitiveParentId = primitiveOrigin(primitive)
+                                if( primitiveParentId ){
+                                    let created = false
+                                    let idx = 0
+
+                                    for( const entry of resultEntries ){
+                                        if( !entry ){
+                                            continue
+                                        }
+                                        if( !entry.structured ){
+                                            continue
+                                        }
+                                        idx++
+                                        const candidateTitle = entry.heading ?? segmentTitle ?? (idx === 1 ? primitive.title : `${primitive.title} (${idx})`)
+                                        const referenceParameters = {
+                                            summary: entry.plain,
+                                            structured_summary: entry.structured
+                                        }
+                                        if( !hasMeaningfulContent(entry.structured) ){
+                                            referenceParameters.contentNotRelevant = true
+                                        }
+
+                                        const newPrim = await createPrimitive({
+                                            workspaceId: primitive.workspaceId,
+                                            parent: primitiveParentId,
+                                            paths: ["origin"],
+                                            data:{
+                                                type: primitive.type,
+                                                referenceId: primitive.referenceId,
+                                                title: candidateTitle ?? `Result ${idx}`,
+                                                referenceParameters
+                                            }
+                                        })
+
+                                        if( newPrim ){
+                                            created = true
+                                            if( segmentParent ){
+                                                await addRelationship( segmentParent.id, newPrim.id, "auto")
+                                            }
+                                            const linkIds = entry.sourceIds ?? []
+                                            if( linkIds.length > 0 ){
+                                                await addRelationshipToMultiple( newPrim.id, linkIds, "source", primitive.workspaceId)
+                                            }
+                                        }
+                                    }
+
+                                    if( created ){
+                                        await removePrimitiveById( primitive.id )
+                                    }
+                                }else{
+                                    console.log(`Unable to determine parent for ${primitive.id} when handling multi-result one_shot_query`)
+                                }
+                                return
+                            }
+
+                            const result = resultEntries[0]
+                            if( result ){
+                                const title = segmentTitle ?? primitive.title
                                 if( title && title !== primitive.title ){
                                     dispatchControlUpdate( primitive.id, "title", title)
                                 }
@@ -1328,6 +1386,9 @@ export async function processQueue(job){
                                 }
                                 return
                             }
+                        }else if( typeof results === "string" && results.trim().length > 0 ){
+                            dispatchControlUpdate( primitive.id, "referenceParameters.summary", results)
+                            return
                         }
                     }else{
                         if( config.verify || config.structure){

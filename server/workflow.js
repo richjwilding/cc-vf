@@ -457,7 +457,13 @@ export async function scaffoldWorkflow( flow, options = {} ){
 
     //const items = await primitiveChildren( flow )
     const steps = items.filter(d=>d.type !== "flowinstance")
-    const baseInstances = items.filter(d=>d.type === "flowinstance")
+    let baseInstances = items.filter(d=>d.type === "flowinstance")
+    if( isSubFlow && parentFlowInstance ){
+        baseInstances = baseInstances.filter(instance=>{
+            const linkage = instance?.parentPrimitives?.[parentFlowInstance.id]
+            return Array.isArray(linkage) && linkage.length > 0
+        })
+    }
     const importIds = pp.imports.allIds
     let sources
     let sourceNotFound = false
@@ -517,17 +523,41 @@ export async function scaffoldWorkflow( flow, options = {} ){
         for( const source of sources){
             logger.debug(`-- For ${source.title}`, {flow: flow.id, source: source.id});
             
-            const {segments, cleared} = await checkAndGenerateSegments( source, source, {...options, clear: true, by_axis: true, local: true})
+            const segmentOptions = {...options, by_axis: true, local: true}
+            delete segmentOptions.clear
+
+            const segmentResult = await checkAndGenerateSegments( source, source, segmentOptions)
+            const segments = Array.isArray(segmentResult) ? segmentResult : (segmentResult?.segments ?? [])
             logger.debug(`-- got ${segments.length} segments`, {flow: flow.id, source: source.id});
-            if( cleared.length > 0){
-                console.log(`${cleared.length} segments removed - checking and removing hanging flow instances`)
-                for(const clearId of cleared){
-                    let existing = baseInstances.find(d=>Object.keys(d.parentPrimitives).includes(clearId))
-                    if( existing ){
-                        logger.debug(`- removing flow instance ${existing.id} for cleared segment ${clearId}`)
-                        await removePrimitiveById( existing.id )
-                    }
+
+            const activeSegmentIds = new Set(segments.map(segment=>segment.id))
+
+            const staleInstances = []
+            for(const instance of baseInstances){
+                const parents = instance?.parentPrimitives ?? {}
+                const autoLinkIds = Object.entries(parents)
+                    .filter(([, paths])=>Array.isArray(paths) && paths.some(path=>(typeof path === "string") && path.endsWith(".auto")))
+                    .map(([parentId])=>parentId)
+                if( autoLinkIds.length === 0 ){
+                    continue
                 }
+                const stillActive = autoLinkIds.some(id=>activeSegmentIds.has(id))
+                if( !stillActive ){
+                    staleInstances.push({
+                        instance,
+                        segmentIds: autoLinkIds
+                    })
+                }
+            }
+
+            if( staleInstances.length > 0 ){
+                logger.debug(`-- removing ${staleInstances.length} stale flow instances`, {flow: flow.id, source: source.id});
+                for(const {instance, segmentIds} of staleInstances){
+                    logger.debug(`- removing flow instance ${instance.id} no longer linked to active segments (${segmentIds.join(", ")})`)
+                    await removePrimitiveById(instance.id)
+                }
+                const staleIds = new Set(staleInstances.map(entry=>entry.instance.id))
+                baseInstances = baseInstances.filter(instance=>!staleIds.has(instance.id))
             }
             
             for( const segment of segments){

@@ -40,6 +40,42 @@ function classNames(...classes) {
     return classes.filter(Boolean).join(' ')
 }
 
+function formatPrimitiveProgress(progress, fallbackPercentage) {
+    if (progress === null || progress === undefined) {
+        if (typeof fallbackPercentage === 'number' && Number.isFinite(fallbackPercentage)) {
+            const value = fallbackPercentage > 1 ? fallbackPercentage : fallbackPercentage * 100
+            return `${Math.round(value)}% complete`
+        }
+        return null
+    }
+
+    if (typeof progress === 'string') {
+        const trimmed = progress.trim()
+        return trimmed.length > 0 ? trimmed : null
+    }
+
+    if (typeof progress === 'number' && Number.isFinite(progress)) {
+        const value = progress > 1 ? progress : progress * 100
+        return `${Math.round(value)}% complete`
+    }
+
+    if (typeof progress === 'object') {
+        if (typeof progress.message === 'string') {
+            const trimmed = progress.message.trim()
+            if (trimmed.length > 0) {
+                return trimmed
+            }
+        }
+
+        if (typeof progress.percentage === 'number' && Number.isFinite(progress.percentage)) {
+            const value = progress.percentage > 1 ? progress.percentage : progress.percentage * 100
+            return `${Math.round(value)}% complete`
+        }
+    }
+
+    return null
+}
+
 let mainstore = MainStore()
 const tabs = [
     { name: 'Discovery', referenceId: 112, discovery: true, search: true },
@@ -204,7 +240,7 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
     const [activeView, setActiveView] = useState(frame?.referenceParameters?.explore?.view ?? 0)
 
 
-    useDataEvent("relationship_update set_parameter set_field delete_primitive", [board?.id, frame?.id, primitive?.id].filter(d => d))
+    useDataEvent("relationship_update set_parameter set_field delete_primitive", [board?.id, frame?.id, primitive?.id, underlying?.id].filter(d => d))
 
     let newPrimitiveCallback = props.newPrimitiveCallback
 
@@ -369,8 +405,10 @@ export default function CollectionInfoPane({ board, frame, underlying, primitive
     let underlyingInfo = !underlying ? <></> : <div className="px-2 py-2 mt-4 bg-ccgreen-50 border-ccgreen-200 border rounded-md">{(() => {
         let flowinstance = underlying.findParentPrimitives({ type: "flowinstance" })?.[0]
         let title = flowinstance.primitives.imports.allItems[0]?.filterDescription
+        const progressText = formatPrimitiveProgress(underlying.progress, underlying.percentageProgress)
         return <>
             <div className="text-sm text-ccgreen-800">Items for flow instance {title} (#{underlying.plainId} @ #{flowinstance?.plainId}) </div>
+            {progressText && <div className="mt-2 text-sm text-ccgreen-800">{progressText}</div>}
             <button
                 type="button"
                 className="w-full rounded-md border border-gray-300 bg-white py-2 px-4 mt-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"

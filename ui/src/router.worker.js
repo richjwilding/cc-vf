@@ -1457,6 +1457,13 @@ function makePt(x, y) {
         target.inflateShapes()
         target.setupBase()
       }
+
+      if(redoForVisibility && target.pathCache){
+        for (const entry of target.pathCache.values()) {
+          entry.redo = true;
+        }
+      }
+
       this.routing = true
       const interimSpots = [];
       if( links ){

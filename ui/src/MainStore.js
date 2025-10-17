@@ -148,7 +148,24 @@ const actions = {
                 const stats = receiver.progressStats
                 return `Found ${stats.totalCount} items (scanned ${stats.totalScanned})`
             case "query":
-                return d.processing?.query?.progress
+                if( d.processing?.query?.progress ){
+                    return d.processing?.query?.progress
+                }
+                const list = receiver.primitives.origin.allSummary
+                if( list && list.length > 0){
+                    const stats = list.reduce((a,d)=>{
+                        const p = d.processing?.rebuild_summary?.progress
+                        if( p?.percentage !== undefined){
+                            a.count++
+                            a.total += p.percentage
+                        }
+                        return a
+                    }, {count: 0, total: 0})                    
+                    if( stats.count > 0 ){
+                        return `${Math.floor(stats.total / stats.count * 100)}% complete`
+                    }
+                }
+                return
             case "category":
                 return d.processing?.mark_categories?.progress
             case "categorizer":

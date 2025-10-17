@@ -16,6 +16,26 @@ const parser = PrimitiveParser()
 
 const logger = getLogger('task_processor', "debug"); // Debug level for moduleA
 
+function parseEnvInt(value, fallback){
+    const parsed = Number.parseInt(value ?? "", 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function parseEnvFloat(value, fallback){
+    const parsed = Number.parseFloat(value ?? "");
+    return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+const STRUCTURED_QUERY_FRAGMENT_MODE_ENABLED = process.env.STRUCTURED_QUERY_FRAGMENT_MODE === "true";
+const STRUCTURED_QUERY_FRAGMENT_THRESHOLD = Math.max(0, parseEnvInt(process.env.STRUCTURED_QUERY_FRAGMENT_THRESHOLD, 1000));
+const STRUCTURED_QUERY_FRAGMENT_MAX_PASSES = Math.max(0, parseEnvInt(process.env.STRUCTURED_QUERY_FRAGMENT_MAX_PASSES, 2));
+const STRUCTURED_QUERY_FRAGMENT_BATCH_SIZE = Math.max(1, parseEnvInt(process.env.STRUCTURED_QUERY_FRAGMENT_BATCH_SIZE, 50));
+const STRUCTURED_QUERY_COVERAGE_FRAGMENT_BATCH_SIZE = Math.max(1, parseEnvInt(process.env.STRUCTURED_QUERY_COVERAGE_FRAGMENT_BATCH_SIZE, 60));
+const STRUCTURED_QUERY_COVERAGE_FRAGMENT_CHAR_LIMIT = Math.max(1000, parseEnvInt(process.env.STRUCTURED_QUERY_COVERAGE_FRAGMENT_CHAR_LIMIT, 48000));
+const STRUCTURED_QUERY_MIN_COVERAGE_RATIO = Math.min(1, Math.max(0, parseEnvFloat(process.env.STRUCTURED_QUERY_MIN_COVERAGE_RATIO, 0.4)));
+const STRUCTURED_QUERY_MIN_COVERAGE_COUNT = Math.max(0, parseEnvInt(process.env.STRUCTURED_QUERY_MIN_COVERAGE_COUNT, 15));
+const STRUCTURED_QUERY_MAX_COVERAGE_RETRIES = Math.max(0, parseEnvInt(process.env.STRUCTURED_QUERY_MAX_COVERAGE_RETRIES, 1));
+
 export async function getItemsForQuery(primitive, config){
     let items
     if( primitive.type === "view"){
@@ -513,10 +533,19 @@ export async function aggregateItems( parent, primitive, options = {}){
 export async function baselineItemProcess( parent, primitive, options = {}, execOptions = {}){
     const segments = await checkAndGenerateSegments( parent, primitive, {...options, ...(execOptions.lookup ?? {})})
     const config = await getConfig( primitive )
-    const currentAggregators = (await primitiveChildren( primitive )).filter(d=>d.referenceId === config.aggregate)
+    let currentAggregators = (await primitiveChildren( primitive )).filter(d=>d.referenceId === config.aggregate)
     const aggregatorCategory = await Category.findOne({id: config.aggregate})
     if( !aggregatorCategory){
         throw `Couldnt find aggregator ${config.aggregate}`
+    }
+    const primitiveCategory = await Category.findOne({id: primitive.referenceId})
+
+    if( config.split && primitiveCategory?.type === "one_shot_query" && currentAggregators.length > 0){
+        logger.debug(`Clearing ${currentAggregators.length} existing aggregators for one_shot_query split run`)
+        for( const aggregator of currentAggregators){
+            await removePrimitiveById( aggregator.id )
+        }
+        currentAggregators = []
     }
     
     const out = []
@@ -1716,9 +1745,9 @@ export async function oneShotQuery( primitive, primitiveConfig, options = {}){
         return result
     }
     */
-        const result = await buildStructuredSummary( primitive, queryData, undefined, undefined, primitiveConfig, true, progressCallback)
-        console.log(result)
-        return result
+    let result = await buildStructuredSummary( primitive, queryData, undefined, undefined, primitiveConfig, true, progressCallback)
+    console.log(result)
+    return result
 }
 
 
@@ -2012,6 +2041,546 @@ function parseIdsList(value){
     return []
 }
 
+function coerceFragmentIds(value){
+    if( value === undefined || value === null ){
+        return []
+    }
+    if( Array.isArray(value) ){
+        return parseIdsList(value).filter(entry=>Number.isInteger(entry))
+    }
+    if( typeof(value) === "number" && Number.isInteger(value) ){
+        return [value]
+    }
+    if( typeof(value) === "string" ){
+        return parseIdsList(value).filter(entry=>Number.isInteger(entry))
+    }
+    return []
+}
+
+function sanitizeFragmentIndexes(indexes, limit){
+    if( indexes === undefined || indexes === null ){
+        return []
+    }
+    const array = Array.isArray(indexes) ? indexes : [indexes]
+    const set = new Set()
+    for(const entry of array){
+        if( entry === undefined || entry === null ){
+            continue
+        }
+        const parsed = typeof(entry) === "number" ? entry : Number.parseInt(String(entry).trim(), 10)
+        if( Number.isInteger(parsed) && parsed >= 0 && (typeof(limit) !== "number" || parsed < limit) ){
+            set.add(parsed)
+        }
+    }
+    return Array.from(set).sort((a,b)=>a-b)
+}
+
+function extractFragmentSelectionsFromScanSummary(summary){
+    if( summary === undefined || summary === null ){
+        return {indexes: [], rationales: new Map()}
+    }
+    const queue = Array.isArray(summary) ? [...summary] : [summary]
+    const collected = []
+    const rationales = new Map()
+
+    const pushSelection = (id, reason)=>{
+        if( !Number.isInteger(id) ){
+            return
+        }
+        collected.push(id)
+        if( typeof(reason) === "string" && reason.trim().length > 0 ){
+            const trimmed = reason.trim().split(/\s+/).slice(0, 10).join(" ")
+            rationales.set(id, trimmed)
+        }
+    }
+
+    while(queue.length > 0){
+        let entry = queue.shift()
+        if( entry === undefined || entry === null ){
+            continue
+        }
+        if( typeof(entry) === "string" ){
+            try{
+                entry = JSON.parse(entry)
+            }catch(error){
+                logger.warn("Unable to parse fragment selection entry", error)
+                continue
+            }
+        }
+        if( Array.isArray(entry) ){
+            queue.push(...entry)
+            continue
+        }
+        if( typeof(entry) !== "object" ){
+            continue
+        }
+
+        const directSelections = entry.fragment_selections ?? entry.fragmentSelections
+        if( Array.isArray(directSelections) ){
+            for(const selection of directSelections){
+                if( selection === undefined || selection === null ){
+                    continue
+                }
+                if( typeof(selection) === "string" ){
+                    try{
+                        const parsed = JSON.parse(selection)
+                        if( typeof(parsed) === "object" && parsed !== null ){
+                            pushSelection(parsed.id, parsed.reason ?? parsed.explanation)
+                        }
+                    }catch(error){
+                        logger.warn("Unable to parse fragment selection entry (string object)", error)
+                    }
+                    continue
+                }
+                if( typeof(selection) === "object" ){
+                    const id = Number.parseInt(selection.id, 10)
+                    const reason = selection.reason ?? selection.rationale ?? selection.explanation
+                    pushSelection(Number.isNaN(id) ? undefined : id, reason)
+                }
+            }
+        }
+
+        const legacyIds = entry.fragment_ids ?? entry.fragmentIds ?? entry.ids
+        coerceFragmentIds(legacyIds).forEach(id=>pushSelection(id))
+
+        if( Array.isArray(entry.fragments) ){
+            for(const fragment of entry.fragments){
+                coerceFragmentIds(fragment?.ids).forEach(id=>pushSelection(id, fragment?.reason ?? fragment?.rationale))
+            }
+        }
+        if( Array.isArray(entry.structure) ){
+            const nodes = extractFlatNodes(entry.structure)
+            nodes.forEach(node=>coerceFragmentIds(node.ids).forEach(id=>pushSelection(id, node.reason ?? node.rationale)))
+        }
+    }
+    return {indexes: collected, rationales}
+}
+
+function extractFragmentIdsFromScanSummary(summary){
+    return extractFragmentSelectionsFromScanSummary(summary).indexes
+}
+
+function collectUniqueIdsFromStructure(structure){
+    const unique = new Set()
+    if( !structure ){
+        return unique
+    }
+    const target = Array.isArray(structure) ? structure : [structure]
+    const nodes = extractFlatNodes(target)
+    for(const node of nodes){
+        const ids = node.ids
+        if( ids === undefined || ids === null ){
+            continue
+        }
+        if( Array.isArray(ids) ){
+            ids.forEach(id=>{
+                if( id !== undefined && id !== null ){
+                    unique.add(String(id))
+                }
+            })
+        }else{
+            unique.add(String(ids))
+        }
+    }
+    return unique
+}
+
+
+function normalizeAugmentedStructureIds(structure, fragments, baseIdSet){
+    if( !structure ){
+        return structure
+    }
+    const mapIds = fragments.map(item=>item?.id ?? null)
+    const baseIds = new Set([...(baseIdSet ?? [])].map(id=>String(id)))
+
+    const normalizeList = (ids)=>{
+        const wasArray = Array.isArray(ids)
+        const rawList = wasArray ? ids : [ids]
+        const transformed = []
+        for(const value of rawList){
+            if( value === undefined || value === null ){
+                continue
+            }
+            let stringValue
+            if( typeof value === "number" ){
+                stringValue = String(value)
+            }else if( typeof value === "string" ){
+                stringValue = value.trim()
+            }else{
+                stringValue = String(value).trim()
+            }
+            if( !stringValue ){
+                continue
+            }
+            if( baseIds.has(stringValue) ){
+                if( transformed.indexOf(stringValue) === -1 ){
+                    transformed.push(stringValue)
+                }
+                continue
+            }
+            const isPureInteger = /^[0-9]+$/.test(stringValue)
+            if( isPureInteger ){
+                const numeric = Number.parseInt(stringValue, 10)
+                if( Number.isInteger(numeric) && numeric >= 0 && numeric < mapIds.length ){
+                    const mapped = mapIds[numeric]
+                    if( mapped !== undefined && mapped !== null ){
+                        const mappedStr = String(mapped)
+                        if( transformed.indexOf(mappedStr) === -1 ){
+                            transformed.push(mappedStr)
+                        }
+                        continue
+                    }
+                }
+            }
+            if( transformed.indexOf(stringValue) === -1 ){
+                transformed.push(stringValue)
+            }
+        }
+        transformed.sort((a,b)=>a.localeCompare(b))
+        if( wasArray ){
+            return transformed
+        }
+        return transformed.length === 0 ? undefined : transformed[0]
+    }
+
+    modiftyEntries(structure, "ids", entry=>{
+        if( entry.ids === undefined || entry.ids === null ){
+            return entry.ids
+        }
+        return normalizeList(entry.ids)
+    })
+
+    return structure
+}
+
+
+async function augmentStructureWithAdditionalIds({ primitive, primitiveConfig, task, structure, fragments, fragmentTexts, minimumIds, missingIds, existingIds }){
+    try{
+        const fragmentEntries = []
+        const limit = 1200
+        for(let idx = 0; idx < fragments.length; idx++){
+            const fragment = fragments[idx]
+            const id = fragment?.id
+            if( id === undefined || id === null ){
+                continue
+            }
+            let text = fragmentTexts?.[idx]
+            if( Array.isArray(text) ){
+                text = text.join(" ")
+            }
+            if( typeof(text) !== "string" || text.trim().length === 0 ){
+                continue
+            }
+            const truncated = text.length > limit ? `${text.slice(0, limit)}...` : text
+            fragmentEntries.push({
+                index: idx,
+                text: truncated,
+                title: fragment?.title ?? fragment?.heading ?? fragment?.name,
+                rationale: fragment?.selectionRationale
+            })
+        }
+
+        if( fragmentEntries.length === 0 ){
+            logger.warn("No fragments available for coverage augmentation")
+            return structure
+        }
+
+        const idToIndex = new Map()
+        const indexToDocId = new Map()
+        fragments.forEach((item, idx)=>{
+            const key = item?.id
+            if( key !== undefined && key !== null ){
+                idToIndex.set(String(key), idx)
+            }
+            const documentId = item?.documentId ?? item?.sourceId ?? item?.referenceId ?? item?.parentId ?? item?.id ?? idx
+            indexToDocId.set(idx, String(documentId))
+        })
+
+        const toIndexes = (list)=>{
+            if( !Array.isArray(list) ){
+                return []
+            }
+            return list
+                .map(id => idToIndex.get(String(id)))
+                .filter(idx => idx !== undefined)
+        }
+
+        const documentIdsAlreadyUsed = new Set()
+        for(const idx of toIndexes(existingIds)){
+            const docId = indexToDocId.get(idx)
+            if( docId !== undefined ){
+                documentIdsAlreadyUsed.add(docId)
+            }
+        }
+        if( Array.isArray(existingIds) ){
+            for(const existingId of existingIds){
+                const mappedIdx = idToIndex.get(String(existingId))
+                if( mappedIdx !== undefined ){
+                    const docId = indexToDocId.get(mappedIdx)
+                    if( docId !== undefined ){
+                        documentIdsAlreadyUsed.add(docId)
+                    }
+                }
+            }
+        }
+
+        const filteredFragments = []
+        for(const entry of fragmentEntries){
+            const docId = indexToDocId.get(entry.index)
+            if( docId !== undefined && documentIdsAlreadyUsed.has(docId) ){
+                continue
+            }
+            filteredFragments.push(entry)
+        }
+
+        if( filteredFragments.length === 0 ){
+            logger.warn("Coverage augmentation skipped because all candidate fragments are already referenced")
+            return structure
+        }
+
+        const fragmentCharLengths = new Map()
+        filteredFragments.forEach(entry=>{
+            fragmentCharLengths.set(entry, JSON.stringify(entry).length)
+        })
+
+        const docGroups = []
+        const docGroupMap = new Map()
+        for(const entry of filteredFragments){
+            const docIdRaw = indexToDocId.get(entry.index)
+            const docKey = docIdRaw !== undefined ? docIdRaw : String(entry.index)
+            let group = docGroupMap.get(docKey)
+            if( !group ){
+                group = {docId: docKey, entries: []}
+                docGroupMap.set(docKey, group)
+                docGroups.push(group)
+            }
+            group.entries.push(entry)
+        }
+
+        const chunkedFragments = []
+        let currentChunk = []
+        let currentCharCount = 0
+
+        const flushChunk = ()=>{
+            if( currentChunk.length === 0 ){
+                return
+            }
+            chunkedFragments.push(currentChunk)
+            currentChunk = []
+            currentCharCount = 0
+        }
+
+        for(const group of docGroups){
+            const groupEntries = group.entries
+            const groupSize = groupEntries.length
+            const groupCharCount = groupEntries.reduce((sum, entry)=> sum + (fragmentCharLengths.get(entry) ?? 0), 0)
+
+            const hasItems = currentChunk.length > 0
+            const sizeLimitReached = hasItems && (currentChunk.length + groupSize) > STRUCTURED_QUERY_COVERAGE_FRAGMENT_BATCH_SIZE
+            const charLimitReached = hasItems && (STRUCTURED_QUERY_COVERAGE_FRAGMENT_CHAR_LIMIT > 0) && ((currentCharCount + groupCharCount) > STRUCTURED_QUERY_COVERAGE_FRAGMENT_CHAR_LIMIT)
+
+            if( sizeLimitReached || charLimitReached ){
+                flushChunk()
+            }
+
+            currentChunk.push(...groupEntries)
+            currentCharCount += groupCharCount
+
+            const exceedsCharLimit = STRUCTURED_QUERY_COVERAGE_FRAGMENT_CHAR_LIMIT > 0 && currentCharCount > STRUCTURED_QUERY_COVERAGE_FRAGMENT_CHAR_LIMIT
+            if( exceedsCharLimit ){
+                if( currentChunk.length === groupSize ){
+                    logger.warn(`Single document group ${group.docId} exceeds coverage fragment char limit (${currentCharCount} > ${STRUCTURED_QUERY_COVERAGE_FRAGMENT_CHAR_LIMIT})`)
+                }
+                flushChunk()
+                continue
+            }
+
+            if( currentChunk.length >= STRUCTURED_QUERY_COVERAGE_FRAGMENT_BATCH_SIZE ){
+                flushChunk()
+            }
+        }
+        flushChunk()
+
+        if( chunkedFragments.length === 0 ){
+            chunkedFragments.push(filteredFragments)
+        }
+
+        const multiBatch = chunkedFragments.length > 1
+
+        const systemMessages = [
+            {
+                role: "system",
+                content: "You are an assistant that updates structured JSON research outputs to ensure citation coverage. Always respond with valid JSON and do not alter any fields other than numeric id arrays."
+            }
+        ]
+
+        const userMessages = [
+            {
+                role: "user",
+                content: `You are given a structured response and the source fragments it was derived from. Your task is to return the ENTIRE structure exactly as provided while updating each section and subsection's 'ids' array so it includes every fragment INDEX (use the numeric 'index' field from the fragments list) that supports the existing wording. Do not remove, reorder, or rewrite any sections, headings, content, quotes, or other fields—even if you don't change their ids. Keep ids unique, sorted ascending, and only use fragment indexes from the fragments list.${multiBatch ? " Preserve every existing id value even if its supporting fragment is not shown in this batch, and only append new fragment indexes that apply." : ""} Ensure the overall structure references at least ${minimumIds} unique fragment indexes. Return a JSON object with a top-level field called "structure" containing the full updated structure.`
+            }
+        ]
+
+        const extractStructureFromAugmentation = (augmentation, label)=>{
+            if( Array.isArray(augmentation) && augmentation.length > 0 ){
+                const first = augmentation[0]
+                if( first?.structure ){
+                    return first.structure
+                }
+                if( typeof(first) === "string" ){
+                    try{
+                        const parsed = JSON.parse(first)
+                        if( parsed?.structure ){
+                            return parsed.structure
+                        }
+                    }catch(error){
+                        if( label ){
+                            logger.warn(`Unable to parse coverage augmentation string response (${label})`, error)
+                        }else{
+                            logger.warn("Unable to parse coverage augmentation string response", error)
+                        }
+                    }
+                }
+            }else if( augmentation?.structure ){
+                return augmentation.structure
+            }
+            return undefined
+        }
+
+        let workingStructure = JSON.parse(JSON.stringify(structure ?? []))
+        const seenDocumentIds = new Set(documentIdsAlreadyUsed)
+
+        for(let batchIdx = 0; batchIdx < chunkedFragments.length; batchIdx++){
+            const fragmentsBatch = chunkedFragments[batchIdx]
+            const payload = [{
+                task,
+                minimum_indexes: minimumIds,
+                batch: { index: batchIdx + 1, total: chunkedFragments.length, size: fragmentsBatch.length },
+                structure: JSON.parse(JSON.stringify(workingStructure)),
+                fragments: fragmentsBatch
+            }]
+
+            const augmentation = await processInChunk(payload,
+                systemMessages,
+                userMessages,
+                {
+                    engine: primitiveConfig.engine ?? "gpt-4o",
+                    workspaceId: primitive.workspaceId,
+                    usageId: primitive.id,
+                    functionName: "queryWithStructure_coverage_augment",
+                    wholeResponse: true,
+                    field: undefined,
+                    debug: true,
+                    debug_content: false
+                }
+            )
+
+            const nextStructure = extractStructureFromAugmentation(augmentation, multiBatch ? `batch ${batchIdx + 1}/${chunkedFragments.length}` : undefined)
+            if( nextStructure ){
+                workingStructure = nextStructure
+
+                if( Array.isArray(workingStructure) ){
+                    modiftyEntries(workingStructure, "ids", entry=>{
+                        if( entry.ids === undefined || entry.ids === null ){
+                            return entry.ids
+                        }
+                        const value = Array.isArray(entry.ids) ? entry.ids : [entry.ids]
+                        value.forEach(id=>{
+                            const idx = typeof(id) === "number" ? id : Number.parseInt(id, 10)
+                            if( Number.isNaN(idx) ){
+                                return
+                            }
+                            const docId = indexToDocId.get(idx)
+                            if( docId !== undefined ){
+                                seenDocumentIds.add(docId)
+                            }
+                        })
+                        return entry.ids
+                    })
+                }
+
+                if( seenDocumentIds.size >= minimumIds ){
+                    if( multiBatch ){
+                        logger.info(`Coverage augmentation reached minimum document coverage (${seenDocumentIds.size}/${minimumIds}) after batch ${batchIdx + 1}`)
+                    }
+                    break
+                }
+                continue
+            }
+
+            const contextInfo = multiBatch ? `batch ${batchIdx + 1}/${chunkedFragments.length}` : "single batch"
+            logger.warn(`Coverage augmentation returned no structure for ${contextInfo}`, augmentation)
+        }
+
+        return workingStructure
+    }catch(error){
+        logger.warn("Failed to augment structure for coverage", error)
+        throw error
+    }
+}
+
+function buildFragmentSelectionOutputPrompt(){
+    return "Provide your output in a JSON object with a field called 'fragment_selections'. This field must be an array of objects where each object has an 'id' field containing the number of a relevant fragment from this batch and a 'reason' field containing at most 10 words explaining why that fragment is needed. Use the numeric prefixes shown with each fragment, list each id at most once in ascending order, keep reasons concise and specific, and return an empty array if nothing is relevant. Do not include any other fields.";
+}
+
+function buildSelectionFromIndexes({indexes, items, summaries, processes, rationales}){
+    const selection = []
+    for(const idx of indexes){
+        const item = items[idx]
+        const summary = summaries[idx]
+        const process = processes[idx]
+        if( !item ){
+            logger.warn(`Couldnt find item at idx ${idx}`)
+            continue
+        }
+        const summaryValue = summary !== undefined ? summary : process
+        if( summaryValue === undefined ){
+            logger.warn(`Couldnt find summary for item at idx ${idx}`)
+            continue
+        }
+        const reason = rationales && rationales.has(idx) ? rationales.get(idx) : undefined
+
+        selection.push({
+            item,
+            summary: summaryValue,
+            process: process ?? (Array.isArray(summaryValue) ? summaryValue.join(", ") : summaryValue),
+            reason
+        })
+    }
+
+    selection.sort((a,b)=>{
+        if( a.item?.id === b.item?.id ){
+            return (a.item?.part ?? 0) - (b.item?.part ?? 0)
+        }
+        if( a.item?.id && b.item?.id ){
+            return String(a.item.id).localeCompare(String(b.item.id))
+        }
+        if( a.item?.id ){
+            return -1
+        }
+        if( b.item?.id ){
+            return 1
+        }
+        return 0
+    })
+
+    const orderedItems = selection.map(entry=>entry.item)
+    const orderedSummaries = selection.map(entry=>entry.summary)
+    const orderedProcesses = selection.map(entry=>{
+        const base = entry.process ?? entry.summary
+        return Array.isArray(base) ? base.join(", ") : base
+    })
+
+    const orderedReasons = selection.map(entry=>entry.reason)
+
+    return {
+        items: orderedItems,
+        summaries: orderedSummaries,
+        processes: orderedProcesses,
+        reasons: orderedReasons
+    }
+}
+
 
 async function executeStructuredQuery({ primitive, revised, items, toSummarize, toProcess, primitiveConfig, refetchFragments, progressCallback, forceBatchMerge = false }){
     let workingItems = Array.isArray(items) ? [...items] : []
@@ -2031,87 +2600,194 @@ async function executeStructuredQuery({ primitive, revised, items, toSummarize, 
         }
     }
 
-    const results = await summarizeMultiple( workingProcess,{
-        workspaceId: primitive.workspaceId,
-        usageId: primitive.id,
-        functionName: "queryWithStructure",
-        prompt: revised.task,
-        output: revised.output,
-        types: "fragments",
-        focus: primitiveConfig.focus,
-        markPass: true,
-        batch: workingProcess.length > 1000 ? 50 : undefined,
-        temperature: primitiveConfig.temperature,
-        markdown: primitiveConfig.markdown,
-        heading: primitiveConfig.heading,
-        wholeResponse: true,
-        scored: primitiveConfig.scored,
-        engine: primitiveConfig.engine ?? "gpt-4o",
-        progressCallback: (status)=>{
-            if( status === undefined ){
-                return
-            }
-            if( typeof(status) === "string" ){
-                emit(status)
-                return
-            }
-            if( typeof(status.percentage) === "number" ){
-                emit({text: status.text ?? `Analyzing ${(status.percentage * 100).toFixed(0)}%`, percentage: status.percentage})
-            }else if( typeof(status.completed) === "number" && typeof(status.total) === "number" && status.total !== 0 ){
-                const percentage = status.completed / status.total
-                emit({text: `Analyzing ${(percentage * 100).toFixed(0)}%`, percentage})
-            }else{
-                emit(status)
-            }
-        },
-        merge: false,
-        debug: true,
-        //debug_content:true
-    })
+    const selectionEnabled = STRUCTURED_QUERY_FRAGMENT_MODE_ENABLED
+    const selectionThreshold = STRUCTURED_QUERY_FRAGMENT_THRESHOLD
+    const maxSelectionPasses = STRUCTURED_QUERY_FRAGMENT_MAX_PASSES
+    const selectionBatchSize = STRUCTURED_QUERY_FRAGMENT_BATCH_SIZE
 
-    if( results.shouldMerge ){
-        if( primitiveConfig.split && !forceBatchMerge ){
-            console.log(`Split into multiple responses`)
-        }else{
-            let flatten = results.summary.flatMap(d=>d.structure)
+    const computeSelectionBatch = (size)=> size > selectionThreshold ? selectionBatchSize : undefined
+    let selectionPass = 0
+    const shouldRunSelectionPass = ()=>{
+        if( !selectionEnabled ){
+            return false
+        }
+        if( workingProcess.length === 0 ){
+            return false
+        }
+        if( maxSelectionPasses >= 0 && selectionPass >= maxSelectionPasses ){
+            return false
+        }
+        if( forceBatchMerge && selectionPass === 0 ){
+            return true
+        }
+        return workingProcess.length > selectionThreshold
+    }
+
+    while( shouldRunSelectionPass() ){
+        logger.info(`Doing selection pass ${selectionPass}`)
+        emit({text: `Selecting fragments (pass ${selectionPass + 1})`})
+        const scanResult = await summarizeMultiple( workingProcess,{
+            workspaceId: primitive.workspaceId,
+            usageId: primitive.id,
+            functionName: "queryWithStructure_fragment_scan",
+            prompt: revised.task,
+            output: buildFragmentSelectionOutputPrompt(),
+            types: "fragments",
+            focus: primitiveConfig.focus,
+            markPass: true,
+            batch: computeSelectionBatch(workingProcess.length),
+            temperature: primitiveConfig.temperature,
+            markdown: primitiveConfig.markdown,
+            heading: primitiveConfig.heading,
+            wholeResponse: true,
+            scored: primitiveConfig.scored,
+            engine: primitiveConfig.engine ?? "gpt-4o",
+            merge: false,
+            debug: true
+        })
+
+        if( scanResult?.success === false || scanResult?.summary === undefined ){
+            logger.warn("Fragment selection pass failed, skipping optimisation")
+            break
+        }
+
+        const selectionData = extractFragmentSelectionsFromScanSummary(scanResult.summary)
+        const fragmentIds = selectionData.indexes
+        const sanitizedSelection = sanitizeFragmentIndexes(fragmentIds, workingItems.length)
+        const selectionRationales = new Map()
+        for(const idx of sanitizedSelection){
+            if( selectionData.rationales.has(idx) ){
+                selectionRationales.set(idx, selectionData.rationales.get(idx))
+            }
+        }
+        if( sanitizedSelection.length === 0 ){
+            emit({text: "Fragment selection produced no candidates"})
+            break
+        }
+        if( sanitizedSelection.length === workingItems.length ){
+            emit({text: "Fragment selection did not reduce candidate set"})
+            break
+        }
+
+        const selected = buildSelectionFromIndexes({
+            indexes: sanitizedSelection,
+            items: workingItems,
+            summaries: workingSummaries,
+            processes: workingProcess,
+            rationales: selectionRationales
+        })
+
+        if( selected.items.length === 0 ){
+            emit({text: "Fragment selection produced no usable candidates"})
+            break
+        }
+
+        workingItems = selected.items
+        workingSummaries = selected.summaries
+        workingProcess = selected.processes
+        if( Array.isArray(selected.reasons) && selected.reasons.some(reason=>typeof(reason) === "string") ){
+            if( typeof logger.debug === "function" ){
+                logger.debug("Fragment selection rationale", selected.reasons)
+            }else{
+                console.log("Fragment selection rationale", selected.reasons)
+            }
+            selected.items.forEach((item, idx)=>{
+                const reason = selected.reasons[idx]
+                if( typeof(reason) === "string" && reason.length > 0 ){
+                    item.selectionRationale = reason
+                }
+            })
+        }
+        selectionPass++
+    }
+
+    if( workingProcess.length === 0 ){
+        return {nodeResult: [], items: workingItems, toSummarize: workingSummaries, toProcess: workingProcess}
+    }
+
+    const baseItems = workingItems.slice()
+    const baseProcess = workingProcess.slice()
+    const baseUniqueIds = new Set(baseItems.map(item=>item?.id).filter(id=>id !== undefined && id !== null).map(id=>String(id)))
+
+    const minCoverageRatio = STRUCTURED_QUERY_MIN_COVERAGE_RATIO
+    const minCoverageCount = STRUCTURED_QUERY_MIN_COVERAGE_COUNT
+    const maxCoverageRetries = STRUCTURED_QUERY_MAX_COVERAGE_RETRIES
+
+    const results = await summarizeMultiple( workingProcess,{
+            workspaceId: primitive.workspaceId,
+            usageId: primitive.id,
+            functionName: "queryWithStructure",
+            prompt: revised.task,
+            output: revised.output,
+            types: "fragments",
+            focus: primitiveConfig.focus,
+            markPass: true,
+            batch: workingProcess.length > 1000 ? 50 : undefined,
+            temperature: primitiveConfig.temperature,
+            markdown: primitiveConfig.markdown,
+            heading: primitiveConfig.heading,
+            wholeResponse: true,
+            scored: primitiveConfig.scored,
+            engine: primitiveConfig.engine ?? "gpt-4o",
+            progressCallback: (status)=>{
+                if( status === undefined ){
+                    return
+                }
+                if( typeof(status) === "string" ){
+                    emit(status)
+                    return
+                }
+                if( typeof(status.percentage) === "number" ){
+                    emit({text: status.text ?? `Analyzing ${(status.percentage * 100).toFixed(0)}%`, percentage: status.percentage})
+                }else if( typeof(status.completed) === "number" && typeof(status.total) === "number" && status.total !== 0 ){
+                    const percentage = status.completed / status.total
+                    emit({text: `Analyzing ${(percentage * 100).toFixed(0)}%`, percentage})
+                }else{
+                    emit(status)
+                }
+            },
+            merge: false,
+            debug: true,
+            //debug_content:true
+        })
+
+    const summaryList = Array.isArray(results?.summary) ? results.summary.filter(Boolean) : (results?.summary ? [results.summary] : [])
+
+    if( (results?.shouldMerge || forceBatchMerge) && summaryList.length > 0 ){
+            let flatten = summaryList.flatMap(entry=>Array.isArray(entry?.structure) ? entry.structure : [])
             console.log(`Need to merge multiple responses to structured output -  have ${flatten.length}`)
             emit({text: "Finalizing..."})
 
-            const activeIds = extractFlatNodes(flatten).flatMap(entry=>{
-                const mapped = typeof(entry.ids) === "string" ? entry.ids.replaceAll("[","").replaceAll("]","").split(",").map(d=>parseInt(d)).filter(d=>!isNaN(d)) : entry.ids
-                console.log(mapped)
-                return mapped
-            }).filter((d,i,a)=>d && a.indexOf(d)===i)
+            const activeIds = sanitizeFragmentIndexes(
+                extractFlatNodes(flatten).flatMap(entry=>coerceFragmentIds(entry.ids)),
+                workingItems.length
+            )
             console.log(`-- Got ${activeIds.length} active fragments, collecting and regenerating`)
 
+            if( activeIds.length === 0 ){
+                return {nodeResult: [], items: workingItems, toSummarize: workingSummaries, toProcess: workingProcess}
+            }
+
+            const selected = buildSelectionFromIndexes({
+                indexes: activeIds,
+                items: workingItems,
+                summaries: workingSummaries,
+                processes: workingProcess
+            })
+
+            if( selected.items.length === 0 ){
+                return {nodeResult: [], items: workingItems, toSummarize: workingSummaries, toProcess: workingProcess}
+            }
+
             if( refetchFragments ){
-                const activeFragments = activeIds.map(d=>workingItems[d])
+                const activeFragments = selected.items
                 workingItems = await expandFragmentsForContext( activeFragments )
-                workingSummaries = workingItems.map(d=>d.text);
+                workingSummaries = workingItems.map(d=>d.text)
                 workingProcess = workingSummaries
             }else{
-
-                let combined = activeIds.map(idx => {
-                    if(workingItems[idx] && workingSummaries[idx]){
-                        return {
-                            item:      workingItems[idx],
-                            summary:   workingSummaries[idx]
-                        }
-                    }
-                    logger.warning(`Couldnt find item / summary at idx ${idx}`)
-                    return undefined
-                }).filter(Boolean);
-
-                combined.sort((a, b) => {
-                    if (a.item.id === b.item.id) {
-                        return a.item.part - b.item.part;
-                    }
-                    return a.item.id.localeCompare(b.item.id);
-                });
-
-                workingItems       = combined.map(pair => pair.item);
-                workingSummaries = combined.map(pair => pair.summary);
-                workingProcess = workingSummaries.map(d=>Array.isArray(d) ? d.join(", ") : d)
+                workingItems = selected.items
+                workingSummaries = selected.summaries
+                workingProcess = selected.processes
             }
 
             console.log(`- rebuilt to ${workingItems.length} / ${workingSummaries.length} / ${workingProcess.length}`)
@@ -2194,16 +2870,56 @@ async function executeStructuredQuery({ primitive, revised, items, toSummarize, 
                     const refined = consolidated[0]?.structure
                     if( refined ){
                         modiftyEntries( refined, "ids", entry=>{
-                            const ids = typeof(entry.ids) === "string" ? entry.ids.split(",").map(d=>d.trim()) : entry.ids
-                            const remapped = ids.flatMap(d=>{
-                                const mapped = idsList[d]
-                                if( !mapped ){
-                                    logger.error(`Couldnt find ${d} in mapped Ids`)
-                                    return undefined
+                            if( entry.ids === undefined || entry.ids === null ){
+                                return entry.ids
+                            }
+                            const wasArray = Array.isArray(entry.ids)
+                            let values = entry.ids
+                            if( typeof values === "string" ){
+                                values = values.split(",").map(d=>d.trim()).filter(Boolean)
+                            }else if( !Array.isArray(values) ){
+                                values = [values]
+                            }
+                            const remapped = []
+                            for(const raw of values){
+                                if( raw === undefined || raw === null ){
+                                    continue
                                 }
-                                return mapped
-                            }).filter((d,i,a)=>d !== undefined && a.indexOf(d)===i)
-                            return remapped
+                                const key = typeof raw === "string" ? raw.trim() : raw
+                                const mapped = idsList[key]
+                                if( Array.isArray(mapped) ){
+                                    mapped.forEach(val=>{
+                                        if( val !== undefined && remapped.indexOf(val) === -1 ){
+                                            remapped.push(val)
+                                        }
+                                    })
+                                }else{
+                                    let toAdd = key
+                                    if( typeof key === "string" ){
+                                        const trimmed = key.trim()
+                                        if( /^[0-9]+$/.test(trimmed) ){
+                                            toAdd = Number.parseInt(trimmed, 10)
+                                        }else{
+                                            toAdd = trimmed
+                                        }
+                                    }else if( typeof key === "number" && Number.isInteger(key) ){
+                                        toAdd = key
+                                    }
+                                    if( remapped.indexOf(toAdd) === -1 ){
+                                        remapped.push(toAdd)
+                                    }
+                                }
+                            }
+                            remapped.sort((a,b)=>{
+                                if( typeof a === "number" && typeof b === "number" ){
+                                    return a - b
+                                }
+                                return String(a).localeCompare(String(b))
+                            })
+                            if( wasArray ){
+                                return remapped
+                            }
+                            return remapped.length === 0 ? undefined : remapped[0]
                         })
                         results.summary.structure = refined
                     }
@@ -2213,9 +2929,94 @@ async function executeStructuredQuery({ primitive, revised, items, toSummarize, 
                 }
             }
         }
+
+    let resultsToReturn = results?.summary?.structure ? JSON.parse(JSON.stringify(results.summary.structure)) : undefined
+
+    if( !resultsToReturn ){
+        return {nodeResult: [], items: workingItems, toSummarize: workingSummaries, toProcess: workingProcess}
     }
 
-    return {nodeResult: results?.summary?.structure, items: workingItems, toSummarize: workingSummaries, toProcess: workingProcess}
+    const baselineNormalized = normalizeAugmentedStructureIds(JSON.parse(JSON.stringify(resultsToReturn)), baseItems, baseUniqueIds)
+    let uniqueSourceIds = collectUniqueIdsFromStructure(baselineNormalized ?? [])
+
+    if( selectionEnabled ){
+        const totalAvailable = baseUniqueIds.size
+        const targetCount = totalAvailable === 0
+            ? 0
+            : Math.min(totalAvailable, Math.max(minCoverageCount, Math.ceil(minCoverageRatio * totalAvailable)))
+        const meetsCount = uniqueSourceIds.size >= targetCount || totalAvailable <= targetCount
+        const meetsRatio = totalAvailable === 0 ? true : (uniqueSourceIds.size / totalAvailable) >= minCoverageRatio
+        let coverageSatisfied = meetsCount || meetsRatio
+        let coverageAttempt = 0
+
+        while( !coverageSatisfied && coverageAttempt < maxCoverageRetries ){
+            coverageAttempt++
+            const missingIds = [...baseUniqueIds].filter(id=>!uniqueSourceIds.has(id))
+            if( missingIds.length === 0 ){
+                break
+            }
+
+            try{
+                emit({text: `Augmenting references (${uniqueSourceIds.size}/${totalAvailable} ids captured). Attempt ${coverageAttempt}.`})
+                const augmentedStructureRaw = await augmentStructureWithAdditionalIds({
+                    primitive,
+                    primitiveConfig,
+                    task: revised.task,
+                    structure: resultsToReturn,
+                    fragments: baseItems,
+                    fragmentTexts: baseProcess,
+                    minimumIds: targetCount,
+                    missingIds,
+                    existingIds: [...uniqueSourceIds]
+                })
+
+                if( augmentedStructureRaw ){
+                    const candidateStructure = Array.isArray(resultsToReturn)
+                        ? (Array.isArray(augmentedStructureRaw) ? augmentedStructureRaw : resultsToReturn)
+                        : (augmentedStructureRaw && !Array.isArray(augmentedStructureRaw) ? augmentedStructureRaw : resultsToReturn)
+
+                    if( candidateStructure === resultsToReturn ){
+                        logger.warn("Coverage augmentation returned structure with mismatched shape, ignoring update", {attempt: coverageAttempt})
+                        continue
+                    }
+
+                    const previousUniqueCount = uniqueSourceIds.size
+                    const normalizedAugmented = normalizeAugmentedStructureIds(JSON.parse(JSON.stringify(candidateStructure)), baseItems, baseUniqueIds)
+                    uniqueSourceIds = collectUniqueIdsFromStructure(normalizedAugmented ?? [])
+                    resultsToReturn = candidateStructure
+
+                    if( typeof logger.info === "function" ){
+                        logger.info(`Coverage augmentation improved unique ids from ${previousUniqueCount} to ${uniqueSourceIds.size}`)
+                    }
+
+                    const updatedMeetsCount = uniqueSourceIds.size >= targetCount || totalAvailable <= targetCount
+                    const updatedMeetsRatio = totalAvailable === 0 ? true : (uniqueSourceIds.size / totalAvailable) >= minCoverageRatio
+                    coverageSatisfied = updatedMeetsCount || updatedMeetsRatio
+                }else{
+                    logger.warn("Coverage augmentation did not return an updated structure", {attempt: coverageAttempt})
+                    break
+                }
+            }catch(error){
+                logger.warn("Coverage augmentation failed", {attempt: coverageAttempt, error})
+                break
+            }
+        }
+
+        if( !coverageSatisfied ){
+            logger.warn(`Structured summary coverage below target after ${coverageAttempt} augmentation attempts`, {
+                available: totalAvailable,
+                included: uniqueSourceIds.size,
+                min_count: targetCount,
+                ratio: totalAvailable === 0 ? 1 : uniqueSourceIds.size / totalAvailable
+            })
+        }
+    }
+
+    if( results?.summary ){
+        results.summary.structure = resultsToReturn
+    }
+
+    return {nodeResult: resultsToReturn, items: workingItems, toSummarize: workingSummaries, toProcess: workingProcess}
 }
 
 export async function buildStructuredSummary( primitive, revised, items, toSummarize, primitiveConfig, refetchFragments = false, progressCallback ){
@@ -2275,7 +3076,7 @@ export async function buildStructuredSummary( primitive, revised, items, toSumma
                     toProcess = toSummarize.map(d=>Array.isArray(d) ? d.join(", ") : d) 
 
                     const toShow = items.map(d=>d.id).filter((d,i,a)=>a.indexOf(d)===i).slice(0,10)
-                    console.log(`>>> ids of fragment srouce: ${toShow.join(", ")}`)
+                    console.log(`>>> ids of fragment source: ${toShow.join(", ")}`)
                     
                     const subResult = await executeStructuredQuery({
                         primitive,

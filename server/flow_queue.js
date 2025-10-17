@@ -9,8 +9,11 @@ const logger = getLogger('flow-queue', "debug"); // Debug level for moduleA
 export async function processQueue( job, cancelCheck ){
     const primitive = await fetchPrimitive( job.data.id )
     const options = job.data.options
-    const workspaceId = primitive.workspaceId
     const mode = job.data.mode
+    if( !primitive ){
+        logger.warn(`Couldnt find requested primitive of ${job.data.id}`)
+        return
+    }
 
     console.log(`Flow queue executing `, job.id, mode)
     switch(mode){

@@ -213,7 +213,7 @@ export async function summarizeMultiple(list, options = {} ){
 
                                         - To create a top-level bullet, start the line with '- ' (dash + space).
                                         - To create a second-level bullet, start the line with ' - ' (space + dash + space).
-                                        - To create a third-level bullet, start the line with ' . - ' (two spaces + dashes + space).
+                                        - To create a third-level bullet, start the line with '  - ' (two spaces + dashes + space).
                                         - To build a table, each header or cell row must start and end with '|' and the separator line must be '|----|----|'.
                                         - End every table row with a single newline character.
                                         - Never include any other Markdown tokens or literal placeholder text.
@@ -1073,7 +1073,7 @@ async function executeAI(messages, options = {}){
     console.log(`Executing ${model}`)
     
 
-    const timeoutMs = options.timeoutMs ?? 240000;
+    const timeoutMs = options.timeoutMs ?? 480000;
     const retryLimit = Math.max(1, options.retryLimit ?? 3);
 
     for (let attempt = 1; attempt <= retryLimit; attempt++) {

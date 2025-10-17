@@ -2451,7 +2451,8 @@ registerRenderer( {type: "categoryId", id: [34, 78], configs: "overview"}, (prim
 
     
 
-    const logo = imageHelper( primitive.referenceParameters?.hasImg ? `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : "") : undefined, {
+    const imgUrl = primitive.referenceParameters?.hasImg ? `/api/image/${primitive.id}` + (primitive.imageCount ? `?${primitive.imageCount}` : "") : `/api/preview?url=${encodeURIComponent(primitive.referenceParameters?.url)}`
+    const logo = imageHelper( imgUrl, {
         x: ox,
         y: oy,
         size: config.height - config.padding[0] - config.padding[2],

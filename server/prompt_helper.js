@@ -1,6 +1,8 @@
 import { modiftyEntries } from "./actions/SharedTransforms"
 import { processPromptOnText } from "./openai_helper"
 
+const STRUCTURED_QUERY_FRAGMENT_MODE_ENABLED = process.env.STRUCTURED_QUERY_FRAGMENT_MODE === "true"
+
 export function fieldListToPromptOutput( list ){
     function unpackList(list){
 
@@ -173,7 +175,13 @@ Each section of the of the output should be an element of an array. If a section
         //delete d["content"]
         return `${d.content}. Note that fragment IDs must not referenced / included in this field. If there is no relevant infromation in the data provided simply return "No relevant data" - you MUST NOT use your own knowledge`
     })
-    augmentEntries(structure, "content", "ids", options.id_limit ? `A json array containing the provided unique id numbers associated with up to ${options.id_limit} of the fragments of text used for this section - DO NOT INCLUDE MORE THAN ${options.id_limit}.` : "A json array containing the provided unique id numbers associated with each and every one of the input fragments which informed your response in the content field of this section (this includes contextual information as well as quotes / phrases / facts you have used). This IS A MUST - the task FAILS if a you miss any ids.")
+    const idsInstructionBase = options.id_limit
+        ? `A json array containing the provided unique id numbers associated with up to ${options.id_limit} of the fragments of text used for this section - DO NOT INCLUDE MORE THAN ${options.id_limit}.`
+        : "A json array containing the provided unique id numbers associated with each and every one of the input fragments which informed your response in the content field of this section (this includes contextual information as well as quotes / phrases / facts you have used). This IS A MUST - the task FAILS if a you miss any ids."
+    const idsInstruction = STRUCTURED_QUERY_FRAGMENT_MODE_ENABLED
+        ? `${idsInstructionBase} Sort the ids in ascending order, keep them unique, and when you merge or consolidate content always carry forward every id from the contributing sections—never drop an id that was previously selected. If you mention an idea, example, quote, or fact that comes from multiple fragments you MUST include the ids for every fragment that informed that part of the response.`
+        : idsInstructionBase
+    augmentEntries(structure, "content", "ids", idsInstruction)
     augmentEntries(structure, "content", "quote", "A json array containing verbatim quotes from the source data (aligned to the ids you have selected) which evidences what you have written. Limit this to 20 words per quote and 5 quotes")
 
 
@@ -193,7 +201,11 @@ Each section of the of the output should be an element of an array. If a section
     }
 
 
-    let output = "Provide your output in a JSON object with this structure:\n" + JSON.stringify(structure)
+    const idsGuidancePrefix = STRUCTURED_QUERY_FRAGMENT_MODE_ENABLED
+        ? "Always populate each 'ids' array exactly as specified: include every fragment id you relied on, keep the list unique, sort it in ascending order, and when consolidating content merge the contributing id lists so that none of the referenced ids are dropped. If any single insight references multiple fragments you must include the ids for all of them. \n"
+        : ""
+
+    let output = `${idsGuidancePrefix}Provide your output in a JSON object with this structure:\n${JSON.stringify(structure)}`
 
     return {task: `### Task\n\n${task}`,
             structure: structure.structure,
