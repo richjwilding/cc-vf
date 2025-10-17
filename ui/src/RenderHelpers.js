@@ -1,5 +1,23 @@
 import Konva from "konva";
 import { Util } from 'konva/lib/Util'
+import {
+  categoryColors,
+  categoryColors_pastel,
+  categoryColors2,
+  categoryColors_old,
+  categoryColors_MUTED,
+  categoryColors_STD,
+  tagColors,
+  uflTheme,
+  xploreTheme,
+  darkNavyTheme,
+  defaultTheme,
+  themes,
+  themeColor as themeColorUtil,
+  mixHex as mixHexUtil,
+  mixHexWithWhite as mixHexWithWhiteUtil,
+  renderPlainObject as renderPlainObjectUtil,
+} from './renderers/plainObjectRenderer';
 import CustomImage  from "./CustomImage";
 import CustomText from "./CustomText";
 import PrimitiveConfig, { flattenStructuredResponse } from "./PrimitiveConfig";
@@ -18,6 +36,25 @@ import { normalizeSectionLayoutSpec, buildLayoutPreset, applyLayoutPresetToSecti
 const typeMaps = {}
 const categoryMaps = {}
 
+export {
+  categoryColors,
+  categoryColors_pastel,
+  categoryColors2,
+  categoryColors_old,
+  categoryColors_MUTED,
+  categoryColors_STD,
+  tagColors,
+  uflTheme,
+  xploreTheme,
+  darkNavyTheme,
+  defaultTheme,
+  themes,
+};
+
+export const themeColor = themeColorUtil;
+export const mixHex = mixHexUtil;
+export const mixHexWithWhite = mixHexWithWhiteUtil;
+export const renderPlainObject = renderPlainObjectUtil;
 
 const defaultWidthByCategory = {
     "29_overview": 500,
@@ -40,292 +77,7 @@ const defaultWidthByCategory = {
 
 export const heatMapPalette = PrimitiveConfig.heatMapPalette
 
-export const categoryColors = [ "#8dd3c7",
-                                "#ffffb3",
-                                "#bebada",
-                                "#fb8072",
-                                "#80b1d3",
-                                "#fdb462",
-                                "#b3de69",
-                                "#fccde5",
-                                "#d9d9d9",
-                                "#bc80bd",
-                                "#ccebc5",
-                                "#ffed6f"]
-export const categoryColors_pastel = [ "#66c5cc", 
-    "#f6cf71",
-    "#f89c74",
-    "#dcb0f2",
-    "#87c55f",
-    "#9eb9f3",
-    "#fe88b1",
-    "#c9db74",
-    "#8be0a4",
-    "#b3b3b3"
-]
-export const categoryColors2 = [ "#4e79a7",
-                                "#f28e2c",
-                                "#e15759",
-                                "#76b7b2",
-                                "#59a14f",
-                                "#edc949",
-                                "#af7aa1",
-                                "#ff9da7",
-                                "#9c755f",
-                                "#bab0ab"]
 
-
-export const categoryColors_old = [
-                                    '#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD',
-                                    '#8C564B', '#E377C2', '#7F7F7F', '#BCBD22', '#17BECF',
-                                    '#AEC7E8', '#FFBB78', '#98DF8A', '#FF9896', '#C5B0D5'
-                                  ];
-export const categoryColors_MUTED = [
-    '#6B8E9E', '#D4A76A', '#8FBC8F', '#C85A5A', '#A48ABF',
-    '#B07F68', '#D6A5C7', '#A0A0A0', '#C4B76E', '#73A2A8',
-    '#B0C4DE', '#F4C2C2', '#BFD8B8', '#E6A19F', '#D0C4D6'
-  ];
-export const categoryColors_STD = [
-    '#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F',
-    '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F', '#BAB0AC',
-    '#86BCB6', '#F4A261', '#D98880', '#A5A58D', '#C3C1E3'
-  ];
-
-export const tagColors =  {
-    Blue: ["#dbeafe", "#bfdbfe", "#93c5fd", "#60a5fa", "#3b82f6", "#2563eb"],
-    Green: ["#dcfce7", "#bbf7d0", "#86efac", "#4ade80", "#22c55e", "#16a34a"],
-    Yellow: ["#fef9c3", "#fef08a", "#fde047", "#facc15", "#eab308", "#ca8a04"],
-    Red: ["#fee2e2", "#fecaca", "#fca5a5", "#f87171", "#ef4444", "#dc2626"],
-    Lime: ["#ecfccb", "#d9f99d", "#bef264", "#a3e635", "#84cc16", "#65a30d"],
-    Amber: ["#fef3c7", "#fde68a", "#fcd34d", "#fbbf24", "#f59e0b", "#d97706"],
-    Indigo: ["#e0e7ff", "#c7d2fe", "#a5b4fc", "#818cf8", "#6366f1", "#4f46e5"],
-    Orange: ["#ffedd5", "#fed7aa", "#fdba74", "#fb923c", "#f97316", "#ea580c"],
-    Violet: ["#ede9fe", "#ddd6fe", "#c4b5fd", "#a78bfa", "#8b5cf6", "#7c3aed"],
-    Cyan: ["#cffafe", "#a5f3fc", "#67e8f9", "#22d3ee", "#06b6d4", "#0891b2"],
-    Emerald: ["#d1fae5", "#a7f3d0", "#6ee7b7", "#34d399", "#10b981", "#059669"],
-    Teal: ["#ccfbf1", "#99f6e4", "#5eead4", "#2dd4bf", "#14b8a6", "#0d9488"],
-    Sky: ["#e0f2fe", "#bae6fd", "#7dd3fc", "#38bdf8", "#0ea5e9", "#0284c7"]
-  };
-
-
-export const uflTheme = {
-  palette: {
-    background: "#ffffff", // Slide background
-    surface: undefined, // Neutral surface for text and items
-    panel: "#f92d64", // Call out panel fill
-    panelText: "#000000", // Call out panel fill
-    header: "#f92d64", // Table header fill
-    primary: "#334155", // Main text 
-    secondary: "#9b96a2", // less prominent text
-    muted: "#777777", // low emphasis text
-    accent: "#7e8184", // high emphasis text
-    headerText: "#222222", // Main text 
-    border: "#f92d64", // border of items
-    grid: "#f92d64", // grid lines in graphs and charts
-    subgrid: "#d2d2d2", // minor grid lines in graphs and charts
-    overlay: "#edf3f8", // soft halo
-    placeholder: "#e2e2e2", // placeholder color,
-    cell: "#ffffff", // cell background
-    categoryColors,
-    tagColors
-  },
-  padding: {
-    panel: [20,8,20,8]
-    },
-  fontFamily: "Poppins",
-  elements:[
-    {
-        type: "image",
-        source: "logo",
-        position: "bottom-right",
-        offset: [10,10],
-        size: [80,80]
-    },
-    {
-        type: "image",
-        source: "url",
-        url: `/api/companyLogo?name=unicornfactorylisboa`,
-        position: "bottom-left",
-        offset: [10,10],
-        size: [80,80]
-    },
-    {
-        type: "text",
-        text: "Note: This report includes content generated by artificial intelligence (AI). While accuracy is a priority, it is recommended to use this information as a supplement to, rather than a sole basis for, decision-making.",
-        align: "center",
-        fontSize: 14,
-        color: "muted",
-        position: "bottom-left",
-        top: true,
-        offset: [10, 10],
-        size:[1900, 14]
-
-    }
-  ]
-};
-export const xploreTheme = {
-  palette: {
-    background: "#ffffff", // Slide background
-    surface: undefined, // Neutral surface for text and items
-    panel: "#ffdb00", // Call out panel fill
-    header: "#ffdb00", // Table header fill
-    primary: "#334155", // Main text 
-    secondary: "#9b96a2", // less prominent text
-    muted: "#777777", // low emphasis text
-    accent: "#7e8184", // high emphasis text
-    headerText: "#222222", // Main text 
-    border: "#ffdb00", // border of items
-    grid: "#ffdb00", // grid lines in graphs and charts
-    subgrid: "#d2d2d2", // minor grid lines in graphs and charts
-    overlay: "#edf3f8", // soft halo
-    placeholder: "#e2e2e2", // placeholder color,
-    cell: "#ffffff", // cell background
-    categoryColors,
-    tagColors
-  },
-  padding: {
-    panel: [20,8,20,8]
-    },
-  fontFamily: "Poppins",
-  elements:[
-    {
-        type: "image",
-        source: "logo",
-        position: "bottom-right",
-        offset: [10,10],
-        size: [80,80]
-    },
-    {
-        type: "image",
-        source: "url",
-        url: `/api/companyLogo?name=ikea`,
-        position: "bottom-left",
-        offset: [10,10],
-        size: [80,80]
-    },
-    {
-        type: "text",
-        text: "Note: This report includes content generated by artificial intelligence (AI). While accuracy is a priority, it is recommended to use this information as a supplement to, rather than a sole basis for, decision-making.",
-        align: "center",
-        fontSize: 14,
-        color: "muted",
-        position: "bottom-left",
-        top: true,
-        offset: [10, 10],
-        size:[1900, 14]
-
-    }
-  ]
-};
-export const darkNavyTheme = {
-  palette: {
- //   background: "red",//"#0f172a",
-    background: "#0f172a",
-    surface: undefined,
-    panel: "#3a4150", 
-    header: "#212736", 
-    primary: "#e6eaee",
-    secondary: "#cbd5e1",
-    muted: "#a6aaae",
-    accent: "#38bdf8",
-    headerText: "#C3CCD5", 
-    border: "none",
-    grid: "#cbd5e1",
-    subgrid: "#334155",
-    overlay: "#1e293b",
-    placeholder: "#475569",
-    hoverFill: "#00B0F025",
-    hoverStroke: "#00B0F088",
-    cell: "#333A47",
-    categoryColors,
-    tagColors
-  },
-  fontFamily: "Poppins",
-  elements:[
-    {
-        type: "image",
-        source: "workspace",
-        position: "top-right",
-        offset: [10,10],
-        size: [80,80]
-    },
-    {
-        type: "text",
-        text: "Note: This report includes content generated by artificial intelligence (AI). While accuracy is a priority, it is recommended to use this information as a supplement to, rather than a sole basis for, decision-making.",
-        align: "center",
-        fontSize: 14,
-        color: "muted",
-        position: "bottom-left",
-        top: true,
-        offset: [10, 10],
-        size:[1900, 14]
-
-    }
-  ]
-};
-export const defaultTheme = {
-  palette: {
-    background: "#fcfcfc", // Slide background
-    surface: undefined, // Neutral surface for text and items
-    panel: "#f2f2f2", // Call out panel fill
-    header: "#f2f2f2", // Table header fill
-    primary: "#334155", // Main text 
-    secondary: "#9b96a2", // less prominent text
-    muted: "#777777", // low emphasis text
-    accent: "#7e8184", // high emphasis text
-    headerText: "#334155", // Main text 
-    border: "#e2e2e2", // border of items
-    grid: "#e2e2e2", // grid lines in graphs and charts
-    subgrid: "#d2d2d2", // minor grid lines in graphs and charts
-    overlay: "#edf3f8", // soft halo
-    placeholder: "#e2e2e2", // placeholder color,
-    cell: "#ffffff", // cell background
-    categoryColors,
-    tagColors
-  },
-  fontFamily: "Poppins",
-  elements:[
-    {
-        type: "image",
-        source: "logo",
-        position: "bottom-right",
-        offset: [10,10],
-        size: [80,80]
-    },
-    {
-        type: "text",
-        text: "Note: This report includes content generated by artificial intelligence (AI). While accuracy is a priority, it is recommended to use this information as a supplement to, rather than a sole basis for, decision-making.",
-        align: "center",
-        fontSize: 14,
-        color: "muted",
-        position: "bottom-left",
-        top: true,
-        offset: [10, 10],
-        size:[1900, 14]
-
-    }
-  ]
-};
-
-// Collection of available themes keyed by identifier
-export const themes = {
-  default: defaultTheme,
-  darkNavy: darkNavyTheme,
-  xplore: xploreTheme,
-  ufl: uflTheme
-};
-
-export function themeColor(theme, key, fallback, override) {
-    if( override){
-
-        if( override.startsWith('#')){
-            return override
-        }else{
-            return theme?.palette?.[override] ?? fallback;
-        }
-    }
-    return theme?.palette?.[key] ?? fallback;
-}
 
   function interpolateHexColors(startHex, endHex, steps) {
     // strip “#”, handle shorthand
@@ -699,13 +451,6 @@ function getTextColor(hexColor) {
     return luminance > 0.5 ? 'black' : 'white';
 }
 
-export function mixHexWithWhite(hex, opacity = 0.25) {
-    return mixHex(hex, "#ffffff", opacity)
-}
-export function mixHex(hex, hex2, opacity = 0.25) {
-    if( !hex || !hex2){
-        return hex
-    }
 
     // Convert hex to RGB
     const r = parseInt(hex.slice(1, 3), 16);
@@ -3945,174 +3690,7 @@ export function renderPlaceholder(renderOptions = {}){
     return og
 
 }
-export function renderPlainObject(renderOptions = {}){
-    let { 
-        id, 
-        x = 0, 
-        y = 0, 
-        width = 128, 
-        height = 128, 
-        type, 
-        text, 
-        fontFamily, 
-        ...options 
-    } = { 
-        ...renderOptions 
-    };
-    let didOverflow = false
 
-    width = Math.abs(width)
-    height = Math.abs(height)
-    
-
-    // Resolve theme + font defaults (override with explicit options)
-    const theme = options.theme ?? defaultTheme;
-    const resolvedFontFamily = fontFamily ?? theme?.fontFamily ?? "Arial";
-    const resolvedFontColor = themeColor(theme, 'primary', '#000000', options.text_color)
-    const resovledBackground = themeColor(theme, 'background', '#ffffff')
-    const placeholderFill = mixHex( resolvedFontColor, resovledBackground, 0.7)
-
-    const resovledTableHeaderBackground = themeColor(theme, "header", "#999999")
-    const resovledTableFontColor = themeColor(theme, "headerText", "#000000")
-    const resovledTablePlaceholderFill = mixHex( resovledTableFontColor, resovledTableHeaderBackground, 0.7)
-
-    const g = new Konva.Group({
-        id: id,
-        x,
-        y,
-        width,
-        height,
-        id: options.ids?.[0],
-        hoverFill: theme?.palette?.hoverFill,
-        hoverStroke: theme?.palette?.hoverStroke,
-        name:"inf_track primitive shape_element"
-    })
-    if( options.fill || options.stroke){
-        if( options.style === "line"){
-            const l = new Konva.Line({
-                points: [0,0,width,height],
-                //fill: options.fill,
-                stroke: options.stroke,
-            })
-            g.add(l)
-        }else{
-            const r = new Konva.Rect({
-                x: 0,
-                y: 0,
-                width,
-                height,
-                fill: options.fill?.startsWith("#") ? options.fill  : themeColor(theme, options.fill  ?? 'surface', '#f9fafb'),
-                stroke: themeColor(theme, 'border', '#e2e2e2', options.stroke),
-            })
-            g.add(r)
-        }
-    } 
-    if( options.style === "text" || type === "text"){
-        let useText
-        if( options.compose){
-            let count = Array.isArray(text) ? text.length : 1            
-            let flatText = Array.isArray(text) ? text.join("\n") : text
-            useText = options.compose.replaceAll(`{text}`, flatText)
-            useText = useText.replaceAll(`{count}`, count)
-        }else{
-            useText = Array.isArray(text) ? text.join("\n") : text
-        }
-        let padding = [0,0,0,0]
-
-        if( options.text_padding && typeof(options.text_padding) == "string"){
-            const parts = options.text_padding.split(",").map(d=>parseFloat(d.trim())).map(d=>isNaN(d) ? 0 : d)
-            if( parts.length === 4){
-                padding = [parts[0], parts[1], parts[2], parts[3]]
-            }else if(parts.length === 2){
-                padding = [parts[0], parts[1], parts[0], parts[1]]
-            }else{
-                padding = [parts[0], parts[0], parts[0], parts[0]]
-            }
-        }
-
-        let fontStyle = options.fontStyle
-
-        if( options.fontStyle === "auto" ){
-            fontStyle = "normal"
-            useText = useText
-                .split('\n')
-                .map(line => {
-                const match = line.match(/^([^:]+):/);
-                if (match) {
-                    const prefix = match[1];
-                    return line.replace(prefix + ':', `**${prefix}**:`);
-                }
-                return line;
-                })
-                .join('\n');
-        }
-        let y = 0
-        if(options.heading){
-            const t = new CustomText({
-                x: padding[3],
-                y: y,
-                fontSize: 12,
-                fontFamily: resolvedFontFamily,
-                fontStyle:"bold",
-                text: options.heading.toUpperCase(),
-                fill: themeColor(theme, 'muted', '#999999'),
-                placeholderFill:  mixHex( themeColor(theme, 'muted', '#999999'), resovledBackground),
-                showPlaceHolder: false,
-                wrap: false,
-                bgFill: 'transparent',
-                align:'center',
-                width: width - padding[3] - padding[1],
-                withMarkdown: false,
-                ellipsis: false,
-                refreshCallback: options.imageCallback
-            })
-            g.add(t)
-            y += t.height() * 2
-        }
-
-        const t = new CustomText({
-            x: padding[3],
-            y: padding[1]+ y,
-            width: width - padding[3] - padding[1],
-            height: height - padding[2] - padding[0],
-            lineHeight: options.lineHeight ?? 1.2,
-            text: useText,
-            withMarkdown: true,
-            fill:  resolvedFontColor,
-            placeholderFill,
-            fontFamily: resolvedFontFamily,
-            fontSize: options.fontSize,
-            align: options.align,
-            fontStyle: fontStyle,
-            refreshCallback: options.imageCallback
-        })
-        g.add(t)
-        if( options.fromPrimitive){
-            g.name("inf_track primitive")
-        }
-    }else  if( type === "structured_text"){
-        const {didOverflow: thisOverflow} = renderFormattedSections( 
-            text, 
-            g, 
-            {
-                width, 
-                height, 
-                fontFamily: resolvedFontFamily, 
-                fontFill: resolvedFontColor, 
-                placeholderFill,
-                tableHeaderFill: resovledTableHeaderBackground,
-                tableHeaderColor: resovledTableFontColor,
-                tableHeaderPlaceholderFill: resovledTablePlaceholderFill,
-                ...options
-            })
-        didOverflow ||= thisOverflow
-    }
-    if( didOverflow ){
-        g.attrs.overflowing = true
-    }
-    return g
-
-}
 registerRenderer( {type: "categoryId", id: 154, configs: "default"}, function renderFunc(primitive, options = {}){
      const config = {width: 640, height: 640, ...options}
      config.width = config.width ?? 640
@@ -9826,75 +9404,6 @@ export function renderIndicators(indicatorData, options = {}){
     return indicatorGroup;
 }
 
-function renderFormattedSections( text, g, fullOptions = {} ){
-    let {width, height, fontFamily, ...options} = fullOptions
-    let didOverflow = false
-    let y = 0, idx = 0
-    const padding = options.padding ?? [0,0,0,0]
-    g.name("inf_track primitive")
-    const columns = options.columns ?? 1
-    const itemPadding = (options.fontSize ?? 16) * 0.5
-    const textWidth = (width - padding[3] - padding[1] - (itemPadding * columns - 1) ) / columns
-    let cIdx = 0
-    let yPos = new Array(columns).fill(0)
-    for(const block of text ){
-        y = yPos[cIdx]
-        const itemsForBlock = []
-        if( y < height ){
-            for(const section of block){
-                const thisText = flattenStructuredResponse([section], [section])
-                const lineHeight = options.lineHeight ?? 1.2
-                const fontSize = section.fontSize ?? options.fontSize ?? 16
-                const fontStyle = section.fontStyle ?? options.fontStyle
-                if( idx > 0 ){
-                    const incr = fontSize * lineHeight * (section.sectionStart ? 0.5 : 1) * (section.largeSpacing ? 1.5 : 0.5)
-                    y += incr
-                }
-                const t = new CustomText({
-                    x: padding[3] + (cIdx * (itemPadding + textWidth)),
-                    y: padding[1] + y,
-                    width: textWidth,
-                    lineHeight,
-                    text: thisText,
-                    withMarkdown: true,
-                    fontFamily: section.fontFamily ?? fontFamily,
-                    fill: options.fontFill,
-                    placeholderFill: options.placeholderFill,
-                    tableHeaderFill: options.tableHeaderFill,
-                    tableHeaderColor: options.tableHeaderColor,
-                    tableHeaderPlaceholderFill: options.tableHeaderPlaceholderFill,
-                    fontStyle,
-                    fontSize,
-                    refreshCallback: options.imageCallback
-                })
-                g.add(t)
-                itemsForBlock.push(t)
-                y += t.height() 
-                if( y > height ){
-                    didOverflow = true
-                    if( cIdx === 0){
-                        const delta = height - t.y()
-                        t.height(delta)
-                    }else{
-                        itemsForBlock.forEach(d=>d.destroy())
-                    }
-                    break
-                }
-                idx++
-            }
-        }
-        yPos[cIdx] = y + itemPadding
-        cIdx ++
-        if( cIdx === columns){
-            if( options.alignRows ){
-                const maxInRow = Math.max(...yPos)
-                yPos.fill(maxInRow)
-                
-            }
-            cIdx = 0
-        }
-    }
-    return {didOverflow}
 }
 
 

@@ -29,6 +29,7 @@ import SubscriptionPlan from '../model/SubscriptionPlan';
 import { handleChat } from '../agent/agent.js';
 import { getRedisBase } from '../redis.js';
 import { getQueue } from '../queue_registry.js';
+import { runRepresentationPass } from '../representation/representationPass.js';
 
 var ObjectId = require('mongoose').Types.ObjectId;
 
@@ -226,6 +227,17 @@ router.get('/remoteImage', async (req, res) => {
       res.status(500).send('Error fetching image');
     }
   });
+
+router.post('/representationPass', async (req, res) => {
+    try {
+        const result = await runRepresentationPass(req.body ?? {});
+        res.json(result);
+    } catch (error) {
+        console.error('representationPass error', error);
+        const status = /required/i.test(error?.message ?? '') ? 400 : 500;
+        res.status(status).json({ message: error?.message ?? 'Failed to process representation pass' });
+    }
+});
 
 router.get('/image/:id', async function(req, res, next) {
     const id = req.params.id

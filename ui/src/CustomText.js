@@ -98,18 +98,30 @@ class CustomText extends Text {
     let w = this.attrs.width//this.width()
     let h = this._cachedHeight
 
-      this.pcache = document.createElement('canvas');
+      const canvas = Util.createCanvasElement();
+      if (!canvas) {
+        this.pcache = undefined
+        return
+      }
+      this.pcache = canvas;
       this.pcache.width = w * this.scaleRatio;
       this.pcache.height = h * this.scaleRatio;
-      this.pcache._canvas_context = this.pcache.getContext('2d');
+      const context = this.pcache.getContext('2d');
+      if (!context) {
+        this.pcache = undefined
+        return
+      }
+      this.pcache._canvas_context = context;
 
 
-      this.pcache.style.padding = '0';
-      this.pcache.style.margin = '0';
-      this.pcache.style.border = '0';
-      this.pcache.style.position = 'absolute';
-      this.pcache.style.top = '0';
-      this.pcache.style.left = '0';
+      if (this.pcache.style) {
+        this.pcache.style.padding = '0';
+        this.pcache.style.margin = '0';
+        this.pcache.style.border = '0';
+        this.pcache.style.position = 'absolute';
+        this.pcache.style.top = '0';
+        this.pcache.style.left = '0';
+      }
 
 
       this.attrs.bgFill = this.attrs.bgFill || "white"
@@ -119,7 +131,7 @@ class CustomText extends Text {
     this.uWidth = this.pcache.width
     this.uHeight = this.pcache.height
 
-    this.pcache._canvas_context.fillStyle = this.attrs.bgFill 
+    this.pcache._canvas_context.fillStyle = this.attrs.bgFill
     this.pcache._canvas_context.fillRect(0,0,  this.uWidth, this.uHeight)
     this.pcache._canvas_context.font = this.fontCache
     this.pcache._canvas_context.textBaseline = MIDDLE

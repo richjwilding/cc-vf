@@ -1631,3 +1631,71 @@ export async function buildEmbeddings( text, attempt = 3 ){
         }
     }
 }
+
+export async function rewritePresentationSections(sections, options = {}){
+    if( !Array.isArray(sections) || sections.length === 0 ){
+        return {success: true, sections: sections ?? []}
+    }
+
+    const mode = options.mode === 'compress' ? 'compress' : 'dedupe'
+    const targetReduction = Math.max(0, Math.min(Math.round(options.targetReduction ?? 0), 60))
+    const engine = options.engine ?? 'gpt-5-mini'
+
+    const actions = mode === 'dedupe'
+        ? `Remove redundant or repetitive phrasing while keeping nuance intact. Aim to reduce the overall word count by about ${targetReduction}% without deleting important facts.`
+        : `Further simplify the writing while keeping the essential details, nuance, and evidence. Target roughly an additional ${targetReduction}% reduction in wording without losing meaning.`
+
+    const schema = {
+        name: 'PresentationRewrite',
+        schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['sections'],
+            properties: {
+                sections: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['block'],
+                        properties: {
+                            block: { type: 'integer' },
+                            heading: { type: ['string', 'null'] },
+                            content: { type: ['string', 'null'] },
+                            fontSize: { type: ['number', 'null'] },
+                            fontStyle: { type: ['string', 'null'] },
+                            largeSpacing: { type: 'boolean' },
+                            sectionStart: { type: 'boolean' }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    const userPayload = JSON.stringify(sections, null, 2)
+
+    const messages = [
+        { role: 'system', content: 'You are a presentation editor helping refine slide content. Preserve structure, ordering, and essential meaning while improving readability.' },
+        { role: 'user', content: `Here is the current slide content as JSON:\n${userPayload}` },
+        { role: 'user', content: `${actions}\n\nGuidelines:\n- Maintain the original block ordering (the "block" field) and keep headings if they contain value.\n- Keep key facts, qualifiers, evidence, and attributions intact.\n- Return JSON with the same fields for each section. Use null when a value should be cleared.` }
+    ]
+
+    const result = await executeAI(messages, {
+        engine,
+        schema,
+        timeoutMs: options.timeoutMs ?? 180000,
+        retryLimit: options.retryLimit ?? 2
+    })
+
+    if( !result.success ){
+        return {success: false, error: result.error ?? 'rewrite_failed', raw: result.raw}
+    }
+
+    const sectionsOut = result.response?.sections
+    if( !Array.isArray(sectionsOut) ){
+        return {success: false, error: 'invalid_response', raw: result.response}
+    }
+
+    return {success: true, sections: sectionsOut}
+}
